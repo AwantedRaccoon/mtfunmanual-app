@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# Build output
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+*.local.xcconfig
+Secrets.xcconfig
+
+# Generated reports and test artifacts
+*.profraw
+*.profdata
+TestResults/
+Reports/
