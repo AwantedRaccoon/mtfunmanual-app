@@ -119,10 +119,8 @@ struct RegimenView: View {
                     RegimenPlanArchiveNote(regimens: historicalRegimens)
                         .padding(.top, 16)
                 }
-
-                V25PrivacyFooter(text: "方案页只复述已保存的记录，不提供处方或结果判断")
-                    .padding(.bottom, 42)
             }
+            .padding(.bottom, 42)
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $presentedSheet) { _ in

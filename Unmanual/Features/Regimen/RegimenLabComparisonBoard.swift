@@ -256,20 +256,6 @@ private struct LedgerLabIndex: View {
             ForEach(facts) { fact in
                 LedgerHormoneRow(fact: fact)
             }
-
-            HStack(alignment: .top, spacing: 7) {
-                Text("RAW")
-                    .font(theme.utility(8))
-                    .tracking(0.7)
-                    .foregroundStyle(theme.vermilion)
-                Text("原始值与单位，不在此处作医学判读")
-                    .font(.caption2)
-                    .foregroundStyle(theme.indigo.opacity(0.58))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .foregroundStyle(theme.indigoDeep)
         .background(theme.paper)

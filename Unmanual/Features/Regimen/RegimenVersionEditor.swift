@@ -71,10 +71,8 @@ struct RegimenVersionEditor: View {
                     )
 
                     RegimenRevisionNote(note: $note, previousRegimen: activeRegimen)
-
-                    V25PrivacyFooter(text: "保存只记录你输入的方案，不会据此生成剂量或用药建议")
-                        .padding(.bottom, 24)
                 }
+                .padding(.bottom, 24)
                 .padding(.horizontal, V25Theme.pagePadding)
                 .frame(maxWidth: V25Theme.contentWidth)
                 .frame(maxWidth: .infinity)
@@ -429,7 +427,7 @@ private struct RegimenRevisionNote: View {
                 TextField("例如：复诊后调整，或原产品暂时无法获得", text: $note, axis: .vertical)
                     .lineLimit(3...6)
                     .accessibilityIdentifier("regimen.note")
-                Text("这段说明只帮助以后回看，不会参与方案判断。")
+                Text("保存为这次修改的备注，方便以后回看。")
                     .font(.caption)
                     .foregroundStyle(theme.indigo.opacity(0.6))
             }

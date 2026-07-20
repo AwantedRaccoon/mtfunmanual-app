@@ -288,7 +288,7 @@ struct MedicationCatalogPicker: View {
                     .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
                 }
 
-                V25PrivacyFooter(text: "索引不会直接加入方案；进入条目后再定位具体产品")
+                V25PrivacyFooter(text: "进入条目定位具体产品，再加入当前方案")
                     .padding(.bottom, 20)
             }
             .padding(.horizontal, V25Theme.pagePadding)
@@ -669,9 +669,8 @@ private struct MedicationProductPicker: View {
                 .background(theme.paper)
                 .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
 
-                V25PrivacyFooter(text: "产品条目只用于准确关联资料，不会据此推荐剂量或方案")
-                    .padding(.bottom, 20)
             }
+            .padding(.bottom, 20)
             .padding(.horizontal, V25Theme.pagePadding)
             .frame(maxWidth: V25Theme.contentWidth)
             .frame(maxWidth: .infinity)
@@ -1019,7 +1018,7 @@ private struct MedicationCustomEntryEditor: View {
 
                 V25FieldSurface(
                     "剂型与途径（可选）",
-                    note: "这里只保存你的原始文字，不根据名称自动补全或判断。"
+                    note: "名称和说明会按输入内容保存。"
                 ) {
                     TextField("例如：片剂 · 口服", text: $formAndRoute)
                         .accessibilityIdentifier("medication.custom.form")

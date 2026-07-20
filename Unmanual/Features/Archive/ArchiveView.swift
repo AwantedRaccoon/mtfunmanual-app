@@ -542,11 +542,11 @@ private enum ArchiveDestination: String, Identifiable {
 
     var detail: String {
         switch self {
-        case .visitSummary: "先选择范围和内容，再核对一页摘要。它不会被写成处方或诊断证明。"
+        case .visitSummary: "选择时间范围和内容，整理成一页摘要。"
         case .rawExport: "按类别选择原始记录，完整预览后才生成文件。"
         case .localStorage: "这里会逐项说明本机数据、系统备份和导出文件之间的边界。"
         case .deleteAndReset: "删除前先列出准确对象和影响范围，并再次确认。"
-        case .unitConversion: "换算不会覆盖医院报告中的原始值，也不会自动解释结果。"
+        case .unitConversion: "输入数值与单位，查看并保存换算结果。"
         case .knowledgeSearch: "App 只提供场景入口；文章正文、来源和更新仍由 mtfbook.com 承担。"
         }
     }
@@ -614,7 +614,7 @@ private struct ArchivePreviewSheet: View {
             return [
                 ("选择时间范围", "最近 30、90、180 天或自定义范围。"),
                 ("选择包含内容", "当前方案、检查、旅程记录和仍想询问的问题。"),
-                ("查看完整预览", "确认敏感内容与说明边界后，再生成 PDF。")
+                ("查看完整预览", "确认所选内容后，再生成 PDF。")
             ]
         case .rawExport:
             return [
@@ -639,7 +639,7 @@ private struct ArchivePreviewSheet: View {
             return [
                 ("保留原始值", "录入内容不会被换算值覆盖。"),
                 ("说明换算关系", "显示输入单位、输出单位和规则版本。"),
-                ("不解释结果", "换算只处理数值与单位。")
+                ("保存换算结果", "原始记录与换算结果分别显示。")
             ]
         case .knowledgeSearch:
             return [
@@ -653,7 +653,7 @@ private struct ArchivePreviewSheet: View {
     private var footerText: String {
         switch destination {
         case .visitSummary:
-            "摘要来自用户记录，不是处方、诊断证明或医生签署的病历"
+            "把选定范围内的记录整理到同一页"
         case .rawExport:
             "这里先确认导出范围；文件生成能力将在数据层实现后接入"
         case .localStorage:
@@ -661,7 +661,7 @@ private struct ArchivePreviewSheet: View {
         case .deleteAndReset:
             "删除功能实现前必须逐项验证恢复与关联关系"
         case .unitConversion:
-            "单位换算不提供个体化化验解读"
+            "换算结果与原始记录分开保存"
         case .knowledgeSearch:
             "完整资料、来源和更新由 mtfbook.com 承担"
         }
