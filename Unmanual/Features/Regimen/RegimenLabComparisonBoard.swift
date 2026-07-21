@@ -7,6 +7,7 @@ struct LedgerComparisonBoard: View {
     let sampleDate: Date?
     let linkedRegimenCode: String?
     let facts: [LedgerHormoneFact]
+    let importAction: () -> Void
 
     var body: some View {
         if dynamicTypeSize.isAccessibilitySize {
@@ -22,7 +23,11 @@ struct LedgerComparisonBoard: View {
                     )
                     .frame(width: 96)
 
-                    LedgerLabIndex(sampleDate: sampleDate, facts: facts)
+                    LedgerLabIndex(
+                        sampleDate: sampleDate,
+                        facts: facts,
+                        importAction: importAction
+                    )
                         .frame(minWidth: 228)
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -40,7 +45,11 @@ struct LedgerComparisonBoard: View {
                 linkedRegimenCode: linkedRegimenCode,
                 layout: .banner
             )
-            LedgerLabIndex(sampleDate: sampleDate, facts: facts)
+            LedgerLabIndex(
+                sampleDate: sampleDate,
+                facts: facts,
+                importAction: importAction
+            )
         }
     }
 }
@@ -226,6 +235,7 @@ private struct LedgerLabIndex: View {
 
     let sampleDate: Date?
     let facts: [LedgerHormoneFact]
+    let importAction: () -> Void
 
     private var recordedCount: Int {
         facts.filter { $0.record != nil }.count
@@ -245,10 +255,22 @@ private struct LedgerLabIndex: View {
 
                 Spacer(minLength: 6)
 
-                Text("\(recordedCount)/6")
-                    .font(theme.display(24, relativeTo: .title3))
-                    .monospacedDigit()
+                Button(action: importAction) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(recordedCount)/6")
+                            .font(theme.display(24, relativeTo: .title3))
+                            .monospacedDigit()
+                        Label("导入", systemImage: "plus")
+                            .font(theme.utility(9))
+                            .tracking(0.5)
+                    }
                     .foregroundStyle(theme.vermilion)
+                    .frame(minWidth: 54, minHeight: 48, alignment: .trailing)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(V25PressStyle())
+                .accessibilityLabel("导入性激素六项记录，当前已填写 \(recordedCount) 项")
+                .accessibilityIdentifier("regimen.labImport")
             }
             .padding(.horizontal, 11)
             .padding(.vertical, 12)

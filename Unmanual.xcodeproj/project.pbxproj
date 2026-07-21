@@ -18,10 +18,12 @@
 		4C07341E5357EA0C2AC3DF81 /* DateFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C327EAF39AF961F7F1B9B96D /* DateFacts.swift */; };
 		50A836547B498619829AAD59 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39AD2B90E25CDD4AFCDB79BA /* TodayView.swift */; };
 		5337F70449DB841B242EA20A /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = DD439053F65C912045E9E3D9 /* InfoPlist.strings */; };
+		61812E6D7446FAE1DF99FB0D /* LabImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BBE26E4B1538CF54428199 /* LabImport.swift */; };
 		6EAE2C755F8951DB4ABC25F2 /* V25Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F19ADEA7D87E13ACDB8B3C78 /* V25Theme.swift */; };
 		76FF5F50B6CD6D683EADFC76 /* DateFactsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 032D6FBC8FC0C55DD22D8105 /* DateFactsTests.swift */; };
 		7C616D79FD7FFC0E5B456BED /* CountdownEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B183304F99CC8F4ABE306BDA /* CountdownEditor.swift */; };
 		87781D10DF09218C23CEEB25 /* RegimenLabComparisonBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D1A9999425D478B6D6FCE6 /* RegimenLabComparisonBoard.swift */; };
+		8DA3379EED8552D9159D0A42 /* LabImportEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B97177E8031519DF40A04C /* LabImportEditor.swift */; };
 		90E2DABDC5E78853832F6DBA /* RegimenVersionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09FB125E67D3308E140F67BA /* RegimenVersionEditor.swift */; };
 		997D22EF0B983EF7D9430379 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 50E923811C514A1163E06EF5 /* Assets.xcassets */; };
 		9F092A94265B8A60A13D018F /* MedicationCatalogPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80D09FCBDF15AF327110FC89 /* MedicationCatalogPicker.swift */; };
@@ -31,6 +33,7 @@
 		B42C1324845CDE69855BA9D6 /* MetricReportFactsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AF62A9C8E0BDA03295A25CD /* MetricReportFactsTests.swift */; };
 		BAF9A04AC37C2F054E654CDB /* JourneyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791A89F7EFC342132B842EDC /* JourneyView.swift */; };
 		D1B40AA71DA9E29736541DF2 /* MetricReportFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2556A86CAA0BC5DB16599A2 /* MetricReportFacts.swift */; };
+		DAB1F572A829448BEEC3E0D1 /* LabImportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94AD9E71B3A52A49948C1CE5 /* LabImportServiceTests.swift */; };
 		E08B6FE6069233A7070CC5A7 /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 749CFF7C645A89151C9FCD16 /* ArchiveView.swift */; };
 		E27241D26DDFC10EFDF0DD21 /* AppTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C4186B035C6C0A538D9671 /* AppTab.swift */; };
 		E4A00754341BBF5E57ABEFC3 /* AppShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EF9D5A5A95E7F4416312BD /* AppShellView.swift */; };
@@ -65,6 +68,8 @@
 		80D09FCBDF15AF327110FC89 /* MedicationCatalogPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationCatalogPicker.swift; sourceTree = "<group>"; };
 		8B657BCEC15668BDAF7C6AD9 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		8BBEFE58403449D2C6618EE5 /* StartDateEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartDateEditor.swift; sourceTree = "<group>"; };
+		94AD9E71B3A52A49948C1CE5 /* LabImportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabImportServiceTests.swift; sourceTree = "<group>"; };
+		97BBE26E4B1538CF54428199 /* LabImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabImport.swift; sourceTree = "<group>"; };
 		A3FC6D8F48D770BC7CE5D430 /* QuickRecordEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickRecordEditor.swift; sourceTree = "<group>"; };
 		B183304F99CC8F4ABE306BDA /* CountdownEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownEditor.swift; sourceTree = "<group>"; };
 		B57ED02CD27F6DC71428B4AE /* UnmanualTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = UnmanualTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -73,6 +78,7 @@
 		BF7A40127E0E91D99470B650 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		C233E7C60947C119F4D72258 /* Unmanual.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Unmanual.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C327EAF39AF961F7F1B9B96D /* DateFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFacts.swift; sourceTree = "<group>"; };
+		C6B97177E8031519DF40A04C /* LabImportEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabImportEditor.swift; sourceTree = "<group>"; };
 		CE00C7F984E6832F2BC3EAE5 /* V25Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V25Components.swift; sourceTree = "<group>"; };
 		DC9B18414E227E1742C08CC8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E3A2DE2A06117653FEBB691F /* DemoDataSeeder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoDataSeeder.swift; sourceTree = "<group>"; };
@@ -110,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				C327EAF39AF961F7F1B9B96D /* DateFacts.swift */,
+				97BBE26E4B1538CF54428199 /* LabImport.swift */,
 				F2556A86CAA0BC5DB16599A2 /* MetricReportFacts.swift */,
 			);
 			path = Domain;
@@ -152,6 +159,7 @@
 			isa = PBXGroup;
 			children = (
 				032D6FBC8FC0C55DD22D8105 /* DateFactsTests.swift */,
+				94AD9E71B3A52A49948C1CE5 /* LabImportServiceTests.swift */,
 				F976BABDB2D2DEB9E9F1D81D /* MedicationCatalogTests.swift */,
 				1AF62A9C8E0BDA03295A25CD /* MetricReportFactsTests.swift */,
 			);
@@ -169,6 +177,7 @@
 		8F76A3B61A5F9A48F2F850A9 /* Regimen */ = {
 			isa = PBXGroup;
 			children = (
+				C6B97177E8031519DF40A04C /* LabImportEditor.swift */,
 				80D09FCBDF15AF327110FC89 /* MedicationCatalogPicker.swift */,
 				51D1A9999425D478B6D6FCE6 /* RegimenLabComparisonBoard.swift */,
 				09FB125E67D3308E140F67BA /* RegimenVersionEditor.swift */,
@@ -337,6 +346,8 @@
 				A3AF945B1E4861A71DB38151 /* DemoDataSeeder.swift in Sources */,
 				279F249F1F9F8A5C4855BF1F /* JourneyRouteBookView.swift in Sources */,
 				BAF9A04AC37C2F054E654CDB /* JourneyView.swift in Sources */,
+				61812E6D7446FAE1DF99FB0D /* LabImport.swift in Sources */,
+				8DA3379EED8552D9159D0A42 /* LabImportEditor.swift in Sources */,
 				9F092A94265B8A60A13D018F /* MedicationCatalogPicker.swift in Sources */,
 				D1B40AA71DA9E29736541DF2 /* MetricReportFacts.swift in Sources */,
 				12FE1AA6C91A2F1B5ACCCCDD /* Models.swift in Sources */,
@@ -359,6 +370,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				76FF5F50B6CD6D683EADFC76 /* DateFactsTests.swift in Sources */,
+				DAB1F572A829448BEEC3E0D1 /* LabImportServiceTests.swift in Sources */,
 				E7355B3B436C31E4D1CCB0A3 /* MedicationCatalogTests.swift in Sources */,
 				B42C1324845CDE69855BA9D6 /* MetricReportFactsTests.swift in Sources */,
 			);

@@ -95,7 +95,8 @@ struct RegimenView: View {
                     activeRegimen: activeRegimen,
                     sampleDate: latestSampleDate,
                     linkedRegimenCode: latestSampleRegimen?.code,
-                    facts: hormoneFacts
+                    facts: hormoneFacts,
+                    importAction: presentLabImport
                 )
 
                 V25SectionHeader(
@@ -123,8 +124,13 @@ struct RegimenView: View {
             .padding(.bottom, 42)
         }
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $presentedSheet) { _ in
-            RegimenVersionEditor()
+        .sheet(item: $presentedSheet) { destination in
+            switch destination {
+            case .createVersion:
+                RegimenVersionEditor()
+            case .labImport:
+                LabImportEditor()
+            }
         }
     }
 
@@ -136,6 +142,10 @@ struct RegimenView: View {
 
     private func presentNewVersion() {
         presentedSheet = .createVersion
+    }
+
+    private func presentLabImport() {
+        presentedSheet = .labImport
     }
 }
 
@@ -548,6 +558,7 @@ private enum RegimenPlanSlot: String, Hashable {
 
 private enum RegimenPlanSheet: String, Identifiable {
     case createVersion
+    case labImport
 
     var id: String { rawValue }
 }

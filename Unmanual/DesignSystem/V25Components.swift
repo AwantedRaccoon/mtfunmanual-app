@@ -244,6 +244,7 @@ struct V25EditorPage<Content: View>: View {
             .frame(maxWidth: V25Theme.contentWidth)
             .frame(maxWidth: .infinity)
         }
+        .defaultScrollAnchor(.top)
         .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
         .background(theme.rice.ignoresSafeArea())
