@@ -25,6 +25,7 @@ struct LedgerComparisonBoard: View {
                     LedgerLabIndex(sampleDate: sampleDate, facts: facts)
                         .frame(minWidth: 228)
                 }
+                .fixedSize(horizontal: false, vertical: true)
 
                 stackedBoard
             }
@@ -67,6 +68,7 @@ private struct LedgerRegimenSpine: View {
                 banner
             }
         }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .foregroundStyle(theme.paper)
         .background(theme.indigoDeep)
         .overlay { Rectangle().stroke(theme.indigo, lineWidth: 2) }
@@ -112,6 +114,8 @@ private struct LedgerRegimenSpine: View {
                 .foregroundStyle(theme.mustard)
             Text(sampleDate?.unmanualShortDateText ?? "未采样")
                 .font(.caption.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .padding(.top, 5)
             Text(linkText)
                 .font(.caption2)
@@ -121,7 +125,7 @@ private struct LedgerRegimenSpine: View {
         }
         .padding(.horizontal, 11)
         .padding(.bottom, 14)
-        .frame(maxWidth: .infinity, minHeight: 382, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 
@@ -211,7 +215,8 @@ private struct LedgerSpineDatum: View {
                 .foregroundStyle(theme.paper.opacity(0.54))
             Text(value)
                 .font(.caption.weight(.bold))
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
     }
 }
@@ -257,6 +262,7 @@ private struct LedgerLabIndex: View {
                 LedgerHormoneRow(fact: fact)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .foregroundStyle(theme.indigoDeep)
         .background(theme.paper)
         .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
@@ -279,6 +285,8 @@ private struct LedgerHormoneRow: View {
                 .font(theme.utility(11))
                 .tracking(0.5)
                 .foregroundStyle(fact.record == nil ? theme.indigo.opacity(0.44) : theme.vermilion)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
                 .frame(width: 28, alignment: .leading)
 
             Text(fact.descriptor.name)
