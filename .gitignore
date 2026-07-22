@@ -30,3 +30,6 @@ Secrets.xcconfig
 *.profdata
 TestResults/
 Reports/
+
+# Internal agent handoff log
+/agent-work.md
