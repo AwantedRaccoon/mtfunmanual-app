@@ -943,6 +943,43 @@ struct AppDataWriter: Sendable {
         return count
     }
 
+    func commitAdministration(
+        _ command: CommitAdministrationCommand
+    ) async throws -> AdministrationCommitResult {
+        let result = try await storage.commitAdministration(command)
+        if result.didCreate {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func setReminderPreference(
+        _ command: SetReminderPreferenceCommand
+    ) async throws -> ReminderPreferenceResult {
+        let result = try await storage.setReminderPreference(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func applyReminderOverride(
+        _ command: ApplyReminderOverrideCommand
+    ) async throws -> ReminderOverrideResult {
+        let result = try await storage.applyReminderOverride(command)
+        if result.didCreate {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func updateNotificationCoverage(
+        _ observation: LocalReminderReconciliationObservation
+    ) async throws {
+        try await storage.updateNotificationCoverage(observation)
+        await revalidateProtectionAfterCommit()
+    }
+
     private func revalidateProtectionAfterCommit() async {
         guard await verifyStoreProtection() else {
             await onProtectionFailure()

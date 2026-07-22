@@ -384,6 +384,9 @@ struct V25PrivacyFooter: View {
 struct V25PrimaryButtonStyle: ButtonStyle {
     @Environment(AppTheme.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.v25ReduceMotionOverride) private var reduceMotionOverride
+
+    private var shouldReduceMotion: Bool { reduceMotionOverride ?? reduceMotion }
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -393,15 +396,21 @@ struct V25PrimaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity, minHeight: V25Theme.controlHeight)
             .background(theme.indigo)
             .overlay { Rectangle().stroke(theme.indigo, lineWidth: 2) }
-            .offset(y: configuration.isPressed && !reduceMotion ? 2 : 0)
+            .offset(y: configuration.isPressed && !shouldReduceMotion ? 2 : 0)
             .opacity(configuration.isPressed ? 0.75 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
+            .animation(
+                shouldReduceMotion ? nil : .easeOut(duration: 0.16),
+                value: configuration.isPressed
+            )
     }
 }
 
 struct V25SecondaryButtonStyle: ButtonStyle {
     @Environment(AppTheme.self) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.v25ReduceMotionOverride) private var reduceMotionOverride
+
+    private var shouldReduceMotion: Bool { reduceMotionOverride ?? reduceMotion }
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -411,9 +420,12 @@ struct V25SecondaryButtonStyle: ButtonStyle {
             .frame(minHeight: 44)
             .background(theme.paper)
             .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
-            .offset(y: configuration.isPressed && !reduceMotion ? 2 : 0)
+            .offset(y: configuration.isPressed && !shouldReduceMotion ? 2 : 0)
             .opacity(configuration.isPressed ? 0.72 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
+            .animation(
+                shouldReduceMotion ? nil : .easeOut(duration: 0.16),
+                value: configuration.isPressed
+            )
     }
 }
 

@@ -17,6 +17,7 @@ struct RegimenVersionEditor: View {
     @State private var saveErrorMessage: String?
     @State private var isSaving = false
     @State private var previewSheet: RegimenPreviewSheet?
+    @State private var scheduleSheet: RegimenScheduleSheet?
     @State private var draftID = UUID()
     private let requestedDraftID: UUID?
 
@@ -74,7 +75,8 @@ struct RegimenVersionEditor: View {
                         RegimenMedicationLedger(
                             medications: draftMedications,
                             addAction: { isChoosingMedication = true },
-                            removeAction: removeMedication
+                            removeAction: removeMedication,
+                            scheduleAction: editSchedule
                         )
 
                         V25SectionHeader(
@@ -128,6 +130,21 @@ struct RegimenVersionEditor: View {
                 confirm: { seal(sheet) }
             )
             .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $scheduleSheet) { sheet in
+            RegimenScheduleEditor(
+                medicationName: sheet.medicationName,
+                initialSchedule: sheet.schedule,
+                cancel: { scheduleSheet = nil },
+                remove: sheet.schedule == nil ? nil : {
+                    updateSchedule(nil, for: sheet.medicationID)
+                },
+                save: { schedule in
+                    updateSchedule(schedule, for: sheet.medicationID)
+                }
+            )
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
     }
@@ -284,6 +301,26 @@ struct RegimenVersionEditor: View {
 
     private func removeMedication(_ medication: RegimenMedicationDraft) {
         draftMedications.removeAll { $0.id == medication.id }
+    }
+
+    private func editSchedule(_ medication: RegimenMedicationDraft) {
+        scheduleSheet = RegimenScheduleSheet(
+            medicationID: medication.id,
+            medicationName: medication.name,
+            schedule: medication.schedule
+        )
+    }
+
+    private func updateSchedule(
+        _ schedule: RegimenScheduleInput?,
+        for medicationID: UUID
+    ) {
+        guard let index = draftMedications.firstIndex(where: { $0.id == medicationID }) else {
+            scheduleSheet = nil
+            return
+        }
+        draftMedications[index].schedule = schedule
+        scheduleSheet = nil
     }
 }
 
@@ -448,6 +485,7 @@ private struct RegimenMedicationLedger: View {
     let medications: [RegimenMedicationDraft]
     let addAction: () -> Void
     let removeAction: (RegimenMedicationDraft) -> Void
+    let scheduleAction: (RegimenMedicationDraft) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -467,7 +505,8 @@ private struct RegimenMedicationLedger: View {
                     RegimenMedicationLedgerRow(
                         position: index + 1,
                         medication: medication,
-                        removeAction: { removeAction(medication) }
+                        removeAction: { removeAction(medication) },
+                        scheduleAction: { scheduleAction(medication) }
                     )
                 }
             }
@@ -506,40 +545,61 @@ private struct RegimenMedicationLedgerRow: View {
     let position: Int
     let medication: RegimenMedicationDraft
     let removeAction: () -> Void
+    let scheduleAction: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text(String(format: "%02d", position))
-                .font(theme.utility(13))
-                .monospacedDigit()
-                .foregroundStyle(theme.vermilion)
-                .frame(width: 28, alignment: .leading)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(String(format: "%02d", position))
+                    .font(theme.utility(13))
+                    .monospacedDigit()
+                    .foregroundStyle(theme.vermilion)
+                    .frame(width: 28, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(medication.name)
-                    .font(.body.weight(.black))
-                    .foregroundStyle(theme.indigoDeep)
-                if !medication.englishName.isEmpty && !dynamicTypeSize.isAccessibilitySize {
-                    Text(medication.englishName)
-                        .font(theme.utility(9))
-                        .tracking(0.25)
-                        .foregroundStyle(theme.indigo.opacity(0.58))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(medication.name)
+                        .font(.body.weight(.black))
+                        .foregroundStyle(theme.indigoDeep)
+                    if !medication.englishName.isEmpty && !dynamicTypeSize.isAccessibilitySize {
+                        Text(medication.englishName)
+                            .font(theme.utility(9))
+                            .tracking(0.25)
+                            .foregroundStyle(theme.indigo.opacity(0.58))
+                    }
+                    Text(medication.detail)
+                        .font(.caption)
+                        .foregroundStyle(theme.indigo.opacity(0.66))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(medication.detail)
-                    .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.66))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: removeAction) {
-                Image(systemName: "trash")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 44, height: 44)
+                Button(action: removeAction) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.indigo.opacity(0.68))
+                .accessibilityLabel("移除 \(medication.name)")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(theme.indigo.opacity(0.68))
-            .accessibilityLabel("移除 \(medication.name)")
+
+            Button(action: scheduleAction) {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                    Text(medication.schedule?.editorSummary ?? "尚未建立执行时间")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(medication.schedule == nil ? "设置" : "修改")
+                        .font(.caption.weight(.black))
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.indigoDeep)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 48)
+                .background(theme.blue.opacity(0.14))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(V25PressStyle())
+            .accessibilityIdentifier("regimen.schedule.\(medication.id.uuidString)")
         }
         .padding(.leading, 15)
         .padding(.trailing, 4)
@@ -549,6 +609,14 @@ private struct RegimenMedicationLedgerRow: View {
             Rectangle().fill(theme.indigo.opacity(0.34)).frame(height: 1)
         }
     }
+}
+
+private struct RegimenScheduleSheet: Identifiable {
+    let medicationID: UUID
+    let medicationName: String
+    let schedule: RegimenScheduleInput?
+
+    var id: UUID { medicationID }
 }
 
 private struct RegimenRevisionNote: View {

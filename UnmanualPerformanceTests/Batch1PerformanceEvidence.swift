@@ -197,8 +197,8 @@ struct Batch1V3CompanionCounts: Codable, Equatable, Sendable {
 
 enum Batch1V3FoundationContract {
     static let activatedFactCount = Batch1FixtureCounts.expected.legacyFacts
-        + Batch1V3CompanionCounts.expected.facts
-    static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions
+        + Batch1V3CompanionCounts.expected.facts + 1
+    static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions + 1
     static let nextLocalRevision = Int64(activatedRevisionCount + 1)
     static let quickWriteAddedFactCount = 2
     static let postQuickWriteRevisionCount = activatedRevisionCount + quickWriteAddedFactCount

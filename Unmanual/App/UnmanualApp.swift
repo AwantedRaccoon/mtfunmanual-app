@@ -3,8 +3,11 @@ import SwiftUI
 
 @main
 struct UnmanualApp: App {
+    @Environment(\.scenePhase) private var scenePhase
+    @UIApplicationDelegateAdaptor(AppNotificationDelegate.self) private var notificationDelegate
     @State private var theme = AppTheme()
     @State private var dataRuntime = AppDataRuntime()
+    @State private var reminderRuntime = LocalReminderRuntime()
 
     var body: some Scene {
         WindowGroup {
@@ -15,13 +18,29 @@ struct UnmanualApp: App {
                 .task {
                     dataRuntime.openIfNeeded()
                 }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { reconcileWhenReady() }
+                }
 #else
             runtimeRoot
                 .environment(theme)
                 .task {
                     dataRuntime.openIfNeeded()
                 }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { reconcileWhenReady() }
+                }
 #endif
+        }
+    }
+
+    private func reconcileWhenReady() {
+        guard case let .ready(session) = dataRuntime.state else { return }
+        Task {
+            await reminderRuntime.reconcile(
+                reader: session.reader,
+                writer: session.writer
+            )
         }
     }
 
@@ -36,13 +55,29 @@ struct UnmanualApp: App {
                 .modelContainer(session.store.container)
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
+                .environment(\.localReminderRuntime, reminderRuntime)
                 .task {
-                    DemoDataSeeder.seedIfRequested(container: session.store.container)
+                    await DemoDataSeeder.seedIfRequested(container: session.store.container)
+                    NotificationCenter.default.post(
+                        name: .unmanualLocalDataChanged,
+                        object: nil
+                    )
+                    await reminderRuntime.reconcile(
+                        reader: session.reader,
+                        writer: session.writer
+                    )
                 }
 #else
             rootView
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
+                .environment(\.localReminderRuntime, reminderRuntime)
+                .task {
+                    await reminderRuntime.reconcile(
+                        reader: session.reader,
+                        writer: session.writer
+                    )
+                }
 #endif
         case let .recovery(recovery):
             RecoveryModeView(recovery: recovery, retry: dataRuntime.retry)

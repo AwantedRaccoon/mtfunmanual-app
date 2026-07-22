@@ -79,7 +79,8 @@ struct AppDataStoreLayout: Equatable, Sendable {
 enum CoreRelationshipValidator {
     static func validate(
         in context: ModelContext,
-        failure: AppDataFailure
+        failure: AppDataFailure,
+        administrationEventIDs: Set<UUID> = []
     ) throws {
         let preferences = try context.fetch(FetchDescriptor<UserPreferencesRecord>())
         guard preferences.count == 1,
@@ -172,6 +173,8 @@ enum CoreRelationshipValidator {
                 sourceExists = journeyIDs.contains(time.sourceRecordID)
             case "LabRecord":
                 sourceExists = labIDs.contains(time.sourceRecordID)
+            case "AdministrationEventRecord":
+                sourceExists = administrationEventIDs.contains(time.sourceRecordID)
             default:
                 sourceExists = false
             }
@@ -217,7 +220,7 @@ enum SystemBackupDisclosure {
     static let summary = "记录保存在 App 私有存储中，不要求账号。"
     static let networkBoundary = "App 不使用 CloudKit，不主动上传，也不实时同步到其他设备。"
     static let systemBackupBoundary = "iOS 可能按你的设置将 App 数据纳入 iCloud 或电脑的系统备份；App 不保证每次备份或恢复成功。"
-    static let compact = "记录由 App 保存在本地；不主动上传或同步，iOS 可能纳入系统备份"
+    static let compact = "App 不主动上传或同步；iOS 可能按系统设置将 App 数据纳入系统备份。通知只在当前设备安排。"
     static let quickRecord = "这条记录保存在 App 私有存储中；iOS 可能纳入系统备份"
     static let todayAccessibility = "今天页，记录保存在 App 私有存储中；App 不主动上传，iOS 可能纳入系统备份"
 }
@@ -243,7 +246,7 @@ struct GenerationPointer: Codable, Equatable, Sendable {
 
     init(
         generationID: UUID,
-        schemaVersion: String = "3.0.0",
+        schemaVersion: String = "4.0.0",
         origin: AppDataStoreOrigin,
         datasetID: UUID,
         minimumFactCount: Int,
@@ -322,7 +325,7 @@ struct GenerationPointerStore: Sendable {
                 from: Data(contentsOf: layout.pointerURL)
             )
             guard pointer.formatVersion == GenerationPointer.formatVersion,
-                  ["2.0.0", "3.0.0"].contains(pointer.schemaVersion),
+                  ["2.0.0", "3.0.0", "4.0.0"].contains(pointer.schemaVersion),
                   pointer.minimumFactCount >= 0,
                   pointer.minimumRevisionCount >= 0,
                   pointer.minimumFactCount == pointer.minimumRevisionCount,
@@ -365,8 +368,10 @@ struct MigrationJournalStore: Sendable {
                   journal.origin != .existingGeneration,
                   (journal.origin != .schemaUpgrade
                       || (journal.sourceGenerationID != nil
-                          && journal.sourceSchemaVersion == "2.0.0"
-                          && journal.targetSchemaVersion == "3.0.0")),
+                          && ((journal.sourceSchemaVersion == "2.0.0"
+                                && journal.targetSchemaVersion == "3.0.0")
+                            || (journal.sourceSchemaVersion == "3.0.0"
+                                && journal.targetSchemaVersion == "4.0.0")))),
                   journal.updatedAt.timeIntervalSince1970.isFinite else {
                 throw AppDataFailure.migrationFailed
             }
@@ -469,6 +474,14 @@ struct AppDataStoreBootstrapper {
                     failAt: failpoint
                 )
             }
+            if pointer.schemaVersion == "3.0.0" {
+                return try upgradeV3Generation(
+                    pointer: pointer,
+                    pointerStore: pointerStore,
+                    journalStore: journalStore,
+                    failAt: failpoint
+                )
+            }
             return try openActive(pointer: pointer, reportedOrigin: .existingGeneration)
         }
 
@@ -503,7 +516,7 @@ struct AppDataStoreBootstrapper {
                     throw AppDataFailure.migrationFailed
                 }
             }
-            let identity = try validateAndBackfillCore(storeURL: targetURL, failAt: failpoint)
+            let identity = try validateAndBackfillToday(storeURL: targetURL, failAt: failpoint)
             journal.phase = .validated
             journal.updatedAt = Date()
             try journalStore.write(journal)
@@ -568,7 +581,7 @@ struct AppDataStoreBootstrapper {
             throw StoreBootstrapInterruption.injected
         }
 
-        let identity = try validateAndBackfillCore(
+        let identity = try validateAndBackfillToday(
             storeURL: layout.storeURL(for: generationID),
             failAt: failpoint
         )
@@ -681,6 +694,97 @@ struct AppDataStoreBootstrapper {
         journal.phase = .activated
         journal.updatedAt = Date()
         try journalStore.write(journal)
+        return try upgradeV3Generation(
+            pointer: upgradedPointer,
+            pointerStore: pointerStore,
+            journalStore: journalStore,
+            failAt: failpoint
+        )
+    }
+
+    private func upgradeV3Generation(
+        pointer: GenerationPointer,
+        pointerStore: GenerationPointerStore,
+        journalStore: MigrationJournalStore,
+        failAt failpoint: StoreBootstrapFailpoint?
+    ) throws -> BootstrappedAppDataStore {
+        let sourceURL = layout.storeURL(for: pointer.generationID)
+        let sourceIdentity = try validateActiveStoreBeforeWritableOpen(
+            at: sourceURL,
+            schemaVersion: "3.0.0"
+        )
+        guard sourceIdentity.datasetID == pointer.datasetID,
+              sourceIdentity.factCount >= pointer.minimumFactCount,
+              sourceIdentity.revisionCount >= pointer.minimumRevisionCount else {
+            throw AppDataFailure.corruptionSuspected
+        }
+
+        var journal: MigrationJournal
+        if let existing = try journalStore.readIfPresent(),
+           existing.origin == .schemaUpgrade,
+           existing.sourceGenerationID == pointer.generationID,
+           existing.sourceSchemaVersion == "3.0.0",
+           existing.targetSchemaVersion == "4.0.0" {
+            journal = existing
+        } else {
+            journal = MigrationJournal(
+                targetGenerationID: UUID(),
+                origin: .schemaUpgrade,
+                sourceGenerationID: pointer.generationID,
+                sourceSchemaVersion: "3.0.0",
+                targetSchemaVersion: "4.0.0"
+            )
+            try journalStore.write(journal)
+        }
+
+        if journal.phase == .preparing {
+            let targetPresence = existingStoreBundleParts(
+                at: layout.storeURL(for: journal.targetGenerationID)
+            )
+            if targetPresence.main || targetPresence.wal || targetPresence.shm {
+                journal.targetGenerationID = UUID()
+                journal.updatedAt = Date()
+                try journalStore.write(journal)
+            }
+            try prepareGeneration(journal.targetGenerationID)
+            try copyStoreBundle(
+                from: sourceURL,
+                to: layout.storeURL(for: journal.targetGenerationID),
+                failAt: failpoint,
+                hardenSourceAfterCopy: false
+            )
+            journal.phase = .prepared
+            journal.updatedAt = Date()
+            try journalStore.write(journal)
+            if failpoint == .afterGenerationPrepared {
+                throw StoreBootstrapInterruption.injected
+            }
+        }
+
+        let targetURL = layout.storeURL(for: journal.targetGenerationID)
+        guard fileManager.fileExists(atPath: targetURL.path) else {
+            throw AppDataFailure.migrationFailed
+        }
+        let identity = try validateAndBackfillToday(storeURL: targetURL, failAt: failpoint)
+        journal.phase = .validated
+        journal.updatedAt = Date()
+        try journalStore.write(journal)
+        if failpoint == .afterValidationBeforePointer {
+            throw StoreBootstrapInterruption.injected
+        }
+
+        let upgradedPointer = GenerationPointer(
+            generationID: journal.targetGenerationID,
+            schemaVersion: "4.0.0",
+            origin: .schemaUpgrade,
+            datasetID: identity.datasetID,
+            minimumFactCount: identity.factCount,
+            minimumRevisionCount: identity.revisionCount
+        )
+        try pointerStore.write(upgradedPointer)
+        journal.phase = .activated
+        journal.updatedAt = Date()
+        try journalStore.write(journal)
         return try openActive(pointer: upgradedPointer, reportedOrigin: .schemaUpgrade)
     }
 
@@ -735,6 +839,53 @@ struct AppDataStoreBootstrapper {
         }
     }
 
+    private func validateAndBackfillToday(
+        storeURL: URL,
+        failAt failpoint: StoreBootstrapFailpoint? = nil
+    ) throws -> GenerationIdentity {
+        do {
+            if failpoint == .duringValidationWithNestedProtectedDataError {
+                let permissionError = NSError(
+                    domain: NSCocoaErrorDomain,
+                    code: NSFileReadNoPermissionError
+                )
+                throw NSError(
+                    domain: "SwiftData.Error",
+                    code: 1,
+                    userInfo: [NSUnderlyingErrorKey: permissionError]
+                )
+            }
+            try autoreleasepool {
+                let container = try AppModelContainerFactory.makeTodayContainer(at: storeURL)
+                let legacyOutcome = try LegacyV1Backfill.run(in: container)
+                guard legacyOutcome.didComplete else { throw AppDataFailure.migrationFailed }
+                let coreOutcome = try CoreTimeRegimenBackfill.run(in: container)
+                guard coreOutcome.didComplete else { throw AppDataFailure.migrationFailed }
+                let todayOutcome = try TodayExecutionBackfill.run(in: container)
+                guard todayOutcome.didComplete else { throw AppDataFailure.migrationFailed }
+                _ = try validateFoundation(
+                    in: ModelContext(container),
+                    failure: .migrationFailed,
+                    includesCoreFacts: true,
+                    includesTodayFacts: true
+                )
+            }
+            return try autoreleasepool {
+                let reopened = try AppModelContainerFactory.makeTodayContainer(at: storeURL)
+                return try validateFoundation(
+                    in: ModelContext(reopened),
+                    failure: .migrationFailed,
+                    includesCoreFacts: true,
+                    includesTodayFacts: true
+                )
+            }
+        } catch let error as AppDataFailure {
+            throw error
+        } catch {
+            throw AppDataFailure.classifyStorage(error, fallback: .migrationFailed)
+        }
+    }
+
     private struct FactIdentity: Hashable {
         let recordType: String
         let recordID: UUID
@@ -748,7 +899,8 @@ struct AppDataStoreBootstrapper {
     private func validateFoundation(
         in context: ModelContext,
         failure: AppDataFailure,
-        includesCoreFacts: Bool = false
+        includesCoreFacts: Bool = false,
+        includesTodayFacts: Bool = false
     ) throws -> GenerationIdentity {
         var stateDescriptor = FetchDescriptor<MigrationBackfillState>()
         stateDescriptor.fetchLimit = 2
@@ -781,10 +933,24 @@ struct AppDataStoreBootstrapper {
                   TimeZone(identifier: coreStates[0].assumedTimeZoneIdentifier) != nil else {
                 throw failure
             }
-            try CoreRelationshipValidator.validate(in: context, failure: failure)
+            let eventIDs: Set<UUID> = includesTodayFacts
+                ? Set(try context.fetch(FetchDescriptor<AdministrationEventRecord>()).map(\.id))
+                : []
+            try CoreRelationshipValidator.validate(
+                in: context,
+                failure: failure,
+                administrationEventIDs: eventIDs
+            )
+        }
+        if includesTodayFacts {
+            try TodayExecutionRelationshipValidator.validate(in: context, failure: failure)
         }
 
-        let facts = try factIdentities(in: context, includesCoreFacts: includesCoreFacts)
+        let facts = try factIdentities(
+            in: context,
+            includesCoreFacts: includesCoreFacts,
+            includesTodayFacts: includesTodayFacts
+        )
         let revisions = try context.fetch(FetchDescriptor<RecordRevision>())
         let expectedKeys = Set(facts.map(\.recordKey))
         let actualKeys = Set(revisions.map(\.recordKey))
@@ -821,7 +987,8 @@ struct AppDataStoreBootstrapper {
 
     private func factIdentities(
         in context: ModelContext,
-        includesCoreFacts: Bool = false
+        includesCoreFacts: Bool = false,
+        includesTodayFacts: Bool = false
     ) throws -> [FactIdentity] {
         var facts = try context.fetch(FetchDescriptor<HRTProfile>()).map {
             FactIdentity(recordType: "HRTProfile", recordID: $0.id, digestHex: try FactDigestV1.digest($0))
@@ -884,6 +1051,42 @@ struct AppDataStoreBootstrapper {
                 fields: CoreFactDigestV1.historicalTime($0)
             )
         }
+        guard includesTodayFacts else { return facts }
+        facts += try context.fetch(FetchDescriptor<AdministrationEventRecord>()).map {
+            try coreFactIdentity(
+                recordType: "AdministrationEventRecord",
+                recordID: $0.id,
+                fields: TodayExecutionDigestV1.administrationEvent($0)
+            )
+        }
+        facts += try context.fetch(FetchDescriptor<ReminderOverrideRecord>()).map {
+            try coreFactIdentity(
+                recordType: "ReminderOverrideRecord",
+                recordID: $0.id,
+                fields: TodayExecutionDigestV1.reminderOverride($0)
+            )
+        }
+        facts += try context.fetch(FetchDescriptor<ReminderPreferenceRecord>()).map {
+            try coreFactIdentity(
+                recordType: "ReminderPreferenceRecord",
+                recordID: $0.id,
+                fields: TodayExecutionDigestV1.reminderPreference($0)
+            )
+        }
+        facts += try context.fetch(FetchDescriptor<OperationReceiptRecord>()).map {
+            try coreFactIdentity(
+                recordType: "OperationReceiptRecord",
+                recordID: $0.operationID,
+                fields: TodayExecutionDigestV1.operationReceipt($0)
+            )
+        }
+        facts += try context.fetch(FetchDescriptor<OperationReceiptLedgerRecord>()).map {
+            try coreFactIdentity(
+                recordType: "OperationReceiptLedgerRecord",
+                recordID: TodayExecutionDigestV1.receiptLedgerID,
+                fields: TodayExecutionDigestV1.operationReceiptLedger($0)
+            )
+        }
         return facts
     }
 
@@ -920,14 +1123,19 @@ struct AppDataStoreBootstrapper {
                 throw AppDataFailure.corruptionSuspected
             }
             let container: ModelContainer
-            if pointer.schemaVersion == "3.0.0" {
+            if pointer.schemaVersion == "4.0.0" {
+                container = try AppModelContainerFactory.makeTodayContainer(at: storeURL)
+            } else if pointer.schemaVersion == "3.0.0" {
                 container = try AppModelContainerFactory.makeCoreContainer(at: storeURL)
             } else {
                 container = try AppModelContainerFactory.makeBridgeContainer(at: storeURL)
             }
             _ = try LegacyV1Backfill.run(in: container)
-            if pointer.schemaVersion == "3.0.0" {
+            if ["3.0.0", "4.0.0"].contains(pointer.schemaVersion) {
                 _ = try CoreTimeRegimenBackfill.run(in: container)
+            }
+            if pointer.schemaVersion == "4.0.0" {
+                _ = try TodayExecutionBackfill.run(in: container)
             }
             let report = try StoreFileProtectionAuditor(
                 backupPolicy: backupPolicy,
@@ -969,14 +1177,21 @@ struct AppDataStoreBootstrapper {
         }
         do {
             return try autoreleasepool {
-                let includesCoreFacts = schemaVersion == "3.0.0"
-                let container = try includesCoreFacts
-                    ? AppModelContainerFactory.makeReadOnlyCoreContainer(at: storeURL)
-                    : AppModelContainerFactory.makeReadOnlyBridgeContainer(at: storeURL)
+                let includesCoreFacts = ["3.0.0", "4.0.0"].contains(schemaVersion)
+                let includesTodayFacts = schemaVersion == "4.0.0"
+                let container: ModelContainer
+                if includesTodayFacts {
+                    container = try AppModelContainerFactory.makeReadOnlyTodayContainer(at: storeURL)
+                } else if includesCoreFacts {
+                    container = try AppModelContainerFactory.makeReadOnlyCoreContainer(at: storeURL)
+                } else {
+                    container = try AppModelContainerFactory.makeReadOnlyBridgeContainer(at: storeURL)
+                }
                 return try validateFoundation(
                     in: ModelContext(container),
                     failure: .corruptionSuspected,
-                    includesCoreFacts: includesCoreFacts
+                    includesCoreFacts: includesCoreFacts,
+                    includesTodayFacts: includesTodayFacts
                 )
             }
         } catch let failure as AppDataFailure {

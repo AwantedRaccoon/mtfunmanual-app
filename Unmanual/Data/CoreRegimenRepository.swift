@@ -335,22 +335,14 @@ extension AppWriteActor {
         let normalizedItems = try command.items.map { input in
             let displayName = input.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !displayName.isEmpty else { throw AppWriteFailure.invalidInput }
+            let normalizedSchedule: RegimenScheduleInput?
             if let schedule = input.schedule {
-                guard !schedule.reminderEnabled,
-                      (0...1_440).contains(schedule.defaultSnoozeMinutes) else {
+                guard let validSchedule = ScheduleRuleInputNormalizer.normalize(schedule) else {
                     throw AppWriteFailure.invalidInput
                 }
-                if schedule.kind == .everyNDays {
-                    guard let interval = schedule.intervalDays, interval > 0 else {
-                        throw AppWriteFailure.invalidInput
-                    }
-                }
-                if schedule.timeZoneBehavior == .fixedZone {
-                    guard let identifier = schedule.fixedTimeZoneIdentifier,
-                          TimeZone(identifier: identifier) != nil else {
-                        throw AppWriteFailure.invalidInput
-                    }
-                }
+                normalizedSchedule = validSchedule
+            } else {
+                normalizedSchedule = nil
             }
             return RegimenItemInput(
                 id: input.id,
@@ -363,7 +355,7 @@ extension AppWriteActor {
                 doseOriginal: input.doseOriginal.trimmingCharacters(in: .whitespacesAndNewlines),
                 unitOriginal: input.unitOriginal.trimmingCharacters(in: .whitespacesAndNewlines),
                 productSnapshot: input.productSnapshot.trimmingCharacters(in: .whitespacesAndNewlines),
-                schedule: input.schedule
+                schedule: normalizedSchedule
             )
         }
         return NormalizedRegimenDraft(

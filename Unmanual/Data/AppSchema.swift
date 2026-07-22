@@ -39,16 +39,32 @@ enum AppSchemaV3Core: VersionedSchema {
     ]
 }
 
+enum AppSchemaV4TodayExecution: VersionedSchema {
+    static let versionIdentifier = Schema.Version(4, 0, 0)
+
+    static let models: [any PersistentModel.Type] = AppSchemaV3Core.models + [
+        AdministrationEventRecord.self,
+        OperationReceiptRecord.self,
+        OperationReceiptLedgerRecord.self,
+        ReminderOverrideRecord.self,
+        ReminderPreferenceRecord.self,
+        NotificationCoverageRecord.self,
+        TodayExecutionBackfillState.self
+    ]
+}
+
 enum AppSchemaMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         AppSchemaV1.self,
         AppSchemaV2Bridge.self,
-        AppSchemaV3Core.self
+        AppSchemaV3Core.self,
+        AppSchemaV4TodayExecution.self
     ]
 
     static let stages: [MigrationStage] = [
         .lightweight(fromVersion: AppSchemaV1.self, toVersion: AppSchemaV2Bridge.self),
-        .lightweight(fromVersion: AppSchemaV2Bridge.self, toVersion: AppSchemaV3Core.self)
+        .lightweight(fromVersion: AppSchemaV2Bridge.self, toVersion: AppSchemaV3Core.self),
+        .lightweight(fromVersion: AppSchemaV3Core.self, toVersion: AppSchemaV4TodayExecution.self)
     ]
 }
 
@@ -59,6 +75,10 @@ enum AppModelContainerFactory {
 
     static var coreSchema: Schema {
         Schema(versionedSchema: AppSchemaV3Core.self)
+    }
+
+    static var todaySchema: Schema {
+        Schema(versionedSchema: AppSchemaV4TodayExecution.self)
     }
 
     static func makeV1Container(at storeURL: URL) throws -> ModelContainer {
@@ -150,6 +170,50 @@ enum AppModelContainerFactory {
         let schema = coreSchema
         let configuration = ModelConfiguration(
             "UnmanualCoreTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            allowsSave: true,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeTodayContainer(at storeURL: URL) throws -> ModelContainer {
+        try makeTodayContainer(at: storeURL, allowsSave: true)
+    }
+
+    static func makeReadOnlyTodayContainer(at storeURL: URL) throws -> ModelContainer {
+        try makeTodayContainer(at: storeURL, allowsSave: false)
+    }
+
+    private static func makeTodayContainer(
+        at storeURL: URL,
+        allowsSave: Bool
+    ) throws -> ModelContainer {
+        let schema = todaySchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeInMemoryTodayContainer() throws -> ModelContainer {
+        let schema = todaySchema
+        let configuration = ModelConfiguration(
+            "UnmanualTodayTests",
             schema: schema,
             isStoredInMemoryOnly: true,
             allowsSave: true,

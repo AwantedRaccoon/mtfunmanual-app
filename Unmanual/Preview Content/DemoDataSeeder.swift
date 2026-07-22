@@ -4,12 +4,20 @@ import SwiftData
 
 @MainActor
 enum DemoDataSeeder {
-    static func seedIfRequested(container: ModelContainer) {
+    static func seedIfRequested(container: ModelContainer) async {
         let arguments = ProcessInfo.processInfo.arguments
-        guard arguments.contains("-unmanual-demo-home") else {
-            return
+        if arguments.contains("-unmanual-demo-home") {
+            seedLegacyHome(container: container, arguments: arguments)
         }
+        if arguments.contains("-unmanual-today-execution") {
+            try? await seedTodayExecution(container: container)
+        }
+    }
 
+    private static func seedLegacyHome(
+        container: ModelContainer,
+        arguments: [String]
+    ) {
         let context = container.mainContext
         let existingProfiles = (try? context.fetch(FetchDescriptor<HRTProfile>())) ?? []
         let calendar = Calendar.autoupdatingCurrent
@@ -88,6 +96,53 @@ enum DemoDataSeeder {
         }
 
         try? context.save()
+    }
+
+    private static func seedTodayExecution(container: ModelContainer) async throws {
+        let context = container.mainContext
+        let sealed = try context.fetch(FetchDescriptor<RegimenPlanVersionRecord>())
+            .contains { $0.editState == .sealed && !$0.isArchived }
+        guard !sealed else { return }
+
+        let now = Date()
+        let effectiveDate = try HistoricalTimestamp.captured(
+            instant: now,
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+            provenance: .captured
+        ).localDate
+        let writer = AppWriteActor(modelContainer: container)
+        let draftID = UUID()
+        try await writer.saveRegimenDraft(
+            SaveRegimenDraftCommand(
+                recordID: draftID,
+                previousVersionID: nil,
+                code: "R-DEMO",
+                title: "今日执行测试方案",
+                effectiveStartDate: effectiveDate,
+                changeReason: "DEBUG UI fixture",
+                items: [
+                    RegimenItemInput(
+                        displayName: "雌二醇片（测试项目）",
+                        productSnapshot: "仅用于 DEBUG UI 测试",
+                        schedule: RegimenScheduleInput(
+                            kind: .dailyTimes,
+                            localTimes: "08:00,20:30",
+                            timeZoneBehavior: .floatingLocal
+                        )
+                    )
+                ],
+                committedAt: now
+            )
+        )
+        let preview = try await writer.previewRegimenChange(draftID: draftID)
+        try await writer.sealRegimenDraft(
+            SealRegimenDraftCommand(
+                draftID: draftID,
+                expectedNextLocalRevision: preview.expectedNextLocalRevision,
+                draftDigest: preview.draftDigest,
+                committedAt: now
+            )
+        )
     }
 }
 #endif

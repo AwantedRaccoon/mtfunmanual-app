@@ -406,7 +406,7 @@ actor Batch1PerformanceWorker {
               coreStates.first?.completedAt != nil,
               metadata.first?.nextLocalRevision == Batch1V3FoundationContract.nextLocalRevision,
               pointer.origin == .legacyAdoption,
-              pointer.schemaVersion == "3.0.0",
+              pointer.schemaVersion == "4.0.0",
               pointer.minimumFactCount == Batch1V3FoundationContract.activatedFactCount,
               pointer.minimumRevisionCount == Batch1V3FoundationContract.activatedRevisionCount,
               pointer.datasetID == metadata.first?.datasetID else {

@@ -70,6 +70,107 @@ final class HistoricalTimeFactsTests: XCTestCase {
         XCTAssertEqual(fact.timeZoneIdentifier, "Asia/Shanghai")
     }
 
+    func testCapturedMinutePrecisionRemovesHiddenSecondsAndNanoseconds() throws {
+        let wholeSecond = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-07-22T14:35:47Z")
+        )
+        let input = wholeSecond.addingTimeInterval(0.321)
+
+        let fact = try HistoricalTimestamp.captured(
+            instant: input,
+            timeZoneIdentifier: "UTC",
+            precision: .minute,
+            provenance: .userEntered
+        )
+
+        XCTAssertEqual(
+            fact.instant,
+            ISO8601DateFormatter().date(from: "2026-07-22T14:35:00Z")
+        )
+        XCTAssertEqual(fact.localTime.second, 0)
+        XCTAssertEqual(fact.localTime.nanosecond, 0)
+    }
+
+    func testValidatingInitializerRejectsPrecisionThatHidesFinerFacts() throws {
+        let wholeSecond = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-07-22T14:35:47Z")
+        )
+        let subsecond = try HistoricalTimestamp.captured(
+            instant: wholeSecond.addingTimeInterval(0.5),
+            timeZoneIdentifier: "UTC",
+            precision: .subsecond
+        )
+
+        XCTAssertThrowsError(
+            try HistoricalTimestamp(
+                validatingInstant: subsecond.instant,
+                localDate: subsecond.localDate,
+                localTime: subsecond.localTime,
+                timeZoneIdentifier: "UTC",
+                utcOffsetSeconds: 0,
+                precision: .minute,
+                provenance: .userEntered
+            )
+        )
+        XCTAssertThrowsError(
+            try HistoricalTimestamp(
+                validatingInstant: subsecond.instant,
+                localDate: subsecond.localDate,
+                localTime: subsecond.localTime,
+                timeZoneIdentifier: "UTC",
+                utcOffsetSeconds: 0,
+                precision: .second,
+                provenance: .userEntered
+            )
+        )
+    }
+
+    func testDecodingRejectsPrecisionThatHidesEncodedNanoseconds() throws {
+        let base = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-07-22T14:35:47Z")
+        )
+        let valid = try HistoricalTimestamp.captured(
+            instant: base.addingTimeInterval(0.5),
+            timeZoneIdentifier: "UTC",
+            precision: .subsecond
+        )
+        let encoded = try JSONEncoder().encode(valid)
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object["precision"] = HistoricalTimestampPrecision.second.rawValue
+        let invalid = try JSONSerialization.data(withJSONObject: object)
+
+        XCTAssertThrowsError(try JSONDecoder().decode(HistoricalTimestamp.self, from: invalid))
+    }
+
+    func testLegacyFactoryNormalizesToDeclaredPrecision() throws {
+        let wholeSecond = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-07-22T14:35:47Z")
+        )
+        let input = wholeSecond.addingTimeInterval(0.5)
+
+        let minute = try HistoricalTimestamp.legacyAssumed(
+            instant: input,
+            assumedTimeZoneIdentifier: "UTC",
+            precision: .minute
+        )
+        let second = try HistoricalTimestamp.legacyAssumed(
+            instant: input,
+            assumedTimeZoneIdentifier: "UTC",
+            precision: .second
+        )
+
+        XCTAssertEqual(
+            minute.instant,
+            ISO8601DateFormatter().date(from: "2026-07-22T14:35:00Z")
+        )
+        XCTAssertEqual(minute.localTime.second, 0)
+        XCTAssertEqual(minute.localTime.nanosecond, 0)
+        XCTAssertEqual(second.instant, wholeSecond)
+        XCTAssertEqual(second.localTime.nanosecond, 0)
+    }
+
     func testDecodingCannotBypassCivilDateValidation() {
         let invalid = Data(#"{"year":2026,"month":2,"day":30}"#.utf8)
 

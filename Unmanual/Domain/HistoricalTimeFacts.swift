@@ -147,8 +147,19 @@ struct HistoricalTimestamp: Codable, Equatable, Sendable {
               components.second == localTime.second else {
             throw HistoricalTimeError.localComponentsDoNotMatchInstant
         }
-        if precision == .subsecond,
-           components.nanosecond != localTime.nanosecond {
+        let nanosecond = components.nanosecond ?? 0
+        let precisionIsConsistent: Bool = switch precision {
+        case .minute:
+            components.second == 0
+                && nanosecond == 0
+                && localTime.second == 0
+                && localTime.nanosecond == 0
+        case .second:
+            nanosecond == 0 && localTime.nanosecond == 0
+        case .subsecond:
+            nanosecond == localTime.nanosecond
+        }
+        guard precisionIsConsistent else {
             throw HistoricalTimeError.localComponentsDoNotMatchInstant
         }
 
@@ -189,6 +200,7 @@ struct HistoricalTimestamp: Codable, Equatable, Sendable {
         assumedTimeZoneIdentifier: String,
         precision: HistoricalTimestampPrecision = .second
     ) throws -> HistoricalTimestamp {
+        let instant = normalizedInstant(instant, precision: precision)
         guard let timeZone = TimeZone(identifier: assumedTimeZoneIdentifier) else {
             throw HistoricalTimeError.unknownTimeZone
         }
@@ -228,6 +240,7 @@ struct HistoricalTimestamp: Codable, Equatable, Sendable {
         precision: HistoricalTimestampPrecision = .second,
         provenance: HistoricalTimestampProvenance = .captured
     ) throws -> HistoricalTimestamp {
+        let instant = normalizedInstant(instant, precision: precision)
         guard let timeZone = TimeZone(identifier: timeZoneIdentifier) else {
             throw HistoricalTimeError.unknownTimeZone
         }
@@ -258,6 +271,26 @@ struct HistoricalTimestamp: Codable, Equatable, Sendable {
             utcOffsetSeconds: timeZone.secondsFromGMT(for: instant),
             precision: precision,
             provenance: provenance
+        )
+    }
+
+    private static func normalizedInstant(
+        _ instant: Date,
+        precision: HistoricalTimestampPrecision
+    ) -> Date {
+        guard instant.timeIntervalSinceReferenceDate.isFinite else { return instant }
+        let quantum: TimeInterval
+        switch precision {
+        case .minute:
+            quantum = 60
+        case .second:
+            quantum = 1
+        case .subsecond:
+            return instant
+        }
+        return Date(
+            timeIntervalSinceReferenceDate:
+                floor(instant.timeIntervalSinceReferenceDate / quantum) * quantum
         )
     }
 }

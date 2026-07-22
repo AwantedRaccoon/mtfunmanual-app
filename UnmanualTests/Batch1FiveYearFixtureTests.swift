@@ -34,8 +34,8 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<CountdownRecord>()), 60)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 7_300)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1_200)
-        // 8,585 preserved legacy revisions plus 8,527 V3 canonical companion facts.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 17_112)
+        // Legacy + V3 canonical facts, plus the V4 operation-receipt ledger fact.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 17_113)
 
         let reader = AppReadActor(modelContainer: store.container)
         let firstPage = try await reader.journeyPage(after: nil, limit: 100)

@@ -178,12 +178,13 @@ private actor AppDataBootstrapWorker {
             break
         }
         if ProcessInfo.processInfo.arguments.contains("-unmanual-empty-store") {
-            let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+            let container = try AppModelContainerFactory.makeInMemoryTodayContainer()
             _ = try LegacyV1Backfill.run(in: container)
             _ = try CoreTimeRegimenBackfill.run(
                 in: container,
                 assumedTimeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
             )
+            _ = try TodayExecutionBackfill.run(in: container)
             return BootstrappedAppDataStore(
                 container: container,
                 generationID: UUID(),

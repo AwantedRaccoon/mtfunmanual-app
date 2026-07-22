@@ -38,6 +38,9 @@ struct AppShellView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             V25TabBar(selection: $selectedTab)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .unmanualOpenToday)) { _ in
+            selectedTab = .today
+        }
         .accessibilityIdentifier("app.shell")
     }
 }

@@ -2,6 +2,27 @@ import XCTest
 
 @MainActor
 final class RegimenUITests: XCTestCase {
+    func testScheduleEditorSavesAPlanWithoutRequestingNotificationPermission() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-unmanual-empty-store", "-unmanual-regimen-editor"]
+        app.launch()
+
+        let schedule = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "regimen.schedule.")
+        ).firstMatch
+        XCTAssertTrue(schedule.waitForExistence(timeout: 8))
+        schedule.tap()
+
+        let times = app.textFields["regimen.schedule.times"]
+        XCTAssertTrue(times.waitForExistence(timeout: 5))
+        XCTAssertEqual(times.value as? String, "08:00")
+        app.buttons["regimen.schedule.save"].tap()
+
+        XCTAssertTrue(app.staticTexts["每天 · 08:00"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts.firstMatch.exists)
+    }
+
     func testDraftPreviewCancelAndSealFlow() throws {
         continueAfterFailure = false
         let app = XCUIApplication()

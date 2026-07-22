@@ -72,6 +72,7 @@
 **`HistoricalTimestamp`**
 
 - 保存 UTC instant、原始 local date、local time、IANA time-zone ID、事件发生时 UTC offset、精度和 provenance。
+- 精度是持久化不变量：`minute` 的 second/nanosecond 必须为 0，`second` 的 nanosecond 必须为 0；所有工厂、直接验证构造与 decode 都执行同一约束，不能保存 UI 未采集的隐藏精度。
 - 执行、旅程、采样等时间型事实使用该语义。
 - 不存在的 DST 本地时间不得由 Foundation 静默归一；重复时间必须记录实际 offset。
 - legacy 数据缺少时区时标记 `migrationAssumed` provenance，不能伪装成已知事实。
@@ -136,7 +137,7 @@
 | --- | --- | --- | --- |
 | 代码与项目原创文档许可证 | 2026-07-21 已选择：自有软件源码 MPL-2.0，项目原创文档 CC BY-SA 4.0；以根 `LICENSE` 与 `LICENSE-SCOPE.md` 为准 | 该许可证选择已闭环；不替代逐来源内容授权 | 已解决 |
 | 品牌与 AppIcon | 名称、Logo、AppIcon 保留权利；当前 AppIcon 经用户确认的 ChatGPT 生成来源、精确 SHA-256、仓库角色与证据边界已记录在根 `ASSET-PROVENANCE.md` | 来源记录子门禁已闭环；该记录不是新增使用授权，第三方相似性、目标市场商标与最终发行法律复核仍未验证 | 来源记录已解决；法律复核在发布硬化前 |
-| 远端仓库治理 | 当前事实仅为 `AWantedRaccoon/mtfunmanual-app`；未授权创建、改名或 push | 新内容仓库、公开历史、自动发布 | 任何远端操作之前 |
+| 远端仓库治理 | `AWantedRaccoon/mtfunmanual-app` 的 Stage 0–2 阶段快照已在 2026-07-21 的明确授权下推送；未来任何创建、改名或 push 仍须取得当次授权 | 新内容仓库、公开历史、自动发布 | 任何后续远端操作之前 |
 | 上架地区与法律实体 | 产品负责人未确认 | App Store 提交、医疗/健康应用主体审查 | 发布硬化之前 |
 | Files / iCloud Drive 结论 | 需 App Review/法律确认或可靠 provider 限制 | 含健康数据的 JSON/package/CSV/PDF 导入导出 | 报告与完整备份发布之前 |
 | catalog 来源授权与复核责任 | 尚无已审核 seed、再分发许可或责任人 | Release 药品目录、内容仓库 | 方案目录进入 Release 前 |

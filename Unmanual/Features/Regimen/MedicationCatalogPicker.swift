@@ -16,7 +16,7 @@ struct RegimenMedicationDraft: Identifiable, Equatable {
     let route: String
     let doseOriginal: String
     let unitOriginal: String
-    let schedule: RegimenScheduleInput?
+    var schedule: RegimenScheduleInput?
     let productSnapshot: String
     let origin: Origin
 

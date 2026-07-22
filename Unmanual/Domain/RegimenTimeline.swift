@@ -25,6 +25,21 @@ struct RegimenTimelineProjection: Equatable, Sendable {
 }
 
 enum RegimenTimelineResolver {
+    static func normalizedEligibleTimeline(
+        _ versions: [RegimenTimelineVersion]
+    ) -> [RegimenTimelineVersion]? {
+        let eligible = normalized(versions
+            .filter { $0.editState == .sealed && !$0.requiresReview }
+            .sorted(by: stableOrder))
+        for pair in zip(eligible, eligible.dropFirst()) {
+            guard pair.0.start < pair.1.start,
+                  pair.0.end.map({ $0 <= pair.1.start }) ?? true else {
+                return nil
+            }
+        }
+        return eligible
+    }
+
     static func project(
         _ versions: [RegimenTimelineVersion],
         asOf date: CivilDateFact

@@ -18,6 +18,56 @@ struct V25TodayHome: View {
     let regimenAction: () -> Void
     let metricsAction: () -> Void
     let journeyAction: () -> Void
+    let executionSnapshot: TodayExecutionSnapshot
+    let executionIsLoading: Bool
+    let executionErrorMessage: String?
+    let executionRetryAction: () -> Void
+    let administrationAction: (TodayExecutionItemSnapshot, AdministrationStatus) -> Void
+    let snoozeAction: (TodayExecutionItemSnapshot) -> Void
+    let reminderAction: (TodayExecutionItemSnapshot) -> Void
+    let correctionAction: (TodayExecutionItemSnapshot) -> Void
+
+    init(
+        profile: HRTProfileSnapshot?,
+        countdown: CountdownRecordSnapshot?,
+        regimens: [CoreRegimenVersionSnapshot],
+        records: [LabRecordSnapshot],
+        entries: [JourneyEntrySnapshot],
+        quickRecordAction: @escaping () -> Void,
+        startDateAction: @escaping () -> Void,
+        countdownAction: @escaping () -> Void,
+        regimenAction: @escaping () -> Void,
+        metricsAction: @escaping () -> Void,
+        journeyAction: @escaping () -> Void,
+        executionSnapshot: TodayExecutionSnapshot = .empty,
+        executionIsLoading: Bool = false,
+        executionErrorMessage: String? = nil,
+        executionRetryAction: @escaping () -> Void = {},
+        administrationAction: @escaping (TodayExecutionItemSnapshot, AdministrationStatus) -> Void = { _, _ in },
+        snoozeAction: @escaping (TodayExecutionItemSnapshot) -> Void = { _ in },
+        reminderAction: @escaping (TodayExecutionItemSnapshot) -> Void = { _ in },
+        correctionAction: @escaping (TodayExecutionItemSnapshot) -> Void = { _ in }
+    ) {
+        self.profile = profile
+        self.countdown = countdown
+        self.regimens = regimens
+        self.records = records
+        self.entries = entries
+        self.quickRecordAction = quickRecordAction
+        self.startDateAction = startDateAction
+        self.countdownAction = countdownAction
+        self.regimenAction = regimenAction
+        self.metricsAction = metricsAction
+        self.journeyAction = journeyAction
+        self.executionSnapshot = executionSnapshot
+        self.executionIsLoading = executionIsLoading
+        self.executionErrorMessage = executionErrorMessage
+        self.executionRetryAction = executionRetryAction
+        self.administrationAction = administrationAction
+        self.snoozeAction = snoozeAction
+        self.reminderAction = reminderAction
+        self.correctionAction = correctionAction
+    }
 
     private var hrtDay: Int? {
         profile.map { DateFacts.hrtDay(startDate: $0.startDate) }
@@ -61,6 +111,18 @@ struct V25TodayHome: View {
             } else {
                 dayRuler
             }
+
+            TodayExecutionLedger(
+                snapshot: executionSnapshot,
+                isLoading: executionIsLoading,
+                errorMessage: executionErrorMessage,
+                retryAction: executionRetryAction,
+                createPlanAction: regimenAction,
+                administrationAction: administrationAction,
+                snoozeAction: snoozeAction,
+                reminderAction: reminderAction,
+                correctionAction: correctionAction
+            )
 
             context
             latestTrace

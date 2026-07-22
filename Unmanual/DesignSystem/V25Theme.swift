@@ -15,13 +15,30 @@ enum V25Theme {
     static let dayValueLeadingInset: CGFloat = 16
 }
 
+private struct V25ReduceMotionOverrideKey: EnvironmentKey {
+    static let defaultValue: Bool? = nil
+}
+
+extension EnvironmentValues {
+    var v25ReduceMotionOverride: Bool? {
+        get { self[V25ReduceMotionOverrideKey.self] }
+        set { self[V25ReduceMotionOverrideKey.self] = newValue }
+    }
+}
+
 struct V25PressStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.v25ReduceMotionOverride) private var reduceMotionOverride
+
+    private var shouldReduceMotion: Bool { reduceMotionOverride ?? reduceMotion }
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .offset(y: configuration.isPressed && !reduceMotion ? 3 : 0)
+            .offset(y: configuration.isPressed && !shouldReduceMotion ? 3 : 0)
             .opacity(configuration.isPressed ? 0.74 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
+            .animation(
+                shouldReduceMotion ? nil : .easeOut(duration: 0.16),
+                value: configuration.isPressed
+            )
     }
 }

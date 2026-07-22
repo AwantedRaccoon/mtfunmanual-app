@@ -138,7 +138,7 @@ final class StoreBootstrapTests: XCTestCase {
         }
     }
 
-    func testV2ActiveGenerationUpgradesThroughInactiveV3CopyBeforePointerSwitch() throws {
+    func testV2ActiveGenerationUpgradesThroughInactiveCopiesBeforeV4PointerSwitch() throws {
         let layout = try makeLayout()
         let sourceGenerationID = UUID()
         let sourceStoreURL = layout.storeURL(for: sourceGenerationID)
@@ -196,7 +196,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "3.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "4.0.0")
         XCTAssertEqual(pointer.generationID, upgraded.generationID)
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         let sourceResourceValuesAfterUpgrade = try sourceStoreURL.resourceValues(
@@ -212,6 +212,77 @@ final class StoreBootstrapTests: XCTestCase {
         )
         XCTAssertEqual(
             try context.fetch(FetchDescriptor<CoreTimeRegimenBackfillState>()).first?.completedAt != nil,
+            true
+        )
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<TodayExecutionBackfillState>()).first?.completedAt != nil,
+            true
+        )
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<NotificationCoverageRecord>()), 1)
+    }
+
+    func testV3ActiveGenerationUpgradesThroughInactiveV4CopyWithoutExecutionFacts() throws {
+        let layout = try makeLayout()
+        let sourceGenerationID = UUID()
+        let sourceStoreURL = layout.storeURL(for: sourceGenerationID)
+        try FileManager.default.createDirectory(
+            at: sourceStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var datasetID: UUID!
+        var factCount = 0
+        var revisionCount = 0
+        try autoreleasepool {
+            let container = try AppModelContainerFactory.makeCoreContainer(at: sourceStoreURL)
+            _ = try LegacyV1Backfill.run(in: container)
+            _ = try CoreTimeRegimenBackfill.run(
+                in: container,
+                assumedTimeZoneIdentifier: "UTC"
+            )
+            let context = ModelContext(container)
+            datasetID = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID
+            revisionCount = try context.fetchCount(FetchDescriptor<RecordRevision>())
+            factCount = revisionCount
+        }
+        try GenerationPointerStore(layout: layout).write(
+            GenerationPointer(
+                generationID: sourceGenerationID,
+                schemaVersion: "3.0.0",
+                origin: .newInstall,
+                datasetID: datasetID,
+                minimumFactCount: factCount,
+                minimumRevisionCount: revisionCount
+            )
+        )
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: sourceGenerationID,
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        let sourceProtection = try StoreFileProtectionAuditor(
+            backupPolicy: .systemManaged,
+            verificationMode: .simulatorTestHarness
+        ).hardenAndInspect(
+            storeURL: sourceStoreURL,
+            resources: layout.protectionResources(for: sourceGenerationID)
+        )
+        XCTAssertTrue(sourceProtection.isAcceptableForCurrentPlatform)
+        let sourceDigest = try sha256(of: sourceStoreURL)
+
+        let upgraded = try makeTestBootstrapper(layout: layout).open()
+        let pointer = try GenerationPointerStore(layout: layout).read()
+        let context = ModelContext(upgraded.container)
+
+        XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
+        XCTAssertEqual(pointer.schemaVersion, "4.0.0")
+        XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<AdministrationEventRecord>()), 0)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<ReminderPreferenceRecord>()), 0)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<NotificationCoverageRecord>()), 1)
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<TodayExecutionBackfillState>()).first?.completedAt != nil,
             true
         )
     }
@@ -269,7 +340,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertEqual(opened.origin, .newInstall)
         XCTAssertEqual(pointer.generationID, opened.generationID)
-        XCTAssertEqual(pointer.schemaVersion, "3.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "4.0.0")
         XCTAssertEqual(opened.storeURL, layout.storeURL(for: opened.generationID))
         XCTAssertTrue(FileManager.default.fileExists(atPath: opened.storeURL.path))
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
@@ -290,9 +361,8 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: layout.legacyStoreURL.path))
         XCTAssertNotEqual(opened.storeURL, layout.legacyStoreURL)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<HRTProfile>()), 1)
-        // V3 adds canonical preferences, journey-profile and period facts alongside
-        // the preserved legacy HRTProfile revision.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 4)
+        // V3 canonical facts plus the V4 receipt-ledger fact accompany legacy facts.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 5)
     }
 
     func testEmptyUnversionedLegacyStoreAdoptsReopensAndKeepsSourceUntouched() throws {
@@ -308,7 +378,7 @@ final class StoreBootstrapTests: XCTestCase {
             let context = ModelContext(opened.container)
 
             XCTAssertEqual(opened.origin, .legacyAdoption)
-            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 1)
+            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 2)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<MigrationBackfillState>()), 1)
             firstDatasetID = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID
@@ -319,7 +389,7 @@ final class StoreBootstrapTests: XCTestCase {
             let context = ModelContext(reopened.container)
 
             XCTAssertEqual(reopened.origin, .existingGeneration)
-            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 1)
+            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 2)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<MigrationBackfillState>()), 1)
             XCTAssertEqual(try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID, firstDatasetID)
@@ -361,8 +431,8 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<RegimenVersion>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1)
-        // Five preserved legacy revisions plus six V3 canonical companion facts.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 11)
+        // Legacy + V3 canonical facts, plus the V4 receipt-ledger fact.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 12)
         for (suffix, hash) in expectedHashes {
             XCTAssertEqual(
                 try sha256(of: frozenLegacyFixtureURL(suffix: suffix)),
@@ -541,11 +611,11 @@ final class StoreBootstrapTests: XCTestCase {
         var factCount = 0
         var revisionCount = 0
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeReadOnlyCoreContainer(at: storeURL)
+            let container = try AppModelContainerFactory.makeReadOnlyTodayContainer(at: storeURL)
             let context = ModelContext(container)
             datasetID = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID
             revisionCount = try context.fetchCount(FetchDescriptor<RecordRevision>())
-            // The validated V3 generation has one revision for every business fact.
+            // The validated V4 generation has one revision for every business fact.
             factCount = revisionCount
         }
         let pointer = GenerationPointer(
@@ -713,7 +783,7 @@ final class StoreBootstrapTests: XCTestCase {
         }
 
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeCoreContainer(at: storeURL)
+            let container = try AppModelContainerFactory.makeTodayContainer(at: storeURL)
             let context = ModelContext(container)
             let metadata = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first)
             let validRevision = try XCTUnwrap(context.fetch(FetchDescriptor<RecordRevision>()).first)
@@ -849,7 +919,7 @@ final class StoreBootstrapTests: XCTestCase {
             try context.save()
         }
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeCoreContainer(at: storeURL)
+            let container = try AppModelContainerFactory.makeTodayContainer(at: storeURL)
             let context = ModelContext(container)
             let profile = try XCTUnwrap(context.fetch(FetchDescriptor<HRTProfile>()).first)
             profile.startDate = Date(timeIntervalSince1970: 1_800_000_000)
@@ -880,7 +950,7 @@ final class StoreBootstrapTests: XCTestCase {
         let journal = try MigrationJournalStore(layout: layout).read()
 
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeCoreContainer(
+            let container = try AppModelContainerFactory.makeTodayContainer(
                 at: layout.storeURL(for: journal.targetGenerationID)
             )
             let context = ModelContext(container)
