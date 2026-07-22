@@ -114,10 +114,10 @@ struct RegimenScheduleEditor: View {
                 .foregroundStyle(theme.indigoDeep)
             Text(medicationName)
                 .font(.headline.weight(.black))
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text("这里只描述你的计划，不判断剂量或是否适合。提醒会在今天页面单独开启。")
                 .font(.subheadline)
-                .foregroundStyle(theme.indigo.opacity(0.7))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -213,7 +213,7 @@ struct RegimenScheduleEditor: View {
                         : "固定为 \(fixedTimeZoneIdentifier)。"
                 )
                 .font(.caption)
-                .foregroundStyle(theme.indigo.opacity(0.66))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -225,7 +225,7 @@ struct RegimenScheduleEditor: View {
                 .font(.subheadline.weight(.semibold))
             Text("保存计划不会自动请求通知权限，也不会生成“已使用”记录。")
                 .font(.caption)
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -246,7 +246,7 @@ struct RegimenScheduleEditor: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.vermilionText)
                     .accessibilityIdentifier("regimen.schedule.error")
             }
             Button("保存执行时间", action: commit)
@@ -272,7 +272,7 @@ struct RegimenScheduleEditor: View {
                 Spacer()
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.6))
+                    .foregroundStyle(theme.secondaryText)
             }
             content()
         }

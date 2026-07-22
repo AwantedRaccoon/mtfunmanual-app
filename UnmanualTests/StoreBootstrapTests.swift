@@ -1253,8 +1253,17 @@ final class StoreBootstrapTests: XCTestCase {
     }
 
     private func seedLegacyStore(at url: URL) throws {
+        let stagingDirectory = url.deletingLastPathComponent()
+            .appending(path: "Seed-" + UUID().uuidString, directoryHint: .isDirectory)
+        let stagingURL = stagingDirectory.appending(path: url.lastPathComponent)
+        try FileManager.default.createDirectory(
+            at: stagingDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: stagingDirectory) }
+
         try autoreleasepool {
-            let container = try LegacyUnversionedStoreFactory.makeContainer(at: url)
+            let container = try LegacyUnversionedStoreFactory.makeContainer(at: stagingURL)
             let context = ModelContext(container)
             context.insert(
                 HRTProfile(
@@ -1264,6 +1273,16 @@ final class StoreBootstrapTests: XCTestCase {
                 )
             )
             try context.save()
+
+            // Snapshot while the seed container is still retained and idle.
+            // Its eventual deinit may checkpoint WAL bytes into the staging
+            // main file; the independent fixture must not inherit that race.
+            for suffix in ["", "-wal", "-shm"] {
+                let source = URL(fileURLWithPath: stagingURL.path + suffix)
+                guard FileManager.default.fileExists(atPath: source.path) else { continue }
+                let destination = URL(fileURLWithPath: url.path + suffix)
+                try FileManager.default.copyItem(at: source, to: destination)
+            }
         }
     }
 
@@ -1326,15 +1345,15 @@ final class StoreBootstrapTests: XCTestCase {
             recordType: "HRTProfile",
             recordID: profile.id,
             fields: [
-                .init("activePeriodStartDate", timestamp(profile.activePeriodStartDate)),
-                .init("createdAt", timestamp(profile.createdAt)),
-                .init("startDate", timestamp(profile.startDate))
+                .init("activePeriodStartDate", try timestamp(profile.activePeriodStartDate)),
+                .init("createdAt", try timestamp(profile.createdAt)),
+                .init("startDate", try timestamp(profile.startDate))
             ]
         )
     }
 
-    private func timestamp(_ date: Date) -> RecordDigestV1.Value {
-        .timestampMicroseconds(Int64((date.timeIntervalSince1970 * 1_000_000).rounded()))
+    private func timestamp(_ date: Date) throws -> RecordDigestV1.Value {
+        try RecordDigestV1.timestampValue(date)
     }
 
     private func directoryEntryNames(at url: URL) throws -> [String] {

@@ -4,6 +4,9 @@ import UIKit
 extension Notification.Name {
     static let unmanualOpenToday = Notification.Name("unmanual.openToday")
     static let unmanualLocalDataChanged = Notification.Name("unmanual.localDataChanged")
+    static let unmanualReminderInputsChanged = Notification.Name(
+        "unmanual.reminderInputsChanged"
+    )
 }
 
 @MainActor

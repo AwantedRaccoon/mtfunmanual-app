@@ -110,7 +110,7 @@ extension AppReadActor {
         let startOfToday = calendar.startOfDay(for: now)
         guard let lookbackStart = calendar.date(
             byAdding: .day,
-            value: -1,
+            value: -3,
             to: startOfToday
         ), let end = calendar.date(
             byAdding: .day,
@@ -168,12 +168,20 @@ extension AppReadActor {
         }
         let items = try boundedFetch(FetchDescriptor<RegimenItemRecord>(), limit: 4_096)
         let rules = try boundedFetch(FetchDescriptor<ScheduleRuleRecord>(), limit: 4_096)
-        let itemsByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
-        let versionRecordsByID = Dictionary(
-            uniqueKeysWithValues: versionRecords.map { ($0.id, $0) }
+        let itemsByID = try AppDataIndex.checkedUniqueMap(
+            items,
+            keyedBy: \.id,
+            failure: .corruptionSuspected
         )
-        let timelineByID = Dictionary(
-            uniqueKeysWithValues: normalizedTimeline.map { ($0.id, $0) }
+        let versionRecordsByID = try AppDataIndex.checkedUniqueMap(
+            versionRecords,
+            keyedBy: \.id,
+            failure: .corruptionSuspected
+        )
+        let timelineByID = try AppDataIndex.checkedUniqueMap(
+            normalizedTimeline,
+            keyedBy: \.id,
+            failure: .corruptionSuspected
         )
         var specs: [ScheduleRuleSpec] = []
         var issues: [ScheduleOccurrenceIssue] = []
@@ -181,7 +189,7 @@ extension AppReadActor {
         for rule in rules {
             guard let item = itemsByID[rule.regimenItemID],
                   let version = versionRecordsByID[item.regimenVersionID],
-                  timelineByID[version.id] != nil else {
+                  let timelineVersion = timelineByID[version.id] else {
                 continue
             }
             guard let kind = ScheduleRuleKind(rawValue: rule.kindRawValue),
@@ -210,6 +218,21 @@ extension AppReadActor {
                 }
                 endDate = nil
             }
+            guard endDate.map({ anchor < $0 }) ?? true else {
+                issues.append(.invalidRule(rule.id))
+                continue
+            }
+            let activeStartDate = max(anchor, timelineVersion.start)
+            let activeEndDate: CivilDateFact?
+            switch (endDate, timelineVersion.end) {
+            case let (ruleEnd?, versionEnd?): activeEndDate = min(ruleEnd, versionEnd)
+            case let (ruleEnd?, nil): activeEndDate = ruleEnd
+            case let (nil, versionEnd?): activeEndDate = versionEnd
+            case (nil, nil): activeEndDate = nil
+            }
+            if let activeEndDate, activeStartDate >= activeEndDate {
+                continue
+            }
             specs.append(
                 ScheduleRuleSpec(
                     id: rule.id,
@@ -218,7 +241,8 @@ extension AppReadActor {
                     displayName: item.displayName,
                     kind: kind,
                     anchorDate: anchor,
-                    endDate: endDate,
+                    activeStartDate: activeStartDate,
+                    endDate: activeEndDate,
                     localTimes: rule.localTimes,
                     weekdays: rule.weekdays,
                     intervalDays: rule.intervalDays,
@@ -239,24 +263,18 @@ extension AppReadActor {
             guard let version = timelineByID[occurrence.regimenVersionID] else { return false }
             return version.contains(occurrence.localDate)
         }
+        let eligibleOccurrenceKeys = eligibleOccurrences.map(\.key)
+        guard Set(eligibleOccurrenceKeys).count == eligibleOccurrenceKeys.count else {
+            throw AppDataFailure.corruptionSuspected
+        }
 
-        let intervalStart = interval.start
-        let intervalEnd = interval.end
-        let allEvents = try boundedFetch(
-            FetchDescriptor<AdministrationEventRecord>(
-                predicate: #Predicate {
-                    $0.plannedInstant >= intervalStart && $0.plannedInstant < intervalEnd
-                }
-            ),
+        let allEvents = try administrationEvents(
+            occurrenceKeys: eligibleOccurrenceKeys,
             limit: 8_192
         )
         let eventsByKey = Dictionary(grouping: allEvents, by: \.occurrenceKey)
-        let allOverrides = try boundedFetch(
-            FetchDescriptor<ReminderOverrideRecord>(
-                predicate: #Predicate {
-                    $0.plannedInstant >= intervalStart && $0.plannedInstant < intervalEnd
-                }
-            ),
+        let allOverrides = try reminderOverrides(
+            occurrenceKeys: eligibleOccurrenceKeys,
             limit: 8_192
         )
         let overridesByKey = Dictionary(grouping: allOverrides, by: \.occurrenceKey)
@@ -264,9 +282,11 @@ extension AppReadActor {
             FetchDescriptor<ReminderPreferenceRecord>(),
             limit: 4_096
         )
-        let preferenceByKey = Dictionary(uniqueKeysWithValues: preferences.map {
-            ($0.preferenceKey, $0)
-        })
+        let preferenceByKey = try AppDataIndex.checkedUniqueMap(
+            preferences,
+            keyedBy: \.preferenceKey,
+            failure: .corruptionSuspected
+        )
         let validPreferenceKeys = Set(specs.map {
             ReminderPreferenceRecord.key(scheduleRuleID: $0.id, revision: $0.revision)
         })
@@ -380,5 +400,53 @@ extension AppReadActor {
             throw AppDataFailure.corruptionSuspected
         }
         return records
+    }
+
+    private func administrationEvents(
+        occurrenceKeys: [String],
+        limit: Int
+    ) throws -> [AdministrationEventRecord] {
+        var result: [AdministrationEventRecord] = []
+        let sortedKeys = occurrenceKeys.sorted()
+        for start in stride(from: 0, to: sortedKeys.count, by: 128) {
+            let end = min(start + 128, sortedKeys.count)
+            let batch = Array(sortedKeys[start..<end])
+            let remaining = limit - result.count
+            guard remaining >= 0 else { throw AppDataFailure.corruptionSuspected }
+            var descriptor = FetchDescriptor<AdministrationEventRecord>(
+                predicate: #Predicate { batch.contains($0.occurrenceKey) }
+            )
+            descriptor.fetchLimit = remaining + 1
+            let records = try modelContext.fetch(descriptor)
+            guard records.count <= remaining else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            result.append(contentsOf: records)
+        }
+        return result
+    }
+
+    private func reminderOverrides(
+        occurrenceKeys: [String],
+        limit: Int
+    ) throws -> [ReminderOverrideRecord] {
+        var result: [ReminderOverrideRecord] = []
+        let sortedKeys = occurrenceKeys.sorted()
+        for start in stride(from: 0, to: sortedKeys.count, by: 128) {
+            let end = min(start + 128, sortedKeys.count)
+            let batch = Array(sortedKeys[start..<end])
+            let remaining = limit - result.count
+            guard remaining >= 0 else { throw AppDataFailure.corruptionSuspected }
+            var descriptor = FetchDescriptor<ReminderOverrideRecord>(
+                predicate: #Predicate { batch.contains($0.occurrenceKey) }
+            )
+            descriptor.fetchLimit = remaining + 1
+            let records = try modelContext.fetch(descriptor)
+            guard records.count <= remaining else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            result.append(contentsOf: records)
+        }
+        return result
     }
 }

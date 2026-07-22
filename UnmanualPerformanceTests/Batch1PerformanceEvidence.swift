@@ -154,7 +154,7 @@ struct Batch1FixtureCounts: Codable, Equatable, Sendable {
         journeyEntries: 7_300,
         labRecords: 1_200,
         migrationIssues: 0,
-        revisions: 17_112
+        revisions: 17_113
     )
 
     let profiles: Int
@@ -195,10 +195,10 @@ struct Batch1V3CompanionCounts: Codable, Equatable, Sendable {
     }
 }
 
-enum Batch1V3FoundationContract {
+enum Batch1V4FoundationContract {
     static let activatedFactCount = Batch1FixtureCounts.expected.legacyFacts
         + Batch1V3CompanionCounts.expected.facts + 1
-    static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions + 1
+    static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions
     static let nextLocalRevision = Int64(activatedRevisionCount + 1)
     static let quickWriteAddedFactCount = 2
     static let postQuickWriteRevisionCount = activatedRevisionCount + quickWriteAddedFactCount

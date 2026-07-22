@@ -91,6 +91,18 @@ final class RecordDigestV1Tests: XCTestCase {
             )
         }
     }
+
+    func testSharedTimestampEncoderRejectsFiniteOutOfRangeDate() {
+        let date = Date(timeIntervalSince1970: 1e20)
+        XCTAssertTrue(date.timeIntervalSince1970.isFinite)
+
+        XCTAssertThrowsError(try RecordDigestV1.timestampValue(date)) { error in
+            XCTAssertEqual(
+                error as? RecordDigestV1.EncodingError,
+                .timestampOutOfRange
+            )
+        }
+    }
 }
 
 private extension Data {

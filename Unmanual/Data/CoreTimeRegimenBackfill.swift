@@ -359,8 +359,8 @@ enum CoreTimeRegimenBackfill {
         facts += rules.map {
             ("ScheduleRuleRecord", $0.id, CoreFactDigestV1.schedule($0), $0.createdAt)
         }
-        facts += historicalTimes.map {
-            ("HistoricalTimeRecord", stableUUID(for: $0.recordKey), CoreFactDigestV1.historicalTime($0), $0.instant)
+        facts += try historicalTimes.map {
+            ("HistoricalTimeRecord", stableUUID(for: $0.recordKey), try CoreFactDigestV1.historicalTime($0), $0.instant)
         }
         facts.sort {
             $0.0 != $1.0 ? $0.0 < $1.0 : $0.1.uuidString < $1.1.uuidString
@@ -515,10 +515,10 @@ enum CoreFactDigestV1 {
         ]
     }
 
-    static func historicalTime(_ model: HistoricalTimeRecord) -> [RecordDigestV1.Field] {
+    static func historicalTime(_ model: HistoricalTimeRecord) throws -> [RecordDigestV1.Field] {
         [
             .init("associationState", .string(model.associationStateRawValue)),
-            .init("instant", timestamp(model.instant)),
+            .init("instant", try timestamp(model.instant)),
             .init("legacyAssociationID", model.legacyAssociationID.map(RecordDigestV1.Value.uuid) ?? .null),
             .init("localDay", .integer(Int64(model.localDay))),
             .init("localHour", .integer(Int64(model.localHour))),
@@ -545,7 +545,7 @@ enum CoreFactDigestV1 {
         value.map(RecordDigestV1.Value.string) ?? .null
     }
 
-    private static func timestamp(_ date: Date) -> RecordDigestV1.Value {
-        .timestampMicroseconds(Int64((date.timeIntervalSince1970 * 1_000_000).rounded()))
+    private static func timestamp(_ date: Date) throws -> RecordDigestV1.Value {
+        try RecordDigestV1.timestampValue(date)
     }
 }

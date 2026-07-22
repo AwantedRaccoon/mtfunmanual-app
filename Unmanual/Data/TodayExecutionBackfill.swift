@@ -64,7 +64,7 @@ enum TodayExecutionBackfill {
             let receipts = try context.fetch(FetchDescriptor<OperationReceiptRecord>())
             guard ledger.ledgerKey == OperationReceiptLedgerRecord.fixedKey,
                   ledger.receiptCount == receipts.count,
-                  ledger.receiptSetDigest == TodayExecutionDigestV1.receiptSetDigest(receipts) else {
+                  ledger.receiptSetDigest == (try TodayExecutionDigestV1.receiptSetDigest(receipts)) else {
                 throw AppDataFailure.migrationFailed
             }
             return
@@ -82,7 +82,7 @@ enum TodayExecutionBackfill {
         let receipts = try context.fetch(FetchDescriptor<OperationReceiptRecord>())
         let ledger = OperationReceiptLedgerRecord(
             receiptCount: receipts.count,
-            receiptSetDigest: TodayExecutionDigestV1.receiptSetDigest(receipts),
+            receiptSetDigest: try TodayExecutionDigestV1.receiptSetDigest(receipts),
             updatedAt: now
         )
         try context.transaction {

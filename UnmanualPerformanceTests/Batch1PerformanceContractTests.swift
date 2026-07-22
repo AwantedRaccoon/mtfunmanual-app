@@ -42,15 +42,16 @@ final class Batch1PerformanceContractTests: XCTestCase {
         XCTAssertTrue(contract.thresholdNanoseconds.isEmpty)
     }
 
-    func testFiveYearExpectedCountsIncludeV3CompanionFacts() {
+    func testFiveYearExpectedCountsIncludeV3CompanionFactsAndV4Ledger() {
         XCTAssertEqual(Batch1FixtureCounts.legacySourceExpected.revisions, 8_585)
         XCTAssertEqual(Batch1FixtureCounts.legacySourceExpected.legacyFacts, 8_585)
         XCTAssertEqual(Batch1V3CompanionCounts.expected.facts, 8_527)
-        XCTAssertEqual(Batch1FixtureCounts.expected.revisions, 17_112)
-        XCTAssertEqual(Batch1V3FoundationContract.activatedFactCount, 17_113)
-        XCTAssertEqual(Batch1V3FoundationContract.nextLocalRevision, 17_114)
-        XCTAssertEqual(Batch1V3FoundationContract.postQuickWriteRevisionCount, 17_115)
-        XCTAssertEqual(Batch1V3FoundationContract.postQuickWriteNextLocalRevision, 17_115)
+        XCTAssertEqual(Batch1FixtureCounts.expected.revisions, 17_113)
+        XCTAssertEqual(Batch1V4FoundationContract.activatedFactCount, 17_113)
+        XCTAssertEqual(Batch1V4FoundationContract.activatedRevisionCount, 17_113)
+        XCTAssertEqual(Batch1V4FoundationContract.nextLocalRevision, 17_114)
+        XCTAssertEqual(Batch1V4FoundationContract.postQuickWriteRevisionCount, 17_115)
+        XCTAssertEqual(Batch1V4FoundationContract.postQuickWriteNextLocalRevision, 17_115)
     }
 
     @MainActor

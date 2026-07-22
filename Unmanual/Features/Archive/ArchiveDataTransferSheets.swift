@@ -50,7 +50,7 @@ struct ArchiveDataExportSheet: View {
                             .font(.body.weight(.black))
                         Text("包含记录原文、日期、单位和方案关联；不包含账号或设备标识。")
                             .font(.caption)
-                            .foregroundStyle(theme.indigo.opacity(0.64))
+                            .foregroundStyle(theme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -58,7 +58,7 @@ struct ArchiveDataExportSheet: View {
                 if let statusMessage {
                     Text(statusMessage)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(theme.moss)
+                        .foregroundStyle(theme.mossText)
                         .accessibilityIdentifier("archive.export.status")
                 }
             }
@@ -148,7 +148,7 @@ struct ArchiveDataImportSheet: View {
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("archive.import.error")
                 }
@@ -255,10 +255,10 @@ private struct ArchiveTransferManifest: View {
                         .tracking(0.8)
                         .padding(.horizontal, 8)
                         .frame(minHeight: 28)
-                        .overlay { Rectangle().stroke(theme.paper.opacity(0.72), lineWidth: 1) }
+                        .overlay { Rectangle().stroke(theme.paper, lineWidth: 1) }
                 }
 
-                Rectangle().fill(theme.paper.opacity(0.34)).frame(height: 1)
+                Rectangle().fill(theme.paper).frame(height: 1)
 
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(backup.totalRecordCount, format: .number)
@@ -291,25 +291,50 @@ private struct ArchiveTransferSummary: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            row(code: "01", title: "旅程", count: backup.entries.count, color: theme.vermilion)
-            row(code: "02", title: "检查项目", count: backup.labRecords.count, color: theme.blue)
-            row(code: "03", title: "方案版本", count: backup.regimens.count, color: theme.moss)
+            row(
+                code: "01",
+                title: "旅程",
+                count: backup.entries.count,
+                color: theme.vermilion,
+                textColor: theme.vermilionText
+            )
+            row(
+                code: "02",
+                title: "检查项目",
+                count: backup.labRecords.count,
+                color: theme.blue,
+                textColor: theme.blueText
+            )
+            row(
+                code: "03",
+                title: "方案版本",
+                count: backup.regimens.count,
+                color: theme.moss,
+                textColor: theme.mossText
+            )
             row(
                 code: "04",
                 title: "开始日与 Countdown",
                 count: backup.profiles.count + backup.countdowns.count,
-                color: theme.mustard
+                color: theme.mustard,
+                textColor: theme.mustardText
             )
         }
         .background(theme.paper)
         .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
     }
 
-    private func row(code: String, title: String, count: Int, color: Color) -> some View {
+    private func row(
+        code: String,
+        title: String,
+        count: Int,
+        color: Color,
+        textColor: Color
+    ) -> some View {
         HStack(spacing: 12) {
             Text(code)
                 .font(theme.utility(10))
-                .foregroundStyle(color)
+                .foregroundStyle(textColor)
                 .frame(width: 24, alignment: .leading)
             Rectangle().fill(color).frame(width: 4, height: 28)
             Text(title)
@@ -323,7 +348,7 @@ private struct ArchiveTransferSummary: View {
         .padding(.horizontal, 13)
         .frame(minHeight: 58)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.indigo.opacity(0.55)).frame(height: 1)
+            Rectangle().fill(theme.secondaryText).frame(height: 1)
         }
         .accessibilityElement(children: .combine)
     }
@@ -349,7 +374,7 @@ private struct ArchiveMergeRules: View {
                 Text(title).font(.subheadline.weight(.black))
                 Text(result)
                     .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.64))
+                    .foregroundStyle(theme.secondaryText)
             }
             Spacer()
             Image(systemName: "arrow.right")
@@ -359,7 +384,7 @@ private struct ArchiveMergeRules: View {
         .padding(.horizontal, 13)
         .frame(minHeight: 58)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.indigo.opacity(0.5)).frame(height: 1)
+            Rectangle().fill(theme.secondaryText).frame(height: 1)
         }
     }
 }
@@ -374,13 +399,13 @@ private struct ArchiveImportPicker: View {
             Text("01 / 选择文件")
                 .font(theme.utility(10))
                 .tracking(0.9)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text("先找到你的备份")
                 .font(theme.display(27, relativeTo: .title2))
                 .foregroundStyle(theme.indigoDeep)
             Text("支持由 Unmanual 导出的 JSON 文件。选中后这里只展示清单，不会立即改变本机记录。")
                 .font(.body)
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
             Button("选择备份文件", action: action)
@@ -409,14 +434,14 @@ private struct ArchiveImportReceipt: View {
                 .foregroundStyle(theme.mustard)
             Text("数据已经合并")
                 .font(theme.display(31, relativeTo: .title))
-            Rectangle().fill(theme.paper.opacity(0.32)).frame(height: 1)
+            Rectangle().fill(theme.paper).frame(height: 1)
             HStack(spacing: 18) {
                 receiptCount(result.insertedCount, label: "新增")
                 receiptCount(result.updatedCount, label: "更新")
             }
             Text("本机中没有出现在备份里的记录仍然保留。")
                 .font(.caption)
-                .foregroundStyle(theme.paper.opacity(0.7))
+                .foregroundStyle(theme.paper)
         }
         .foregroundStyle(theme.paper)
         .padding(17)

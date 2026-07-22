@@ -22,6 +22,26 @@ struct ApplyReminderOverrideCommand: Sendable {
     let expectedOverrideID: UUID?
     let fireAt: Date
     let committedAt: Date
+    let displayTimeZoneIdentifier: String
+
+    init(
+        operationID: UUID,
+        overrideID: UUID,
+        occurrence: PlannedOccurrence,
+        expectedOverrideID: UUID?,
+        fireAt: Date,
+        committedAt: Date,
+        displayTimeZoneIdentifier: String? = nil
+    ) {
+        self.operationID = operationID
+        self.overrideID = overrideID
+        self.occurrence = occurrence
+        self.expectedOverrideID = expectedOverrideID
+        self.fireAt = fireAt
+        self.committedAt = committedAt
+        self.displayTimeZoneIdentifier = displayTimeZoneIdentifier
+            ?? occurrence.timeZoneIdentifier
+    }
 }
 
 struct ReminderOverrideResult: Equatable, Sendable {
@@ -84,7 +104,7 @@ extension AppWriteActor {
         preferenceDescriptor.fetchLimit = 1
         let existing = try modelContext.fetch(preferenceDescriptor).first
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
         do {
             var result: ReminderPreferenceResult?
             try modelContext.transaction {
@@ -173,11 +193,16 @@ extension AppWriteActor {
             return replay
         }
         guard command.fireAt > command.committedAt,
+              command.fireAt.timeIntervalSince(command.committedAt) <= 86_400,
               command.fireAt.timeIntervalSince1970.isFinite,
               command.committedAt.timeIntervalSince1970.isFinite else {
             throw TodayExecutionWriteFailure.invalidOccurrence
         }
-        try validateOccurrenceForTodayExecution(command.occurrence)
+        try validateOccurrenceForTodayExecution(
+            command.occurrence,
+            committedAt: command.committedAt,
+            displayTimeZoneIdentifier: command.displayTimeZoneIdentifier
+        )
         let overrides = try reminderOverrides(for: command.occurrence.key)
         let leaf = try effectiveReminderOverride(in: overrides)
         guard leaf?.id == command.expectedOverrideID else {
@@ -185,7 +210,7 @@ extension AppWriteActor {
         }
 
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
         do {
             var result: ReminderOverrideResult?
             try modelContext.transaction {
@@ -196,7 +221,11 @@ extension AppWriteActor {
                     result = replay
                     return
                 }
-                try validateOccurrenceForTodayExecution(command.occurrence)
+                try validateOccurrenceForTodayExecution(
+                    command.occurrence,
+                    committedAt: command.committedAt,
+                    displayTimeZoneIdentifier: command.displayTimeZoneIdentifier
+                )
                 let transactionalLeaf = try effectiveReminderOverride(
                     in: reminderOverrides(for: command.occurrence.key)
                 )
@@ -218,7 +247,7 @@ extension AppWriteActor {
                 try upsertRevision(
                     recordType: "ReminderOverrideRecord",
                     recordID: record.id,
-                    fields: TodayExecutionDigestV1.reminderOverride(record),
+                    fields: try TodayExecutionDigestV1.reminderOverride(record),
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -362,12 +391,12 @@ extension TodayExecutionDigestV1 {
 
     static func reminderOverride(
         _ override: ReminderOverrideRecord
-    ) -> [RecordDigestV1.Field] {
+    ) throws -> [RecordDigestV1.Field] {
         [
-            .init("fireAt", timestampValue(override.fireAt)),
+            .init("fireAt", try timestampValue(override.fireAt)),
             .init("occurrenceKey", .string(override.occurrenceKey)),
             .init("operationID", .uuid(override.operationID)),
-            .init("plannedInstant", timestampValue(override.plannedInstant)),
+            .init("plannedInstant", try timestampValue(override.plannedInstant)),
             .init("scheduleRevision", .integer(Int64(override.scheduleRevision))),
             .init("scheduleRuleID", .uuid(override.scheduleRuleID)),
             .init("supersedesOverrideID", override.supersedesOverrideID.map(RecordDigestV1.Value.uuid) ?? .null)
@@ -381,11 +410,12 @@ extension TodayExecutionDigestV1 {
             recordType: "ApplyReminderOverrideCommand",
             recordID: command.operationID,
             fields: [
+                .init("committedAt", try timestampValue(command.committedAt)),
                 .init("expectedOverrideID", command.expectedOverrideID.map(RecordDigestV1.Value.uuid) ?? .null),
-                .init("fireAt", timestampValue(command.fireAt)),
-                .init("occurrenceKey", .string(command.occurrence.key)),
+                .init("displayTimeZoneIdentifier", .string(command.displayTimeZoneIdentifier)),
+                .init("fireAt", try timestampValue(command.fireAt)),
                 .init("overrideID", .uuid(command.overrideID))
-            ]
+            ] + plannedOccurrenceFields(command.occurrence)
         )
     }
 
@@ -396,6 +426,7 @@ extension TodayExecutionDigestV1 {
             recordType: "SetReminderPreferenceCommand",
             recordID: command.operationID,
             fields: [
+                .init("committedAt", try timestampValue(command.committedAt)),
                 .init("defaultSnoozeMinutes", .integer(Int64(command.defaultSnoozeMinutes))),
                 .init("expectedRuleRevision", .integer(Int64(command.expectedRuleRevision))),
                 .init("isEnabled", .bool(command.isEnabled)),
@@ -404,7 +435,7 @@ extension TodayExecutionDigestV1 {
         )
     }
 
-    private static func timestampValue(_ date: Date) -> RecordDigestV1.Value {
-        .timestampMicroseconds(Int64((date.timeIntervalSince1970 * 1_000_000).rounded()))
+    private static func timestampValue(_ date: Date) throws -> RecordDigestV1.Value {
+        try RecordDigestV1.timestampValue(date)
     }
 }

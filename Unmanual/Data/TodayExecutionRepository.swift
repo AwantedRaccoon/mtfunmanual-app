@@ -18,6 +18,7 @@ struct CommitAdministrationCommand: Sendable {
     let actualTimestamp: HistoricalTimestamp
     let note: String
     let committedAt: Date
+    let displayTimeZoneIdentifier: String
 
     init(
         operationID: UUID,
@@ -27,7 +28,8 @@ struct CommitAdministrationCommand: Sendable {
         status: AdministrationStatus,
         actualTimestamp: HistoricalTimestamp,
         note: String = "",
-        committedAt: Date = Date()
+        committedAt: Date,
+        displayTimeZoneIdentifier: String? = nil
     ) {
         self.operationID = operationID
         self.eventID = eventID
@@ -37,6 +39,8 @@ struct CommitAdministrationCommand: Sendable {
         self.actualTimestamp = actualTimestamp
         self.note = note
         self.committedAt = committedAt
+        self.displayTimeZoneIdentifier = displayTimeZoneIdentifier
+            ?? occurrence.timeZoneIdentifier
     }
 }
 
@@ -67,7 +71,7 @@ extension AppWriteActor {
         }
 
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
         do {
             var result: AdministrationCommitResult?
             try modelContext.transaction {
@@ -107,7 +111,7 @@ extension AppWriteActor {
                 try upsertRevision(
                     recordType: "AdministrationEventRecord",
                     recordID: event.id,
-                    fields: TodayExecutionDigestV1.administrationEvent(event),
+                    fields: try TodayExecutionDigestV1.administrationEvent(event),
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -174,13 +178,21 @@ extension AppWriteActor {
               command.actualTimestamp.instant.timeIntervalSince1970.isFinite else {
             throw TodayExecutionWriteFailure.invalidOccurrence
         }
-        try validateOccurrenceForTodayExecution(command.occurrence)
+        try validateOccurrenceForTodayExecution(
+            command.occurrence,
+            committedAt: command.committedAt,
+            displayTimeZoneIdentifier: command.displayTimeZoneIdentifier
+        )
     }
 
     func validateOccurrenceForTodayExecution(
-        _ occurrence: PlannedOccurrence
+        _ occurrence: PlannedOccurrence,
+        committedAt: Date,
+        displayTimeZoneIdentifier: String
     ) throws {
         guard occurrence.instant.timeIntervalSince1970.isFinite,
+              committedAt.timeIntervalSince1970.isFinite,
+              TimeZone(identifier: displayTimeZoneIdentifier) != nil,
               occurrence.key == ScheduleOccurrenceResolver.occurrenceKey(
                 ruleID: occurrence.scheduleRuleID,
                 revision: occurrence.scheduleRevision,
@@ -282,8 +294,11 @@ extension AppWriteActor {
         )
         let resolution = try ScheduleOccurrenceResolver.occurrences(
             rules: [spec],
-            interval: try occurrenceCivilDayInterval(occurrence),
-            displayTimeZoneIdentifier: occurrence.timeZoneIdentifier
+            interval: try displayCivilDayInterval(
+                containing: committedAt,
+                timeZoneIdentifier: displayTimeZoneIdentifier
+            ),
+            displayTimeZoneIdentifier: displayTimeZoneIdentifier
         )
         let hasBlockingIssue = resolution.issues.contains { issue in
             switch issue {
@@ -301,15 +316,16 @@ extension AppWriteActor {
         }
     }
 
-    private func occurrenceCivilDayInterval(
-        _ occurrence: PlannedOccurrence
+    private func displayCivilDayInterval(
+        containing instant: Date,
+        timeZoneIdentifier: String
     ) throws -> DateInterval {
-        guard let timeZone = TimeZone(identifier: occurrence.timeZoneIdentifier) else {
+        guard let timeZone = TimeZone(identifier: timeZoneIdentifier) else {
             throw TodayExecutionWriteFailure.invalidOccurrence
         }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
-        guard let interval = calendar.dateInterval(of: .day, for: occurrence.instant) else {
+        guard let interval = calendar.dateInterval(of: .day, for: instant) else {
             throw TodayExecutionWriteFailure.invalidOccurrence
         }
         return interval
@@ -390,7 +406,7 @@ extension AppWriteActor {
         try upsertRevision(
             recordType: "OperationReceiptRecord",
             recordID: receipt.operationID,
-            fields: TodayExecutionDigestV1.operationReceipt(receipt),
+            fields: try TodayExecutionDigestV1.operationReceipt(receipt),
             reservation: reservation,
             committedAt: receipt.committedAt
         )
@@ -408,7 +424,7 @@ extension AppWriteActor {
             throw AppDataFailure.corruptionSuspected
         }
         ledger.receiptCount = receipts.count
-        ledger.receiptSetDigest = TodayExecutionDigestV1.receiptSetDigest(receipts)
+        ledger.receiptSetDigest = try TodayExecutionDigestV1.receiptSetDigest(receipts)
         ledger.updatedAt = receipt.committedAt
         try upsertRevision(
             recordType: "OperationReceiptLedgerRecord",
@@ -428,7 +444,7 @@ enum TodayExecutionDigestV1 {
             recordType: "CommitAdministrationCommand",
             recordID: command.operationID,
             fields: [
-                .init("actualInstant", timestamp(command.actualTimestamp.instant)),
+                .init("actualInstant", try timestamp(command.actualTimestamp.instant)),
                 .init("actualLocalDate", .string(command.actualTimestamp.localDate.iso8601)),
                 .init("actualLocalHour", .integer(Int64(command.actualTimestamp.localTime.hour))),
                 .init("actualLocalMinute", .integer(Int64(command.actualTimestamp.localTime.minute))),
@@ -438,23 +454,45 @@ enum TodayExecutionDigestV1 {
                 .init("actualProvenance", .string(command.actualTimestamp.provenance.rawValue)),
                 .init("actualTimeZoneIdentifier", .string(command.actualTimestamp.timeZoneIdentifier)),
                 .init("actualUTCOffsetSeconds", .integer(Int64(command.actualTimestamp.utcOffsetSeconds))),
+                .init("committedAt", try timestamp(command.committedAt)),
                 .init("eventID", .uuid(command.eventID)),
                 .init("expectedLeafEventID", command.expectedLeafEventID.map(RecordDigestV1.Value.uuid) ?? .null),
+                .init("displayTimeZoneIdentifier", .string(command.displayTimeZoneIdentifier)),
                 .init("note", .string(command.note.trimmingCharacters(in: .whitespacesAndNewlines))),
-                .init("occurrenceKey", .string(command.occurrence.key)),
                 .init("status", .string(command.status.rawValue))
-            ]
+            ] + plannedOccurrenceFields(command.occurrence)
         )
+    }
+
+    static func plannedOccurrenceFields(
+        _ occurrence: PlannedOccurrence
+    ) throws -> [RecordDigestV1.Field] {
+        [
+            .init("occurrenceDisplayName", .string(occurrence.displayName)),
+            .init("occurrenceInstant", try timestamp(occurrence.instant)),
+            .init("occurrenceKey", .string(occurrence.key)),
+            .init("occurrenceLocalDate", .string(occurrence.localDate.iso8601)),
+            .init("occurrenceLocalHour", .integer(Int64(occurrence.localTime.hour))),
+            .init("occurrenceLocalMinute", .integer(Int64(occurrence.localTime.minute))),
+            .init("occurrenceLocalNanosecond", .integer(Int64(occurrence.localTime.nanosecond))),
+            .init("occurrenceLocalSecond", .integer(Int64(occurrence.localTime.second))),
+            .init("occurrenceRegimenItemID", .uuid(occurrence.regimenItemID)),
+            .init("occurrenceRegimenVersionID", .uuid(occurrence.regimenVersionID)),
+            .init("occurrenceScheduleRevision", .integer(Int64(occurrence.scheduleRevision))),
+            .init("occurrenceScheduleRuleID", .uuid(occurrence.scheduleRuleID)),
+            .init("occurrenceTimeZoneIdentifier", .string(occurrence.timeZoneIdentifier)),
+            .init("occurrenceUTCOffsetSeconds", .integer(Int64(occurrence.utcOffsetSeconds)))
+        ]
     }
 
     static func administrationEvent(
         _ event: AdministrationEventRecord
-    ) -> [RecordDigestV1.Field] {
+    ) throws -> [RecordDigestV1.Field] {
         [
             .init("note", .string(event.note)),
             .init("occurrenceKey", .string(event.occurrenceKey)),
             .init("operationID", .uuid(event.operationID)),
-            .init("plannedInstant", timestamp(event.plannedInstant)),
+            .init("plannedInstant", try timestamp(event.plannedInstant)),
             .init("regimenItemID", .uuid(event.regimenItemID)),
             .init("regimenVersionID", .uuid(event.regimenVersionID)),
             .init("scheduleRevision", .integer(Int64(event.scheduleRevision))),
@@ -470,10 +508,10 @@ enum TodayExecutionDigestV1 {
 
     static func operationReceipt(
         _ receipt: OperationReceiptRecord
-    ) -> [RecordDigestV1.Field] {
+    ) throws -> [RecordDigestV1.Field] {
         [
             .init("commandDigest", .string(receipt.commandDigest)),
-            .init("committedAt", timestamp(receipt.committedAt)),
+            .init("committedAt", try timestamp(receipt.committedAt)),
             .init("operationID", .uuid(receipt.operationID)),
             .init("resultRecordID", .uuid(receipt.resultRecordID)),
             .init("resultRecordType", .string(receipt.resultRecordType))
@@ -492,14 +530,14 @@ enum TodayExecutionDigestV1 {
 
     static func receiptSetDigest(
         _ receipts: [OperationReceiptRecord]
-    ) -> String {
-        let canonical = receipts.map { receipt in
+    ) throws -> String {
+        let canonical = try receipts.map { receipt in
             [
                 receipt.operationID.uuidString.lowercased(),
                 receipt.commandDigest,
                 receipt.resultRecordType,
                 receipt.resultRecordID.uuidString.lowercased(),
-                String(Int64((receipt.committedAt.timeIntervalSince1970 * 1_000_000).rounded()))
+                String(try RecordDigestV1.timestampMicroseconds(receipt.committedAt))
             ].joined(separator: "|")
         }
         .sorted()
@@ -509,7 +547,7 @@ enum TodayExecutionDigestV1 {
             .joined()
     }
 
-    private static func timestamp(_ date: Date) -> RecordDigestV1.Value {
-        .timestampMicroseconds(Int64((date.timeIntervalSince1970 * 1_000_000).rounded()))
+    private static func timestamp(_ date: Date) throws -> RecordDigestV1.Value {
+        try RecordDigestV1.timestampValue(date)
     }
 }

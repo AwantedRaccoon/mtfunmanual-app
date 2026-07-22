@@ -404,11 +404,11 @@ actor Batch1PerformanceWorker {
               states.first?.phase == .complete,
               coreStates.count == 1,
               coreStates.first?.completedAt != nil,
-              metadata.first?.nextLocalRevision == Batch1V3FoundationContract.nextLocalRevision,
+              metadata.first?.nextLocalRevision == Batch1V4FoundationContract.nextLocalRevision,
               pointer.origin == .legacyAdoption,
               pointer.schemaVersion == "4.0.0",
-              pointer.minimumFactCount == Batch1V3FoundationContract.activatedFactCount,
-              pointer.minimumRevisionCount == Batch1V3FoundationContract.activatedRevisionCount,
+              pointer.minimumFactCount == Batch1V4FoundationContract.activatedFactCount,
+              pointer.minimumRevisionCount == Batch1V4FoundationContract.activatedRevisionCount,
               pointer.datasetID == metadata.first?.datasetID else {
             throw WorkerError.invalidFoundationMetadata
         }
@@ -454,9 +454,9 @@ actor Batch1PerformanceWorker {
               try context.fetchCount(FetchDescriptor<JourneyEntry>()) == 7_301,
               try context.fetchCount(FetchDescriptor<HistoricalTimeRecord>()) == 8_501,
               try context.fetchCount(FetchDescriptor<RecordRevision>())
-                  == Batch1V3FoundationContract.postQuickWriteRevisionCount,
+                  == Batch1V4FoundationContract.postQuickWriteRevisionCount,
               revision?.recordKey == "JourneyEntry:" + recordID.uuidString.lowercased(),
-              revision?.localRevision == Batch1V3FoundationContract.nextLocalRevision,
+              revision?.localRevision == Batch1V4FoundationContract.nextLocalRevision,
               revision?.datasetID == metadata?.datasetID,
               revision?.digestVersion == RecordDigestV1.version,
               revision?.digestHex.isEmpty == false,
@@ -464,14 +464,14 @@ actor Batch1PerformanceWorker {
               historical?.recordKey == "JourneyEntry:" + recordID.uuidString.lowercased(),
               historical?.instant == committedAt,
               historical?.associationStateRawValue == HistoricalAssociationState.resolved.rawValue,
-              historicalRevision?.localRevision == Batch1V3FoundationContract.nextLocalRevision,
+              historicalRevision?.localRevision == Batch1V4FoundationContract.nextLocalRevision,
               historicalRevision?.datasetID == metadata?.datasetID,
               historicalRevision?.digestVersion == RecordDigestV1.version,
               historicalRevision?.digestHex.isEmpty == false,
               historicalRevision?.committedAt == committedAt,
               metadata?.lastCommittedAt == committedAt,
               metadata?.nextLocalRevision
-                  == Batch1V3FoundationContract.postQuickWriteNextLocalRevision else {
+                  == Batch1V4FoundationContract.postQuickWriteNextLocalRevision else {
             throw WorkerError.quickWriteNotReadable
         }
     }

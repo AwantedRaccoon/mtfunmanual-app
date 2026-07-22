@@ -7,6 +7,7 @@ struct ScheduleRuleSpec: Equatable, Sendable {
     let displayName: String
     let kind: ScheduleRuleKind
     let anchorDate: CivilDateFact
+    let activeStartDate: CivilDateFact?
     let endDate: CivilDateFact?
     let localTimes: String
     let weekdays: String
@@ -14,6 +15,38 @@ struct ScheduleRuleSpec: Equatable, Sendable {
     let timeZoneBehavior: ScheduleTimeZoneBehavior
     let fixedTimeZoneIdentifier: String?
     let revision: Int
+
+    init(
+        id: UUID,
+        regimenVersionID: UUID,
+        regimenItemID: UUID,
+        displayName: String,
+        kind: ScheduleRuleKind,
+        anchorDate: CivilDateFact,
+        activeStartDate: CivilDateFact? = nil,
+        endDate: CivilDateFact?,
+        localTimes: String,
+        weekdays: String,
+        intervalDays: Int?,
+        timeZoneBehavior: ScheduleTimeZoneBehavior,
+        fixedTimeZoneIdentifier: String?,
+        revision: Int
+    ) {
+        self.id = id
+        self.regimenVersionID = regimenVersionID
+        self.regimenItemID = regimenItemID
+        self.displayName = displayName
+        self.kind = kind
+        self.anchorDate = anchorDate
+        self.activeStartDate = activeStartDate
+        self.endDate = endDate
+        self.localTimes = localTimes
+        self.weekdays = weekdays
+        self.intervalDays = intervalDays
+        self.timeZoneBehavior = timeZoneBehavior
+        self.fixedTimeZoneIdentifier = fixedTimeZoneIdentifier
+        self.revision = revision
+    }
 }
 
 struct PlannedOccurrence: Identifiable, Equatable, Sendable {
@@ -32,6 +65,13 @@ struct PlannedOccurrence: Identifiable, Equatable, Sendable {
     let instant: Date
 }
 
+struct ScheduleOccurrenceIdentity: Equatable, Sendable {
+    let ruleID: UUID
+    let revision: Int
+    let date: CivilDateFact
+    let time: HistoricalLocalTime
+}
+
 enum ScheduleOccurrenceIssue: Equatable, Sendable {
     case invalidRule(UUID)
     case nonexistentLocalTime(UUID, CivilDateFact, String)
@@ -46,6 +86,91 @@ struct ScheduleOccurrenceResolution: Equatable, Sendable {
 enum ScheduleOccurrenceResolver {
     static let maximumTimesPerRule = 16
     static let maximumOccurrencesPerResolution = 4_096
+
+    static func identity(for key: String) -> ScheduleOccurrenceIdentity? {
+        let components = key.split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count == 5,
+              components[0] == "occ",
+              components[1] == "v1" else { return nil }
+
+        let ruleText = String(components[2])
+        guard ruleText == ruleText.lowercased(),
+              let ruleID = UUID(uuidString: ruleText),
+              ruleID.uuidString.lowercased() == ruleText else { return nil }
+
+        let revisionText = String(components[3])
+        guard let revision = Int(revisionText),
+              revision > 0,
+              revisionText == String(revision) else { return nil }
+
+        let slot = Array(components[4].utf8)
+        guard slot.count == 13,
+              slot[8] == 84,
+              slot.enumerated().allSatisfy({ index, byte in
+                  index == 8 || (48...57).contains(byte)
+              }) else { return nil }
+
+        func number(_ range: Range<Int>) -> Int? {
+            Int(String(decoding: slot[range], as: UTF8.self))
+        }
+        guard let year = number(0..<4),
+              let month = number(4..<6),
+              let day = number(6..<8),
+              let hour = number(9..<11),
+              let minute = number(11..<13),
+              let date = try? CivilDateFact(year: year, month: month, day: day),
+              let time = try? HistoricalLocalTime(
+                hour: hour,
+                minute: minute,
+                second: 0
+              ) else { return nil }
+
+        let identity = ScheduleOccurrenceIdentity(
+            ruleID: ruleID,
+            revision: revision,
+            date: date,
+            time: time
+        )
+        guard occurrenceKey(
+            ruleID: identity.ruleID,
+            revision: identity.revision,
+            date: identity.date,
+            time: identity.time
+        ) == key else { return nil }
+        return identity
+    }
+
+    static func validatesStoredOccurrence(
+        key: String,
+        plannedInstant: Date,
+        rule: ScheduleRuleSpec
+    ) -> Bool {
+        guard plannedInstant.timeIntervalSince1970.isFinite,
+              let identity = identity(for: key),
+              identity.ruleID == rule.id,
+              identity.revision == rule.revision,
+              identity.date >= rule.anchorDate,
+              rule.activeStartDate.map({ identity.date >= $0 }) ?? true,
+              rule.endDate.map({ identity.date < $0 }) ?? true,
+              let times = normalizedTimes(rule.localTimes),
+              validate(rule: rule, times: times),
+              times.contains(identity.time),
+              matches(rule: rule, on: identity.date) else { return false }
+
+        switch rule.timeZoneBehavior {
+        case .floatingLocal:
+            return true
+        case .fixedZone:
+            guard let identifier = rule.fixedTimeZoneIdentifier,
+                  let timeZone = TimeZone(identifier: identifier),
+                  let expected = strictInstant(
+                    date: identity.date,
+                    time: identity.time,
+                    timeZone: timeZone
+                  ) else { return false }
+            return expected == plannedInstant
+        }
+    }
 
     static func occurrences(
         rules: [ScheduleRuleSpec],
@@ -102,6 +227,7 @@ enum ScheduleOccurrenceResolver {
                 }
 
                 if civilDate >= rule.anchorDate,
+                   rule.activeStartDate.map({ civilDate >= $0 }) ?? true,
                    rule.endDate.map({ civilDate < $0 }) ?? true,
                    matches(rule: rule, on: civilDate) {
                     for time in times {
@@ -182,6 +308,9 @@ enum ScheduleOccurrenceResolver {
         times: [HistoricalLocalTime]
     ) -> Bool {
         guard !times.isEmpty,
+              rule.activeStartDate.map({ start in
+                  rule.endDate.map({ start < $0 }) ?? true
+              }) ?? true,
               rule.endDate.map({ rule.anchorDate < $0 }) ?? true else {
             return false
         }

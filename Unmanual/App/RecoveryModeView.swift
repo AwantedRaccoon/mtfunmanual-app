@@ -34,7 +34,7 @@ struct RecoveryModeView: View {
                 Text("LOCAL / RECOVERY")
                     .font(theme.utility(10))
                     .tracking(0.9)
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.vermilionText)
 
                 Text(recovery.title)
                     .font(theme.display(36, relativeTo: .largeTitle))

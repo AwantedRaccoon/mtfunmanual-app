@@ -21,6 +21,8 @@ struct V25TodayHome: View {
     let executionSnapshot: TodayExecutionSnapshot
     let executionIsLoading: Bool
     let executionErrorMessage: String?
+    let inFlightOccurrenceKeys: Set<String>
+    let runtimeReminderErrorCode: String?
     let executionRetryAction: () -> Void
     let administrationAction: (TodayExecutionItemSnapshot, AdministrationStatus) -> Void
     let snoozeAction: (TodayExecutionItemSnapshot) -> Void
@@ -42,6 +44,8 @@ struct V25TodayHome: View {
         executionSnapshot: TodayExecutionSnapshot = .empty,
         executionIsLoading: Bool = false,
         executionErrorMessage: String? = nil,
+        inFlightOccurrenceKeys: Set<String> = [],
+        runtimeReminderErrorCode: String? = nil,
         executionRetryAction: @escaping () -> Void = {},
         administrationAction: @escaping (TodayExecutionItemSnapshot, AdministrationStatus) -> Void = { _, _ in },
         snoozeAction: @escaping (TodayExecutionItemSnapshot) -> Void = { _ in },
@@ -62,6 +66,8 @@ struct V25TodayHome: View {
         self.executionSnapshot = executionSnapshot
         self.executionIsLoading = executionIsLoading
         self.executionErrorMessage = executionErrorMessage
+        self.inFlightOccurrenceKeys = inFlightOccurrenceKeys
+        self.runtimeReminderErrorCode = runtimeReminderErrorCode
         self.executionRetryAction = executionRetryAction
         self.administrationAction = administrationAction
         self.snoozeAction = snoozeAction
@@ -116,6 +122,8 @@ struct V25TodayHome: View {
                 snapshot: executionSnapshot,
                 isLoading: executionIsLoading,
                 errorMessage: executionErrorMessage,
+                inFlightOccurrenceKeys: inFlightOccurrenceKeys,
+                runtimeReminderErrorCode: runtimeReminderErrorCode,
                 retryAction: executionRetryAction,
                 createPlanAction: regimenAction,
                 administrationAction: administrationAction,
@@ -139,7 +147,7 @@ struct V25TodayHome: View {
                     .font(.caption.weight(.bold))
                 Label(SystemBackupDisclosure.statusLabel, systemImage: "lock.fill")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(theme.indigo.opacity(0.66))
+                    .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("today.backupStatus")
                     .accessibilityLabel(SystemBackupDisclosure.statusLabel)
@@ -147,7 +155,7 @@ struct V25TodayHome: View {
                     .font(.title2.weight(.black))
                 Text(todayMonthAndWeekdayText)
                     .font(.body.weight(.medium))
-                    .foregroundStyle(theme.indigo.opacity(0.66))
+                    .foregroundStyle(theme.secondaryText)
             }
             .padding(.top, 6)
             .padding(.bottom, 12)
@@ -160,7 +168,7 @@ struct V25TodayHome: View {
                     Text(todayMonthAndWeekdayText)
                         .font(theme.utility(11))
                         .tracking(1.1)
-                        .foregroundStyle(theme.indigo.opacity(0.66))
+                        .foregroundStyle(theme.secondaryText)
                 }
 
                 Spacer(minLength: 8)
@@ -171,7 +179,7 @@ struct V25TodayHome: View {
                         .tracking(1)
                     Label(SystemBackupDisclosure.statusLabel, systemImage: "lock.fill")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(theme.indigo.opacity(0.66))
+                        .foregroundStyle(theme.secondaryText)
                         .accessibilityIdentifier("today.backupStatus")
                 }
                 .padding(.top, 7)
@@ -188,11 +196,11 @@ struct V25TodayHome: View {
         if let hrtDay {
             VStack(spacing: 0) {
                 rulerHeading
-                neighborDay(max(1, hrtDay - 2), opacity: 0.16)
-                neighborDay(max(1, hrtDay - 1), opacity: 0.38)
+                neighborDay(max(1, hrtDay - 2))
+                neighborDay(max(1, hrtDay - 1))
                 currentDay(hrtDay)
-                neighborDay(hrtDay + 1, opacity: 0.38)
-                neighborDay(hrtDay + 2, opacity: 0.16)
+                neighborDay(hrtDay + 1)
+                neighborDay(hrtDay + 2)
                 startDateLine
             }
             .accessibilityElement(children: .contain)
@@ -208,7 +216,7 @@ struct V25TodayHome: View {
             Spacer()
             Text("过去 / 此刻 / 接下来")
                 .font(theme.utility(10))
-                .foregroundStyle(theme.indigo.opacity(0.62))
+                .foregroundStyle(theme.secondaryText)
         }
         .padding(.vertical, 9)
         .overlay(alignment: .bottom) {
@@ -216,7 +224,7 @@ struct V25TodayHome: View {
         }
     }
 
-    private func neighborDay(_ day: Int, opacity: Double) -> some View {
+    private func neighborDay(_ day: Int) -> some View {
         HStack(spacing: 0) {
             Text("DAY")
                 .font(theme.utility(9))
@@ -229,7 +237,7 @@ struct V25TodayHome: View {
                 .padding(.leading, V25Theme.dayValueLeadingInset)
             Spacer()
         }
-        .foregroundStyle(theme.indigo.opacity(opacity))
+        .foregroundStyle(theme.secondaryText)
         .frame(height: 42)
         .accessibilityHidden(true)
     }
@@ -298,7 +306,7 @@ struct V25TodayHome: View {
                     .font(theme.utility(11))
                     .monospacedDigit()
             }
-            .foregroundStyle(theme.indigo.opacity(0.66))
+            .foregroundStyle(theme.secondaryText)
             .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
@@ -401,7 +409,7 @@ struct V25TodayHome: View {
             detail: activeRegimen?.title ?? "建立当前方案",
             metadata: activeRegimen.map { "\($0.effectiveStartDate.iso8601) 起" } ?? "",
             background: theme.paper,
-            labelColor: theme.vermilion,
+            labelColor: theme.vermilionText,
             accessibilityIdentifier: "today.v25.regimen",
             action: regimenAction
         )
@@ -414,7 +422,7 @@ struct V25TodayHome: View {
             detail: latestLabRecords.first?.recordedShortDateText ?? "尚无记录",
             metadata: "查看完整原始记录",
             background: theme.paper,
-            labelColor: theme.vermilion,
+            labelColor: theme.vermilionText,
             accessibilityIdentifier: "today.v25.metrics",
             action: metricsAction
         )
@@ -437,7 +445,7 @@ struct V25TodayHome: View {
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 2)
                 Text(latestEntry.map { "\($0.kind.title) · \($0.recordedShortDateText)" } ?? "随时可以开始")
                     .font(theme.utility(11))
-                    .foregroundStyle(theme.paper.opacity(0.64))
+                    .foregroundStyle(theme.paper)
             }
             .foregroundStyle(theme.paper)
             .padding(dynamicTypeSize.isAccessibilitySize ? 18 : 12)
@@ -460,7 +468,7 @@ struct V25TodayHome: View {
             .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.8)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("today.backupDisclosure")
-            .foregroundStyle(theme.indigo.opacity(0.62))
+            .foregroundStyle(theme.secondaryText)
             .frame(maxWidth: .infinity)
             .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 18 : 8)
     }
@@ -529,13 +537,13 @@ private struct V25ContextItem: View {
                     if !metadata.isEmpty {
                         Text(metadata)
                             .font(theme.utility(10))
-                            .foregroundStyle(theme.indigo.opacity(0.62))
+                            .foregroundStyle(theme.secondaryText)
                             .lineLimit(3)
                     }
                 } else {
                     Text(metadata.isEmpty ? detail : "\(detail) · \(metadata)")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(theme.indigo.opacity(0.72))
+                        .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }

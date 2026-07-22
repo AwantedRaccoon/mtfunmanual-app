@@ -61,12 +61,41 @@ final class TodayExecutionUITests: XCTestCase {
         app.buttons["取消"].tap()
     }
 
-    private func launchTodayFixture() -> XCUIApplication {
+    func testReminderConsentPrimaryActionRemainsReachableAtAccessibilityFive() throws {
+        continueAfterFailure = false
+        let app = launchTodayFixture(additionalArguments: ["-unmanual-ui-test-accessibility5"])
+        let reminder = app.buttons["打开此计划的本地提醒"].firstMatch
+        scrollToVisible(reminder, in: app)
+        reminder.tap()
+
+        let confirm = app.buttons["today.execution.reminder.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirm.isHittable)
+    }
+
+    func testCorrectionPrimaryActionRemainsReachableAtAccessibilityFive() throws {
+        continueAfterFailure = false
+        let app = launchTodayFixture(additionalArguments: ["-unmanual-ui-test-accessibility5"])
+        let taken = app.buttons["已使用"].firstMatch
+        scrollToVisible(taken, in: app)
+        taken.tap()
+
+        let correction = app.buttons["修改记录"].firstMatch
+        XCTAssertTrue(correction.waitForExistence(timeout: 8))
+        scrollToVisible(correction, in: app)
+        correction.tap()
+
+        let save = app.buttons["today.execution.correction.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        XCTAssertTrue(save.isHittable)
+    }
+
+    private func launchTodayFixture(additionalArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-unmanual-empty-store",
             "-unmanual-today-execution"
-        ]
+        ] + additionalArguments
         app.launch()
         let ledger = app.descendants(matching: .any)["today.execution.ledger"]
         XCTAssertTrue(ledger.waitForExistence(timeout: 10))

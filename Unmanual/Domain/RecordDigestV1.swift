@@ -78,6 +78,19 @@ enum RecordDigestV1 {
             .joined()
     }
 
+    static func timestampValue(_ date: Date) throws -> Value {
+        .timestampMicroseconds(try timestampMicroseconds(date))
+    }
+
+    static func timestampMicroseconds(_ date: Date) throws -> Int64 {
+        let roundedMicroseconds = (date.timeIntervalSince1970 * 1_000_000).rounded()
+        guard roundedMicroseconds.isFinite,
+              let microseconds = Int64(exactly: roundedMicroseconds) else {
+            throw EncodingError.timestampOutOfRange
+        }
+        return microseconds
+    }
+
     private static func append(_ value: Value, to data: inout Data) throws {
         switch value {
         case .null:

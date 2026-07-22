@@ -8,6 +8,8 @@ struct TodayExecutionLedger: View {
     let snapshot: TodayExecutionSnapshot
     let isLoading: Bool
     let errorMessage: String?
+    let inFlightOccurrenceKeys: Set<String>
+    let runtimeReminderErrorCode: String?
     let retryAction: () -> Void
     let createPlanAction: () -> Void
     let administrationAction: (TodayExecutionItemSnapshot, AdministrationStatus) -> Void
@@ -48,7 +50,7 @@ struct TodayExecutionLedger: View {
             Spacer()
             Text("计划 / 记录")
                 .font(theme.utility(10))
-                .foregroundStyle(theme.indigo.opacity(0.62))
+                .foregroundStyle(theme.secondaryText)
         }
         .padding(.vertical, 9)
         .overlay(alignment: .bottom) {
@@ -74,7 +76,7 @@ struct TodayExecutionLedger: View {
                 .font(.headline.weight(.black))
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(theme.indigo.opacity(0.7))
+                .foregroundStyle(theme.secondaryText)
             Button("重新读取", action: retryAction)
                 .font(.body.weight(.black))
                 .frame(minWidth: 120, minHeight: 48)
@@ -99,7 +101,7 @@ struct TodayExecutionLedger: View {
                     : "有一项时间无法安全解释，今天不会自动生成可执行记录。请回到方案检查。"
             )
             .font(.subheadline)
-            .foregroundStyle(theme.indigo.opacity(0.7))
+            .foregroundStyle(theme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
             Button(
                 snapshot.reviewIssues.isEmpty ? "去方案建立执行时间" : "去方案检查执行时间",
@@ -125,7 +127,7 @@ struct TodayExecutionLedger: View {
                 .font(.subheadline.weight(.black))
             Text("无法安全解释的时间不会出现在台账或本地提醒中。已有的安全项目仍可继续记录。")
                 .font(.caption)
-                .foregroundStyle(theme.indigo.opacity(0.72))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Button("去方案检查执行时间", action: createPlanAction)
                 .font(.subheadline.weight(.black))
@@ -150,7 +152,7 @@ struct TodayExecutionLedger: View {
                     .font(.caption.weight(.black))
                 Text("系统可能受专注模式或摘要影响；这里显示的是安排覆盖，不保证投递。")
                     .font(.caption2)
-                    .foregroundStyle(theme.indigo.opacity(0.62))
+                    .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -165,11 +167,12 @@ struct TodayExecutionLedger: View {
         _ item: TodayExecutionItemSnapshot,
         position: Int
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let isBusy = inFlightOccurrenceKeys.contains(item.id)
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 Text(String(format: "%02d", position))
                     .font(theme.utility(12))
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.secondaryText)
                     .frame(width: 26, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -183,7 +186,7 @@ struct TodayExecutionLedger: View {
 
                 Text(stateLabel(item))
                     .font(.caption.weight(.black))
-                    .foregroundStyle(stateColor(item))
+                    .foregroundStyle(theme.secondaryText)
                     .multilineTextAlignment(.trailing)
             }
 
@@ -193,7 +196,14 @@ struct TodayExecutionLedger: View {
                     systemImage: "clock.badge"
                 )
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(theme.blue)
+                .foregroundStyle(theme.secondaryText)
+            }
+
+            if isBusy {
+                Label("正在保存这条记录…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.indigoDeep)
+                    .accessibilityIdentifier("today.execution.saving.\(item.id)")
             }
 
             if item.state == .unrecorded {
@@ -221,7 +231,7 @@ struct TodayExecutionLedger: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .foregroundStyle(theme.indigo.opacity(0.76))
+            .foregroundStyle(theme.secondaryText)
             .accessibilityIdentifier("today.execution.reminder.\(item.id)")
         }
         .padding(.vertical, 14)
@@ -230,6 +240,7 @@ struct TodayExecutionLedger: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.indigo.opacity(0.36)).frame(height: 1)
         }
+        .disabled(isBusy)
         .accessibilityElement(children: .contain)
     }
 
@@ -297,44 +308,52 @@ struct TodayExecutionLedger: View {
         }
     }
 
-    private func stateColor(_ item: TodayExecutionItemSnapshot) -> Color {
-        switch item.state {
-        case .unrecorded: theme.indigo.opacity(0.65)
-        case .taken: theme.moss
-        case .skipped: theme.vermilion
-        }
-    }
-
     private var coverageTitle: String {
-        switch snapshot.coverage.status {
-        case .disabledByUser: "本地提醒未开启"
-        case .notDetermined: "等待你确认系统通知权限"
-        case .blockedByPermission: "系统通知已关闭，可在系统设置中修改"
-        case .limitedBySystemSettings: "系统当前不会显示提醒横幅"
-        case .reconciliationPending: "正在核对本地提醒"
-        case .scheduledForWindow:
-            if let date = snapshot.coverage.scheduledThrough {
-                "已安排至 \(date.formatted(date: .abbreviated, time: .shortened))"
-            } else {
-                "当前窗口没有待安排的提醒"
-            }
-        case .limitedByBudget:
-            if let date = snapshot.coverage.scheduledThrough {
-                "系统容量有限，连续覆盖至 \(date.formatted(date: .abbreviated, time: .shortened)) 之前"
-            } else {
-                "系统容量有限，当前无法建立连续覆盖"
-            }
-        case .schedulingFailed: "部分提醒尚未安排，请打开 App 重试"
-        case .staleObservation: "提醒覆盖等待重新核对"
-        }
+        TodayReminderCoveragePresentation.title(
+            coverage: snapshot.coverage,
+            runtimeErrorCode: runtimeReminderErrorCode
+        )
     }
 
     private var coverageSymbol: String {
-        switch snapshot.coverage.status {
+        if runtimeReminderErrorCode != nil {
+            return "bell.slash"
+        }
+        return switch snapshot.coverage.status {
         case .scheduledForWindow: "bell.badge"
         case .limitedByBudget: "bell.badge.fill"
         case .blockedByPermission, .limitedBySystemSettings, .schedulingFailed: "bell.slash"
         default: "bell"
+        }
+    }
+}
+
+enum TodayReminderCoveragePresentation {
+    static func title(
+        coverage: NotificationCoverageSnapshot,
+        runtimeErrorCode: String?
+    ) -> String {
+        if runtimeErrorCode != nil {
+            return "部分提醒尚未安排，请打开 App 重试"
+        }
+        switch coverage.status {
+        case .disabledByUser: return "本地提醒未开启"
+        case .notDetermined: return "等待你确认系统通知权限"
+        case .blockedByPermission: return "系统通知已关闭，可在系统设置中修改"
+        case .limitedBySystemSettings: return "系统当前不会显示提醒横幅"
+        case .reconciliationPending: return "正在核对本地提醒"
+        case .scheduledForWindow:
+            if let date = coverage.scheduledThrough {
+                return "已安排至 \(date.formatted(date: .abbreviated, time: .shortened))"
+            }
+            return "当前窗口没有待安排的提醒"
+        case .limitedByBudget:
+            if let date = coverage.scheduledThrough {
+                return "系统容量有限，连续覆盖至 \(date.formatted(date: .abbreviated, time: .shortened)) 之前"
+            }
+            return "系统容量有限，当前无法建立连续覆盖"
+        case .schedulingFailed: return "部分提醒尚未安排，请打开 App 重试"
+        case .staleObservation: return "提醒覆盖等待重新核对"
         }
     }
 }

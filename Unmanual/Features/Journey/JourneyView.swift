@@ -74,10 +74,10 @@ struct JourneyPageRecordAction: View {
             Text("NEW ENTRY")
                 .font(theme.utility(9))
                 .tracking(0.8)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text("想留下什么时再记")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
         }
     }
 

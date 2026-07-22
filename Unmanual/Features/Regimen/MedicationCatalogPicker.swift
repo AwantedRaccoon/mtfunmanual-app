@@ -282,13 +282,13 @@ struct MedicationCatalogPicker: View {
                     Text("CATALOG ENTRY")
                         .font(theme.utility(10))
                         .tracking(0.9)
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
                     Text("添加药物")
                         .font(theme.display(36, relativeTo: .largeTitle))
                         .foregroundStyle(theme.indigoDeep)
                     Text("先从成分开始查找。进入条目后，再按给药途径和厂商定位具体产品。")
                         .font(.subheadline)
-                        .foregroundStyle(theme.indigo.opacity(0.7))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.top, 22)
@@ -409,7 +409,7 @@ private struct MedicationSearchIndex: View {
                     Text("中文 · ENGLISH · 商品名")
                         .font(theme.utility(8))
                         .tracking(0.5)
-                        .foregroundStyle(theme.indigo.opacity(0.55))
+                        .foregroundStyle(theme.secondaryText)
                 }
             }
             .padding(.horizontal, 13)
@@ -440,7 +440,7 @@ private struct MedicationSearchIndex: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 18))
-                            .foregroundStyle(theme.indigo.opacity(0.58))
+                            .foregroundStyle(theme.secondaryText)
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
@@ -481,7 +481,7 @@ private struct MedicationCatalogRow: View {
                         HStack {
                             Text(entry.group.title)
                                 .font(.caption.weight(.bold))
-                                .foregroundStyle(groupColor)
+                                .foregroundStyle(groupTextColor)
                             Spacer()
                             actionMark
                         }
@@ -493,7 +493,7 @@ private struct MedicationCatalogRow: View {
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(entry.group.title)
                                 .font(.caption.weight(.black))
-                                .foregroundStyle(groupColor)
+                                .foregroundStyle(groupTextColor)
                             actionMark
                         }
                     }
@@ -512,7 +512,7 @@ private struct MedicationCatalogRow: View {
                     .padding(.vertical, 10)
             }
             .overlay(alignment: .bottom) {
-                Rectangle().fill(theme.indigo.opacity(0.36)).frame(height: 1)
+                Rectangle().fill(theme.secondaryText).frame(height: 1)
             }
         }
         .buttonStyle(V25PressStyle())
@@ -531,10 +531,10 @@ private struct MedicationCatalogRow: View {
             Text(entry.englishName)
                 .font(theme.utility(10))
                 .tracking(0.25)
-                .foregroundStyle(theme.indigo.opacity(0.66))
+                .foregroundStyle(theme.secondaryText)
             Text("\(entry.routes.count) 种给药途径 · \(entry.products.count) 个产品条目")
                 .font(.caption)
-                .foregroundStyle(theme.indigo.opacity(0.66))
+                .foregroundStyle(theme.secondaryText)
         }
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -542,7 +542,7 @@ private struct MedicationCatalogRow: View {
     private var actionMark: some View {
         Image(systemName: "arrow.right")
             .font(.system(size: 14, weight: .black))
-        .foregroundStyle(theme.vermilion)
+        .foregroundStyle(theme.vermilionText)
         .frame(width: 44, height: 44, alignment: .trailing)
     }
 
@@ -551,6 +551,14 @@ private struct MedicationCatalogRow: View {
         case .estrogen: theme.vermilion
         case .antiandrogen: theme.blue
         case .progestogen: theme.moss
+        }
+    }
+
+    private var groupTextColor: Color {
+        switch group {
+        case .estrogen: theme.vermilionText
+        case .antiandrogen: theme.blueText
+        case .progestogen: theme.mossText
         }
     }
 
@@ -568,7 +576,7 @@ private struct MedicationNoResults: View {
             Text(catalogUnavailable ? "CATALOG PENDING" : "NO MATCH")
                 .font(theme.utility(10))
                 .tracking(0.8)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text(
                 catalogUnavailable
                     ? "正式药品目录尚未提供。"
@@ -578,7 +586,7 @@ private struct MedicationNoResults: View {
                 .foregroundStyle(theme.indigoDeep)
             Text("你仍然可以按药盒、处方或自己的原始记录添加，不需要换成目录里的近似名称。")
                 .font(.subheadline)
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(15)
@@ -687,7 +695,7 @@ private struct MedicationProductPicker: View {
                             .accessibilityHidden(true)
                         Text("正式目录中，每个厂商、剂型和批准信息都会拆成独立产品条目；当前只展示页面结构。")
                             .font(.caption)
-                            .foregroundStyle(theme.indigo.opacity(0.68))
+                            .foregroundStyle(theme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(12)
@@ -747,11 +755,11 @@ private struct MedicationIngredientMasthead: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(entry.group.title)
                     .font(.caption.weight(.black))
-                    .foregroundStyle(groupColor)
+                    .foregroundStyle(groupTextColor)
                 if !dynamicTypeSize.isAccessibilitySize {
                     Text("\(entry.routes.count) 种途径 · \(entry.products.count) 个产品条目")
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.58))
+                        .foregroundStyle(theme.secondaryText)
                 }
             }
         }
@@ -781,14 +789,14 @@ private struct MedicationIngredientMasthead: View {
             Text("INGREDIENT / 已确定")
                 .font(theme.utility(9))
                 .tracking(0.8)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text(entry.name)
                 .font(theme.display(32, relativeTo: .largeTitle))
                 .foregroundStyle(theme.indigoDeep)
             Text(entry.englishName)
                 .font(theme.utility(11))
                 .tracking(0.35)
-                .foregroundStyle(theme.indigo.opacity(0.64))
+                .foregroundStyle(theme.secondaryText)
         }
     }
 
@@ -797,6 +805,14 @@ private struct MedicationIngredientMasthead: View {
         case .estrogen: theme.vermilion
         case .antiandrogen: theme.blue
         case .progestogen: theme.moss
+        }
+    }
+
+    private var groupTextColor: Color {
+        switch entry.group {
+        case .estrogen: theme.vermilionText
+        case .antiandrogen: theme.blueText
+        case .progestogen: theme.mossText
         }
     }
 }
@@ -838,7 +854,7 @@ private struct MedicationLocatorStrip: View {
                 .foregroundStyle(theme.mustard)
             Text(value)
                 .font(.caption.weight(.black))
-                .foregroundStyle(isPending ? theme.paper.opacity(0.52) : theme.paper)
+                .foregroundStyle(isPending ? theme.paper : theme.paper)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
         }
         .padding(.horizontal, 11)
@@ -846,7 +862,7 @@ private struct MedicationLocatorStrip: View {
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
         .overlay(alignment: dynamicTypeSize.isAccessibilitySize ? .bottom : .trailing) {
             Rectangle()
-                .fill(theme.paper.opacity(0.22))
+                .fill(theme.paper)
                 .frame(
                     width: dynamicTypeSize.isAccessibilitySize ? nil : 1,
                     height: dynamicTypeSize.isAccessibilitySize ? 1 : nil
@@ -869,7 +885,7 @@ private struct MedicationRouteRow: View {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(isSelected ? theme.vermilion : theme.indigo.opacity(0.52))
+                    .foregroundStyle(isSelected ? theme.vermilion : theme.secondaryText)
                     .frame(width: 32, height: 44)
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -877,14 +893,14 @@ private struct MedicationRouteRow: View {
                         .font(.body.weight(.black))
                     Text(route.detail)
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.64))
+                        .foregroundStyle(theme.secondaryText)
                 }
 
                 Spacer()
 
                 Text("\(productCount) 个产品条目")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(theme.indigo.opacity(0.58))
+                    .foregroundStyle(theme.secondaryText)
             }
             .foregroundStyle(theme.indigoDeep)
             .padding(.horizontal, 12)
@@ -892,7 +908,7 @@ private struct MedicationRouteRow: View {
             .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
             .background(isSelected ? theme.mustard.opacity(0.16) : theme.paper)
             .overlay(alignment: .bottom) {
-                Rectangle().fill(theme.indigo.opacity(0.34)).frame(height: 1)
+                Rectangle().fill(theme.secondaryText).frame(height: 1)
             }
             .contentShape(Rectangle())
         }
@@ -917,7 +933,7 @@ private struct MedicationProductRow: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(isSelected ? theme.vermilion : theme.indigo.opacity(0.52))
+                    .foregroundStyle(isSelected ? theme.vermilion : theme.secondaryText)
                     .frame(width: 32, height: 44)
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -926,12 +942,12 @@ private struct MedicationProductRow: View {
                         .foregroundStyle(theme.indigoDeep)
                     Text(product.manufacturer)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(theme.indigo.opacity(0.68))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 7) {
                         Text("\(product.routeTitle) · \(product.form)")
                         Text(product.sourceStatus)
-                            .foregroundStyle(theme.vermilion)
+                            .foregroundStyle(theme.vermilionText)
                     }
                     .font(theme.utility(8))
                     .tracking(0.25)
@@ -943,7 +959,7 @@ private struct MedicationProductRow: View {
             .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
             .background(isSelected ? theme.mustard.opacity(0.16) : theme.paper)
             .overlay(alignment: .bottom) {
-                Rectangle().fill(theme.indigo.opacity(0.34)).frame(height: 1)
+                Rectangle().fill(theme.secondaryText).frame(height: 1)
             }
             .contentShape(Rectangle())
         }
@@ -972,14 +988,14 @@ private struct MedicationProductSelectionBar: View {
                     Text("已定位")
                         .font(theme.utility(9))
                         .tracking(0.6)
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
                     Text(product.displayName)
                         .font(.subheadline.weight(.black))
                         .foregroundStyle(theme.indigoDeep)
                     Spacer()
                     Text(product.routeTitle)
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.6))
+                        .foregroundStyle(theme.secondaryText)
                 }
             }
 

@@ -285,7 +285,7 @@ actor AppWriteActor {
             throw AppWriteFailure.invalidInput
         }
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
 
         do {
             try modelContext.transaction {
@@ -395,7 +395,7 @@ actor AppWriteActor {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTitle.isEmpty else { throw AppWriteFailure.invalidInput }
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
 
         do {
             try modelContext.transaction {
@@ -456,7 +456,7 @@ actor AppWriteActor {
             throw AppWriteFailure.invalidInput
         }
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
 
         do {
             try modelContext.transaction {
@@ -510,7 +510,7 @@ actor AppWriteActor {
         let recordID = command.recordID
         guard !cleanCode.isEmpty, !cleanTitle.isEmpty else { throw AppWriteFailure.invalidInput }
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
 
         do {
             try modelContext.transaction {
@@ -600,7 +600,7 @@ actor AppWriteActor {
             throw AppWriteFailure.invalidInput
         }
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
         var savedCount = 0
 
         do {
@@ -674,7 +674,8 @@ actor AppWriteActor {
         )
     }
 
-    func reserveRevision() throws -> ReservedRevision {
+    func reserveRevision(committedAt: Date) throws -> ReservedRevision {
+        _ = try RecordDigestV1.timestampMicroseconds(committedAt)
         var reservation: ReservedRevision?
         let singletonKey = DatasetMetadata.fixedKey
         try modelContext.transaction {
@@ -700,6 +701,7 @@ actor AppWriteActor {
     }
 
     func markCommitted(at date: Date) throws {
+        _ = try RecordDigestV1.timestampMicroseconds(date)
         let singletonKey = DatasetMetadata.fixedKey
         var descriptor = FetchDescriptor<DatasetMetadata>(
             predicate: #Predicate { $0.singletonKey == singletonKey }
@@ -718,6 +720,7 @@ actor AppWriteActor {
         reservation: ReservedRevision,
         committedAt: Date
     ) throws {
+        _ = try RecordDigestV1.timestampMicroseconds(committedAt)
         let key = recordType + ":" + recordID.uuidString.lowercased()
         let digest = try RecordDigestV1.sha256Hex(
             recordType: recordType,
@@ -864,12 +867,7 @@ enum FactDigestV1 {
     }
 
     private static func timestamp(_ date: Date) throws -> RecordDigestV1.Value {
-        let roundedMicroseconds = (date.timeIntervalSince1970 * 1_000_000).rounded()
-        guard roundedMicroseconds.isFinite,
-              let microseconds = Int64(exactly: roundedMicroseconds) else {
-            throw RecordDigestV1.EncodingError.timestampOutOfRange
-        }
-        return .timestampMicroseconds(microseconds)
+        try RecordDigestV1.timestampValue(date)
     }
 
     private static func optionalTimestamp(_ date: Date?) throws -> RecordDigestV1.Value {
@@ -890,15 +888,18 @@ struct AppDataWriter: Sendable {
     private let storage: AppWriteActor
     private let verifyStoreProtection: @Sendable () async -> Bool
     private let onProtectionFailure: @Sendable () async -> Void
+    private let onReminderInputsChanged: @Sendable (Bool) async -> Void
 
     init(
         storage: AppWriteActor,
         verifyStoreProtection: @escaping @Sendable () async -> Bool,
-        onProtectionFailure: @escaping @Sendable () async -> Void
+        onProtectionFailure: @escaping @Sendable () async -> Void,
+        onReminderInputsChanged: @escaping @Sendable (Bool) async -> Void = { _ in }
     ) {
         self.storage = storage
         self.verifyStoreProtection = verifyStoreProtection
         self.onProtectionFailure = onProtectionFailure
+        self.onReminderInputsChanged = onReminderInputsChanged
     }
 
     func setStartDate(_ command: SetStartDateCommand) async throws {
@@ -934,6 +935,8 @@ struct AppDataWriter: Sendable {
 
     func sealRegimenDraft(_ command: SealRegimenDraftCommand) async throws {
         try await storage.sealRegimenDraft(command)
+        let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
+        await onReminderInputsChanged(didInvalidateCoverage)
         await revalidateProtectionAfterCommit()
     }
 
@@ -948,6 +951,8 @@ struct AppDataWriter: Sendable {
     ) async throws -> AdministrationCommitResult {
         let result = try await storage.commitAdministration(command)
         if result.didCreate {
+            let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
+            await onReminderInputsChanged(didInvalidateCoverage)
             await revalidateProtectionAfterCommit()
         }
         return result
@@ -958,6 +963,8 @@ struct AppDataWriter: Sendable {
     ) async throws -> ReminderPreferenceResult {
         let result = try await storage.setReminderPreference(command)
         if result.didApply {
+            let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
+            await onReminderInputsChanged(didInvalidateCoverage)
             await revalidateProtectionAfterCommit()
         }
         return result
@@ -968,6 +975,8 @@ struct AppDataWriter: Sendable {
     ) async throws -> ReminderOverrideResult {
         let result = try await storage.applyReminderOverride(command)
         if result.didCreate {
+            let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
+            await onReminderInputsChanged(didInvalidateCoverage)
             await revalidateProtectionAfterCommit()
         }
         return result
@@ -984,6 +993,24 @@ struct AppDataWriter: Sendable {
         guard await verifyStoreProtection() else {
             await onProtectionFailure()
             return
+        }
+    }
+
+    private func invalidateReminderCoverage(at observedAt: Date) async -> Bool {
+        do {
+            try await storage.updateNotificationCoverage(
+                LocalReminderReconciliationObservation(
+                    status: .reconciliationPending,
+                    scheduledThrough: nil,
+                    desiredCount: 0,
+                    confirmedPendingCount: 0,
+                    lastErrorCode: nil,
+                    observedAt: observedAt
+                )
+            )
+            return true
+        } catch {
+            return false
         }
     }
 }

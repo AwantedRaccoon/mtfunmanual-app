@@ -1048,7 +1048,7 @@ struct AppDataStoreBootstrapper {
             try coreFactIdentity(
                 recordType: "HistoricalTimeRecord",
                 recordID: CoreTimeRegimenBackfill.stableUUID(for: $0.recordKey),
-                fields: CoreFactDigestV1.historicalTime($0)
+                fields: try CoreFactDigestV1.historicalTime($0)
             )
         }
         guard includesTodayFacts else { return facts }
@@ -1056,14 +1056,14 @@ struct AppDataStoreBootstrapper {
             try coreFactIdentity(
                 recordType: "AdministrationEventRecord",
                 recordID: $0.id,
-                fields: TodayExecutionDigestV1.administrationEvent($0)
+                fields: try TodayExecutionDigestV1.administrationEvent($0)
             )
         }
         facts += try context.fetch(FetchDescriptor<ReminderOverrideRecord>()).map {
             try coreFactIdentity(
                 recordType: "ReminderOverrideRecord",
                 recordID: $0.id,
-                fields: TodayExecutionDigestV1.reminderOverride($0)
+                fields: try TodayExecutionDigestV1.reminderOverride($0)
             )
         }
         facts += try context.fetch(FetchDescriptor<ReminderPreferenceRecord>()).map {
@@ -1077,7 +1077,7 @@ struct AppDataStoreBootstrapper {
             try coreFactIdentity(
                 recordType: "OperationReceiptRecord",
                 recordID: $0.operationID,
-                fields: TodayExecutionDigestV1.operationReceipt($0)
+                fields: try TodayExecutionDigestV1.operationReceipt($0)
             )
         }
         facts += try context.fetch(FetchDescriptor<OperationReceiptLedgerRecord>()).map {

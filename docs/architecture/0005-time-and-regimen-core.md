@@ -76,7 +76,7 @@ Journey/Lab 读模型必须把对应 `HistoricalTimeRecord` 的 canonical timest
 - sealed 版本的用户内容及其组成项不可原地修改；后续变化创建新版本和全新的 item identity。
 - `previousVersionID` 必须指向生效日前最近的 sealed 版本；过期或跳链命令拒绝。
 
-若用户在既有两个 sealed 版本之间补录历史版本，封存事务会只重连紧邻后续版本的 `previousVersionID`，并为新版本与该结构链接写同一 revision。该系统维护字段的重连不是覆盖后续版本的标题、组成、开始日或理由；它是支持历史插入且保持链不跳跃的唯一例外。
+若用户补录历史版本，封存事务会重连紧邻后续 sealed 版本的 `previousVersionID`；若两者之间已有未来草稿，也会把这些草稿的同一系统维护字段重连到新封存版本。所有受影响链接与新版本写入同一 revision，并在提交前重新运行 Core 关系校验。该重连不会覆盖后续版本或草稿的标题、组成、开始日或理由；它是支持历史插入且保持链不跳跃的唯一例外。
 
 ## 5. 草稿、校样与封存
 
@@ -92,7 +92,7 @@ Journey/Lab 读模型必须把对应 `HistoricalTimeRecord` 的 canonical timest
 
 运行时写入若得到零个或多个候选，必须与 `HistoricalTimeRecord` 同事务创建对应可见核对项；后续封存使关联唯一时，同一事务删除过期核对项。读模型优先消费 sidecar 的 canonical association，不能继续从 legacy `regimenVersionID` 显示旧结果。
 
-拒绝错误前序、sealed ID 和跨版本 child identity 必须在 revision 预留前完成只读 preflight；这些用户可预期的拒绝条件不能推进 `nextLocalRevision`。
+拒绝错误前序、sealed ID 和跨版本 child identity 必须在 revision 预留前完成只读 preflight；这些用户可预期的拒绝条件不能推进 `nextLocalRevision`。所有 revision-backed 写入的 `committedAt` 还必须在 revision 预留前经过 canonical 微秒编码校验；NaN、无穷和有限但超出 `Int64` 微秒范围的值零写入失败，不能留下 revision gap。`RecordRevision` 与 dataset metadata 写入点重复执行同一 checked 校验作为防御纵深。
 
 ## 6. 迁移与 pointer 切换
 

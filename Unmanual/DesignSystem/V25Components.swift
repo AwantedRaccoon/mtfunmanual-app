@@ -63,11 +63,11 @@ struct V25PageHeader: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Text(subtitle)
                         .font(.body)
-                        .foregroundStyle(theme.indigo.opacity(0.7))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(status)
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(theme.indigo.opacity(0.62))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
@@ -78,7 +78,7 @@ struct V25PageHeader: View {
                             .tracking(-1.2)
                         Text(subtitle)
                             .font(.subheadline)
-                            .foregroundStyle(theme.indigo.opacity(0.68))
+                            .foregroundStyle(theme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -90,7 +90,7 @@ struct V25PageHeader: View {
                             .tracking(0.9)
                         Text(status)
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(theme.indigo.opacity(0.58))
+                            .foregroundStyle(theme.secondaryText)
                     }
                     .padding(.top, 9)
                 }
@@ -121,7 +121,7 @@ struct V25SectionHeader: View {
                         .font(.headline.weight(.black))
                     Text(detail.uppercased())
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(theme.indigo.opacity(0.58))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
@@ -132,7 +132,7 @@ struct V25SectionHeader: View {
                     Text(detail.uppercased())
                         .font(theme.utility(9))
                         .tracking(0.8)
-                        .foregroundStyle(theme.indigo.opacity(0.58))
+                        .foregroundStyle(theme.secondaryText)
                 }
             }
         }
@@ -166,7 +166,7 @@ struct V25FieldSurface<Content: View>: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(label)
                 .font(.caption.weight(.black))
-                .foregroundStyle(labelColor ?? theme.vermilion)
+                .foregroundStyle(labelColor ?? theme.vermilionText)
 
             content
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -174,7 +174,7 @@ struct V25FieldSurface<Content: View>: View {
             if let note {
                 Text(note)
                     .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.62))
+                    .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -240,14 +240,14 @@ struct V25EditorIntro: View {
             Text(eyebrow.uppercased())
                 .font(dynamicTypeSize.isAccessibilitySize ? .caption.weight(.bold) : theme.utility(10))
                 .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.9)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text(title)
                 .font(dynamicTypeSize.isAccessibilitySize ? .title2.weight(.black) : theme.display(34, relativeTo: .largeTitle))
                 .foregroundStyle(theme.indigoDeep)
                 .fixedSize(horizontal: false, vertical: true)
             Text(detail)
                 .font(dynamicTypeSize.isAccessibilitySize ? .body : .subheadline)
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -343,12 +343,12 @@ struct V25EmptyState: View {
             Text(eyebrow.uppercased())
                 .font(theme.utility(10))
                 .tracking(0.8)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text(title)
                 .font(theme.display(27, relativeTo: .title2))
             Text(detail)
                 .font(.body)
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(theme.indigoDeep)
@@ -374,7 +374,7 @@ struct V25PrivacyFooter: View {
         }
             .font(dynamicTypeSize.isAccessibilitySize ? .caption.weight(.bold) : theme.utility(9))
             .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.7)
-            .foregroundStyle(theme.indigo.opacity(0.58))
+            .foregroundStyle(theme.secondaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 14)
             .accessibilityElement(children: .combine)

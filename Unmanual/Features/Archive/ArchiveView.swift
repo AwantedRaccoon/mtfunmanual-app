@@ -113,7 +113,7 @@ private struct ArchiveDossierCover: View {
                             Text("PERSONAL RECORD")
                                 .font(theme.utility(9))
                                 .tracking(1)
-                                .foregroundStyle(theme.vermilion)
+                                .foregroundStyle(theme.vermilionText)
                             Text(snapshot.hasContent ? "你的个人记录档案" : "从第一笔开始")
                                 .font(theme.display(25, relativeTo: .title2))
                                 .foregroundStyle(theme.indigoDeep)
@@ -132,7 +132,7 @@ private struct ArchiveDossierCover: View {
                     Text(snapshot.rangeLabel)
                         .font(theme.utility(11))
                         .tracking(0.5)
-                        .foregroundStyle(theme.indigo.opacity(0.62))
+                        .foregroundStyle(theme.secondaryText)
                         .padding(.top, 10)
 
                     Rectangle()
@@ -144,7 +144,7 @@ private struct ArchiveDossierCover: View {
 
                     Text(coverNote)
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.64))
+                        .foregroundStyle(theme.secondaryText)
                         .padding(.top, 13)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -220,7 +220,7 @@ private struct ArchiveCount: View {
                 .monospacedDigit()
             Text(label)
                 .font(.caption.weight(.bold))
-                .foregroundStyle(theme.indigo.opacity(0.62))
+                .foregroundStyle(theme.secondaryText)
         }
         .foregroundStyle(theme.indigoDeep)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -295,12 +295,14 @@ private struct ArchiveActionRow: View {
                     Text(kicker.uppercased())
                         .font(theme.utility(9))
                         .tracking(0.8)
-                        .foregroundStyle(style == .primary ? theme.mustard : theme.vermilion)
+                        .foregroundStyle(
+                            style == .primary ? theme.mustard : theme.vermilionText
+                        )
                     Text(title)
                         .font(theme.display(23, relativeTo: .title3))
                     Text(detail)
                         .font(.footnote)
-                        .foregroundStyle(foreground.opacity(0.68))
+                        .foregroundStyle(foreground)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -312,7 +314,7 @@ private struct ArchiveActionRow: View {
                         .tracking(0.8)
                         .padding(.horizontal, 7)
                         .frame(minHeight: 24)
-                        .overlay { Rectangle().stroke(foreground.opacity(0.72), lineWidth: 1) }
+                        .overlay { Rectangle().stroke(foreground, lineWidth: 1) }
 
                     Image(systemName: symbol)
                         .font(.system(size: 13, weight: .black))
@@ -394,7 +396,7 @@ private struct ArchiveLedgerRow: View {
                         .font(.body.weight(.black))
                     Text(detail)
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.64))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -404,7 +406,7 @@ private struct ArchiveLedgerRow: View {
                     Text(status)
                         .font(theme.utility(9))
                         .tracking(0.4)
-                        .foregroundStyle(theme.indigo.opacity(0.62))
+                        .foregroundStyle(theme.secondaryText)
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.black))
                 }
@@ -460,14 +462,14 @@ private struct ArchiveSupplementIndex: View {
                 Text(label)
                     .font(theme.utility(9))
                     .tracking(0.6)
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.vermilionText)
                     .frame(width: 34, alignment: .leading)
                 Text(title)
                     .font(.subheadline.weight(.black))
                 Spacer(minLength: 8)
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.58))
+                    .foregroundStyle(theme.secondaryText)
                     .lineLimit(2)
                     .multilineTextAlignment(.trailing)
                 Image(systemName: "arrow.right")
@@ -477,7 +479,7 @@ private struct ArchiveSupplementIndex: View {
             .padding(.horizontal, 3)
             .frame(maxWidth: .infinity, minHeight: 56)
             .overlay(alignment: .bottom) {
-                Rectangle().fill(theme.indigo.opacity(0.42)).frame(height: 1)
+                Rectangle().fill(theme.secondaryText).frame(height: 1)
             }
             .contentShape(Rectangle())
         }
@@ -563,14 +565,16 @@ private struct ArchivePreviewSheet: View {
                     HStack(alignment: .top, spacing: 12) {
                         Text(String(format: "%02d", index + 1))
                             .font(theme.utility(10))
-                            .foregroundStyle(index == 0 ? theme.vermilion : theme.blue)
+                            .foregroundStyle(
+                                index == 0 ? theme.vermilionText : theme.blueText
+                            )
                             .frame(width: 25, alignment: .leading)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(row.title)
                                 .font(.body.weight(.black))
                             Text(row.detail)
                                 .font(.caption)
-                                .foregroundStyle(theme.indigo.opacity(0.64))
+                                .foregroundStyle(theme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 4)

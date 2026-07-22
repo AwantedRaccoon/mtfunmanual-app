@@ -4,6 +4,105 @@ import XCTest
 
 @MainActor
 final class AppWriteActorTests: XCTestCase {
+    func testRegimenDraftRejectsUnencodableCommittedAtWithoutReservingRevision() async throws {
+        let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
+        let context = ModelContext(container)
+        let revisionBefore = try XCTUnwrap(
+            context.fetch(FetchDescriptor<DatasetMetadata>()).first
+        ).nextLocalRevision
+        let recordRevisionCountBefore = try context.fetchCount(
+            FetchDescriptor<RecordRevision>()
+        )
+
+        do {
+            try await AppWriteActor(modelContainer: container).saveRegimenDraft(
+                SaveRegimenDraftCommand(
+                    recordID: UUID(),
+                    previousVersionID: nil,
+                    code: "R-INVALID-TIME",
+                    title: "不得保存",
+                    effectiveStartDate: try CivilDateFact(year: 2026, month: 7, day: 22),
+                    changeReason: "验证写入边界",
+                    items: [RegimenItemInput(displayName: "测试项目")],
+                    committedAt: Date(timeIntervalSince1970: 1e20)
+                )
+            )
+            XCTFail("不可编码的 committedAt 必须在预留 revision 前失败")
+        } catch let error as RecordDigestV1.EncodingError {
+            XCTAssertEqual(error, .timestampOutOfRange)
+        }
+
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RegimenPlanVersionRecord>()), 0)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RegimenItemRecord>()), 0)
+        XCTAssertEqual(
+            try context.fetchCount(FetchDescriptor<RecordRevision>()),
+            recordRevisionCountBefore
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).nextLocalRevision,
+            revisionBefore
+        )
+    }
+
+    func testRegimenSealRejectsUnencodableCommittedAtWithoutChangingDraftOrRevision() async throws {
+        let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
+        let writer = AppWriteActor(modelContainer: container)
+        let draftID = UUID()
+        try await writer.saveRegimenDraft(
+            SaveRegimenDraftCommand(
+                recordID: draftID,
+                previousVersionID: nil,
+                code: "R-DRAFT",
+                title: "仍应保持草稿",
+                effectiveStartDate: try CivilDateFact(year: 2026, month: 7, day: 22),
+                changeReason: "验证封存边界",
+                items: [RegimenItemInput(displayName: "测试项目")],
+                committedAt: Date(timeIntervalSince1970: 1_774_156_800)
+            )
+        )
+        let preview = try await writer.previewRegimenChange(draftID: draftID)
+        let context = ModelContext(container)
+        let revisionBefore = try XCTUnwrap(
+            context.fetch(FetchDescriptor<DatasetMetadata>()).first
+        ).nextLocalRevision
+        let recordRevisionCountBefore = try context.fetchCount(
+            FetchDescriptor<RecordRevision>()
+        )
+
+        do {
+            try await writer.sealRegimenDraft(
+                SealRegimenDraftCommand(
+                    draftID: draftID,
+                    expectedNextLocalRevision: preview.expectedNextLocalRevision,
+                    draftDigest: preview.draftDigest,
+                    committedAt: Date(timeIntervalSince1970: .infinity)
+                )
+            )
+            XCTFail("不可编码的 committedAt 不得封存草稿")
+        } catch let error as RecordDigestV1.EncodingError {
+            XCTAssertEqual(error, .timestampOutOfRange)
+        }
+
+        let storedDraft = try XCTUnwrap(
+            context.fetch(FetchDescriptor<RegimenPlanVersionRecord>()).first {
+                $0.id == draftID
+            }
+        )
+        XCTAssertEqual(storedDraft.editState, .draft)
+        XCTAssertEqual(
+            try context.fetchCount(FetchDescriptor<RecordRevision>()),
+            recordRevisionCountBefore
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).nextLocalRevision,
+            revisionBefore
+        )
+    }
+
     func testSetStartDateWritesCanonicalCivilFactsInSameRevision() async throws {
         let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
         _ = try LegacyV1Backfill.run(in: container)
@@ -421,6 +520,75 @@ final class AppWriteActorTests: XCTestCase {
             }
         )
         XCTAssertEqual(successorRevision.localRevision, sealedRevision.localRevision)
+    }
+
+    func testHistoricalInsertRelinksFutureDraftInSealTransaction() async throws {
+        let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
+        let context = ModelContext(container)
+        let firstID = UUID(uuidString: "36100000-0000-0000-0000-000000000001")!
+        context.insert(
+            RegimenPlanVersionRecord(
+                id: firstID,
+                code: "R-01",
+                title: "第一版",
+                effectiveStartDate: try CivilDateFact(year: 2026, month: 1, day: 1),
+                editState: .sealed
+            )
+        )
+        try context.save()
+
+        let writer = AppWriteActor(modelContainer: container)
+        let futureDraftID = UUID(uuidString: "36100000-0000-0000-0000-000000000003")!
+        try await writer.saveRegimenDraft(
+            SaveRegimenDraftCommand(
+                recordID: futureDraftID,
+                previousVersionID: firstID,
+                code: "R-03-DRAFT",
+                title: "未来草稿",
+                effectiveStartDate: try CivilDateFact(year: 2026, month: 3, day: 1),
+                changeReason: "预先规划",
+                items: [RegimenItemInput(displayName: "未来项目")],
+                committedAt: Date(timeIntervalSince1970: 1_770_000_000)
+            )
+        )
+
+        let middleID = UUID(uuidString: "36100000-0000-0000-0000-000000000002")!
+        try await writer.saveRegimenDraft(
+            SaveRegimenDraftCommand(
+                recordID: middleID,
+                previousVersionID: firstID,
+                code: "R-02",
+                title: "第二版",
+                effectiveStartDate: try CivilDateFact(year: 2026, month: 2, day: 1),
+                changeReason: "补录",
+                items: [RegimenItemInput(displayName: "当前项目")],
+                committedAt: Date(timeIntervalSince1970: 1_770_000_001)
+            )
+        )
+        let preview = try await writer.previewRegimenChange(draftID: middleID)
+        try await writer.sealRegimenDraft(
+            SealRegimenDraftCommand(
+                draftID: middleID,
+                expectedNextLocalRevision: preview.expectedNextLocalRevision,
+                draftDigest: preview.draftDigest,
+                committedAt: Date(timeIntervalSince1970: 1_770_000_002)
+            )
+        )
+
+        let futureDraft = try XCTUnwrap(
+            context.fetch(FetchDescriptor<RegimenPlanVersionRecord>()).first {
+                $0.id == futureDraftID
+            }
+        )
+        XCTAssertEqual(futureDraft.previousVersionID, middleID)
+        XCTAssertNoThrow(
+            try CoreRelationshipValidator.validate(
+                in: context,
+                failure: .corruptionSuspected
+            )
+        )
     }
 
     func testSingleRecordWriteCommitsBusinessFactAndRevisionTogether() async throws {

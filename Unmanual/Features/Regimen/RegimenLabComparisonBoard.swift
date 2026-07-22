@@ -106,7 +106,7 @@ private struct LedgerRegimenSpine: View {
                 .padding(.top, 8)
 
             Rectangle()
-                .fill(theme.paper.opacity(0.35))
+                .fill(theme.paper)
                 .frame(height: 1)
                 .padding(.vertical, 13)
 
@@ -128,7 +128,7 @@ private struct LedgerRegimenSpine: View {
                 .padding(.top, 5)
             Text(linkText)
                 .font(.caption2)
-                .foregroundStyle(theme.paper.opacity(0.64))
+                .foregroundStyle(theme.paper)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 5)
         }
@@ -170,7 +170,7 @@ private struct LedgerRegimenSpine: View {
                 }
             }
 
-            Rectangle().fill(theme.paper.opacity(0.35)).frame(height: 1)
+            Rectangle().fill(theme.paper).frame(height: 1)
 
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 6) {
@@ -183,7 +183,7 @@ private struct LedgerRegimenSpine: View {
                         .minimumScaleFactor(0.72)
                     Text(linkText)
                         .font(.caption)
-                        .foregroundStyle(theme.paper.opacity(0.66))
+                        .foregroundStyle(theme.paper)
                 }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -195,7 +195,7 @@ private struct LedgerRegimenSpine: View {
                     Spacer(minLength: 8)
                     Text(linkText)
                         .font(.caption2)
-                        .foregroundStyle(theme.paper.opacity(0.66))
+                        .foregroundStyle(theme.paper)
                 }
             }
         }
@@ -221,7 +221,7 @@ private struct LedgerSpineDatum: View {
             Text(label)
                 .font(theme.utility(9))
                 .tracking(0.6)
-                .foregroundStyle(theme.paper.opacity(0.54))
+                .foregroundStyle(theme.paper)
             Text(value)
                 .font(.caption.weight(.bold))
                 .lineLimit(1)
@@ -250,7 +250,7 @@ private struct LedgerLabIndex: View {
                     Text(sampleDateText ?? "尚无采样记录")
                         .font(theme.utility(9))
                         .tracking(0.5)
-                        .foregroundStyle(theme.indigo.opacity(0.58))
+                        .foregroundStyle(theme.secondaryText)
                 }
 
                 Spacer(minLength: 6)
@@ -264,7 +264,7 @@ private struct LedgerLabIndex: View {
                             .font(theme.utility(9))
                             .tracking(0.5)
                     }
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.vermilionText)
                     .frame(minWidth: 54, minHeight: 48, alignment: .trailing)
                     .contentShape(Rectangle())
                 }
@@ -300,20 +300,22 @@ private struct LedgerHormoneRow: View {
         HStack(alignment: .center, spacing: 7) {
             Text(String(format: "%02d", fact.order))
                 .font(theme.utility(8))
-                .foregroundStyle(theme.indigo.opacity(0.36))
+                .foregroundStyle(theme.secondaryText)
                 .frame(width: 17, alignment: .leading)
 
             Text(fact.descriptor.code)
                 .font(theme.utility(11))
                 .tracking(0.5)
-                .foregroundStyle(fact.record == nil ? theme.indigo.opacity(0.44) : theme.vermilion)
+                .foregroundStyle(
+                    fact.record == nil ? theme.secondaryText : theme.vermilionText
+                )
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
                 .frame(width: 28, alignment: .leading)
 
             Text(fact.descriptor.name)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(theme.indigo.opacity(fact.record == nil ? 0.48 : 0.72))
+                .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
 
@@ -326,21 +328,21 @@ private struct LedgerHormoneRow: View {
                         .monospacedDigit()
                     Text(record.unit)
                         .font(theme.utility(7))
-                        .foregroundStyle(theme.indigo.opacity(0.54))
+                        .foregroundStyle(theme.secondaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.66)
                 }
             } else {
                 Text("—")
                     .font(theme.display(20, relativeTo: .body))
-                    .foregroundStyle(theme.indigo.opacity(0.28))
+                    .foregroundStyle(theme.secondaryText)
             }
         }
         .padding(.horizontal, 9)
         .frame(maxWidth: .infinity, minHeight: 46)
         .background(fact.record == nil ? theme.rice.opacity(0.42) : theme.paper)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.indigo.opacity(0.28)).frame(height: 1)
+            Rectangle().fill(theme.secondaryText).frame(height: 1)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)

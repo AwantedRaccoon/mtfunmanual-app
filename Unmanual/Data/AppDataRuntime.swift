@@ -53,7 +53,15 @@ struct AppDataSession {
                 guard let plan = store.protectionPlan else { return true }
                 return await verifyStoreProtection(plan)
             },
-            onProtectionFailure: onProtectionFailure
+            onProtectionFailure: onProtectionFailure,
+            onReminderInputsChanged: { didInvalidateCoverage in
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .unmanualReminderInputsChanged,
+                        object: didInvalidateCoverage
+                    )
+                }
+            }
         )
         self.reader = AppReadActor(modelContainer: store.container)
     }

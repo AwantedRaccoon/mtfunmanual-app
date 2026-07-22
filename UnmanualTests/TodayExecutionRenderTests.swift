@@ -5,6 +5,63 @@ import XCTest
 
 @MainActor
 final class TodayExecutionRenderTests: XCTestCase {
+    func testLatestTodayRefreshGateRejectsAnEarlierCompletion() {
+        var gate = TodayLatestRequestGate()
+
+        let earlier = gate.begin()
+        let latest = gate.begin()
+
+        XCTAssertFalse(gate.isCurrent(earlier))
+        XCTAssertTrue(gate.isCurrent(latest))
+    }
+
+    func testSemanticTextTokensMeetWCAGAAOnPaperAndRice() {
+        for foreground in [
+            AppColorTokens.secondaryText,
+            AppColorTokens.vermilionText,
+            AppColorTokens.blueText,
+            AppColorTokens.mossText,
+            AppColorTokens.mustardText
+        ] {
+            for background in [AppColorTokens.paper, AppColorTokens.rice] {
+                XCTAssertGreaterThanOrEqual(
+                    wcagContrastRatio(
+                        foreground: foreground,
+                        background: background
+                    ),
+                    4.5
+                )
+            }
+        }
+    }
+
+    func testRuntimeReminderFailureOverridesPersistedCoveragePresentation() {
+        let title = TodayReminderCoveragePresentation.title(
+            coverage: NotificationCoverageSnapshot(
+                status: .scheduledForWindow,
+                scheduledThrough: Date(timeIntervalSince1970: 1_753_181_400),
+                desiredCount: 1,
+                confirmedPendingCount: 1,
+                lastErrorCode: nil,
+                observedAt: Date(timeIntervalSince1970: 1_753_181_000)
+            ),
+            runtimeErrorCode: "reconciliation-unavailable"
+        )
+
+        XCTAssertEqual(title, "部分提醒尚未安排，请打开 App 重试")
+    }
+
+    func testActionGateRejectsRapidSecondMutationUntilFirstFinishes() {
+        var gate = TodayExecutionActionGate()
+
+        XCTAssertTrue(gate.begin(occurrenceKey: "occurrence"))
+        XCTAssertFalse(gate.begin(occurrenceKey: "occurrence"))
+        XCTAssertEqual(gate.inFlightOccurrenceKeys, ["occurrence"])
+
+        gate.finish(occurrenceKey: "occurrence")
+        XCTAssertTrue(gate.begin(occurrenceKey: "occurrence"))
+    }
+
     func testLedgerRendersAtRepresentativePhoneLandscapeAndPadSizes() throws {
         let sizes = [
             CGSize(width: 320, height: 568),
@@ -33,6 +90,60 @@ final class TodayExecutionRenderTests: XCTestCase {
 
         assertContainsForeground(image)
         attach(image, named: "TodayExecution-320x568-Accessibility5")
+    }
+
+    func testExecutionSheetsRemainScrollableAt320x568AccessibilityFive() throws {
+        let item = try XCTUnwrap(fixtureSnapshot().items.first)
+        let views: [(String, AnyView)] = [
+            (
+                "reminder",
+                AnyView(
+                    LocalReminderConsentSheet(
+                        item: item,
+                        cancel: {},
+                        confirm: {}
+                    )
+                )
+            ),
+            (
+                "correction",
+                AnyView(
+                    TodayExecutionCorrectionSheet(
+                        item: item,
+                        cancel: {},
+                        save: { _, _ in }
+                    )
+                )
+            )
+        ]
+
+        for (name, view) in views {
+            let rendered = renderSheet(
+                view,
+                size: CGSize(width: 320, height: 568),
+                dynamicTypeSize: .accessibility5
+            )
+            XCTAssertTrue(rendered.hasScrollableContent)
+            assertContainsForeground(rendered.image)
+            attach(
+                rendered.image,
+                named: "TodayExecution-\(name)-320x568-Accessibility5"
+            )
+        }
+    }
+
+    func testLedgerRendersBusyRowWithSavingFeedback() throws {
+        let snapshot = try fixtureSnapshot()
+        let occurrenceKey = try XCTUnwrap(snapshot.items.first?.id)
+        let image = try renderLedger(
+            size: CGSize(width: 390, height: 844),
+            dynamicTypeSize: .large,
+            snapshot: snapshot,
+            inFlightOccurrenceKeys: [occurrenceKey]
+        )
+
+        assertContainsForeground(image)
+        attach(image, named: "TodayExecution-state-saving")
     }
 
     func testLedgerRendersLoadingErrorEmptyReviewAndRecordedStates() throws {
@@ -85,7 +196,8 @@ final class TodayExecutionRenderTests: XCTestCase {
         snapshot: TodayExecutionSnapshot? = nil,
         isLoading: Bool = false,
         errorMessage: String? = nil,
-        reduceMotion: Bool = false
+        reduceMotion: Bool = false,
+        inFlightOccurrenceKeys: Set<String> = []
     ) throws -> UIImage {
         let snapshot = try snapshot ?? fixtureSnapshot()
         let theme = AppTheme()
@@ -94,6 +206,8 @@ final class TodayExecutionRenderTests: XCTestCase {
                 snapshot: snapshot,
                 isLoading: isLoading,
                 errorMessage: errorMessage,
+                inFlightOccurrenceKeys: inFlightOccurrenceKeys,
+                runtimeReminderErrorCode: nil,
                 retryAction: {},
                 createPlanAction: {},
                 administrationAction: { _, _ in },
@@ -124,6 +238,41 @@ final class TodayExecutionRenderTests: XCTestCase {
         window.rootViewController = nil
         window.isHidden = true
         return image
+    }
+
+    private func renderSheet(
+        _ view: AnyView,
+        size: CGSize,
+        dynamicTypeSize: DynamicTypeSize
+    ) -> (image: UIImage, hasScrollableContent: Bool) {
+        let theme = AppTheme()
+        let content = view
+            .environment(theme)
+            .environment(\.dynamicTypeSize, dynamicTypeSize)
+            .frame(width: size.width, height: size.height)
+        let host = UIHostingController(rootView: content)
+        let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+
+        let scrollViews = allSubviews(of: host.view).compactMap { $0 as? UIScrollView }
+        let hasScrollableContent = scrollViews.contains {
+            $0.contentSize.height > $0.bounds.height + 1
+        }
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { _ in
+            XCTAssertTrue(host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true))
+        }
+        window.rootViewController = nil
+        window.isHidden = true
+        return (image, hasScrollableContent)
+    }
+
+    private func allSubviews(of view: UIView) -> [UIView] {
+        view.subviews.flatMap { [$0] + allSubviews(of: $0) }
     }
 
     private func fixtureSnapshot(
@@ -206,5 +355,20 @@ final class TodayExecutionRenderTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func wcagContrastRatio(foreground: UInt, background: UInt) -> Double {
+        func luminance(_ value: UInt) -> Double {
+            let channels = [16, 8, 0].map { shift -> Double in
+                let component = Double((value >> UInt(shift)) & 0xFF) / 255
+                return component <= 0.04045
+                    ? component / 12.92
+                    : pow((component + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+        }
+        let first = luminance(foreground)
+        let second = luminance(background)
+        return (max(first, second) + 0.05) / (min(first, second) + 0.05)
     }
 }

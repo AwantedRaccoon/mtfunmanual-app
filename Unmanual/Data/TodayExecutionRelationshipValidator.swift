@@ -1,6 +1,22 @@
 import Foundation
 import SwiftData
 
+enum AppDataIndex {
+    static func checkedUniqueMap<Values: Sequence, Key: Hashable>(
+        _ values: Values,
+        keyedBy key: (Values.Element) -> Key,
+        failure: AppDataFailure
+    ) throws -> [Key: Values.Element] {
+        var result: [Key: Values.Element] = [:]
+        for value in values {
+            guard result.updateValue(value, forKey: key(value)) == nil else {
+                throw failure
+            }
+        }
+        return result
+    }
+}
+
 enum TodayExecutionRelationshipValidator {
     static func validate(
         in context: ModelContext,
@@ -28,11 +44,23 @@ enum TodayExecutionRelationshipValidator {
         }
 
         let schedules = try context.fetch(FetchDescriptor<ScheduleRuleRecord>())
-        let scheduleByID = Dictionary(uniqueKeysWithValues: schedules.map { ($0.id, $0) })
+        let scheduleByID = try AppDataIndex.checkedUniqueMap(
+            schedules,
+            keyedBy: \.id,
+            failure: failure
+        )
         let items = try context.fetch(FetchDescriptor<RegimenItemRecord>())
-        let itemByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        let itemByID = try AppDataIndex.checkedUniqueMap(
+            items,
+            keyedBy: \.id,
+            failure: failure
+        )
         let versions = try context.fetch(FetchDescriptor<RegimenPlanVersionRecord>())
-        let versionIDs = Set(versions.map(\.id))
+        let versionByID = try AppDataIndex.checkedUniqueMap(
+            versions,
+            keyedBy: \.id,
+            failure: failure
+        )
         let regimenTimeline = versions
             .filter { !$0.isArchived }
             .compactMap { version -> RegimenTimelineVersion? in
@@ -45,6 +73,16 @@ enum TodayExecutionRelationshipValidator {
                     requiresReview: version.requiresMigrationReview
                 )
             }
+        guard let normalizedTimeline = RegimenTimelineResolver.normalizedEligibleTimeline(
+            regimenTimeline
+        ) else {
+            throw failure
+        }
+        let normalizedTimelineByID = try AppDataIndex.checkedUniqueMap(
+            normalizedTimeline,
+            keyedBy: \.id,
+            failure: failure
+        )
 
         let preferences = try context.fetch(FetchDescriptor<ReminderPreferenceRecord>())
         guard Set(preferences.map(\.preferenceKey)).count == preferences.count,
@@ -64,21 +102,31 @@ enum TodayExecutionRelationshipValidator {
         }
 
         let events = try context.fetch(FetchDescriptor<AdministrationEventRecord>())
-        let eventByID = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
+        let eventByID = try AppDataIndex.checkedUniqueMap(
+            events,
+            keyedBy: \.id,
+            failure: failure
+        )
         guard eventByID.count == events.count,
               events.allSatisfy({ event in
                   guard let schedule = scheduleByID[event.scheduleRuleID],
                         schedule.revision == event.scheduleRevision,
                         schedule.regimenItemID == event.regimenItemID,
-                        let item = itemByID[event.regimenItemID] else { return false }
+                        let item = itemByID[event.regimenItemID],
+                        let timelineVersion = normalizedTimelineByID[item.regimenVersionID],
+                        let spec = scheduleSpec(
+                            schedule,
+                            item: item,
+                            timelineVersion: timelineVersion
+                        ) else { return false }
                   return item.regimenVersionID == event.regimenVersionID
-                      && versionIDs.contains(event.regimenVersionID)
+                      && versionByID[event.regimenVersionID] != nil
                       && event.status != nil
-                      && event.plannedInstant.timeIntervalSince1970.isFinite
                       && event.createdAt.timeIntervalSince1970.isFinite
-                      && event.occurrenceKey.hasPrefix(
-                        "occ:v1:" + event.scheduleRuleID.uuidString.lowercased()
-                            + ":" + String(event.scheduleRevision) + ":"
+                      && ScheduleOccurrenceResolver.validatesStoredOccurrence(
+                        key: event.occurrenceKey,
+                        plannedInstant: event.plannedInstant,
+                        rule: spec
                       )
               }) else {
             throw failure
@@ -86,17 +134,30 @@ enum TodayExecutionRelationshipValidator {
         try validateEventChains(events, failure: failure)
 
         let overrides = try context.fetch(FetchDescriptor<ReminderOverrideRecord>())
-        let overrideByID = Dictionary(uniqueKeysWithValues: overrides.map { ($0.id, $0) })
+        let overrideByID = try AppDataIndex.checkedUniqueMap(
+            overrides,
+            keyedBy: \.id,
+            failure: failure
+        )
         guard overrideByID.count == overrides.count,
               overrides.allSatisfy({ override in
-                  guard let schedule = scheduleByID[override.scheduleRuleID] else { return false }
+                  guard let schedule = scheduleByID[override.scheduleRuleID],
+                        let item = itemByID[schedule.regimenItemID],
+                        let timelineVersion = normalizedTimelineByID[item.regimenVersionID],
+                        let spec = scheduleSpec(
+                            schedule,
+                            item: item,
+                            timelineVersion: timelineVersion
+                        ) else { return false }
                   return schedule.revision == override.scheduleRevision
                       && override.fireAt.timeIntervalSince1970.isFinite
-                      && override.plannedInstant.timeIntervalSince1970.isFinite
                       && override.createdAt.timeIntervalSince1970.isFinite
-                      && override.occurrenceKey.hasPrefix(
-                        "occ:v1:" + override.scheduleRuleID.uuidString.lowercased()
-                            + ":" + String(override.scheduleRevision) + ":"
+                      && override.fireAt > override.createdAt
+                      && override.fireAt.timeIntervalSince(override.createdAt) <= 86_400
+                      && ScheduleOccurrenceResolver.validatesStoredOccurrence(
+                        key: override.occurrenceKey,
+                        plannedInstant: override.plannedInstant,
+                        rule: spec
                       )
               }) else {
             throw failure
@@ -104,8 +165,10 @@ enum TodayExecutionRelationshipValidator {
         try validateOverrideChains(overrides, failure: failure)
 
         let receipts = try context.fetch(FetchDescriptor<OperationReceiptRecord>())
-        let receiptByOperationID = Dictionary(
-            uniqueKeysWithValues: receipts.map { ($0.operationID, $0) }
+        let receiptByOperationID = try AppDataIndex.checkedUniqueMap(
+            receipts,
+            keyedBy: \.operationID,
+            failure: failure
         )
         let administrationReceipts = receipts.filter {
             $0.resultRecordType == "AdministrationEventRecord"
@@ -166,7 +229,7 @@ enum TodayExecutionRelationshipValidator {
               let ledger = ledgers.first,
               ledger.ledgerKey == OperationReceiptLedgerRecord.fixedKey,
               ledger.receiptCount == receipts.count,
-              ledger.receiptSetDigest == TodayExecutionDigestV1.receiptSetDigest(receipts),
+              ledger.receiptSetDigest == (try TodayExecutionDigestV1.receiptSetDigest(receipts)),
               ledger.updatedAt.timeIntervalSince1970.isFinite else {
             throw failure
         }
@@ -254,6 +317,65 @@ enum TodayExecutionRelationshipValidator {
             return coverage.scheduledThrough == nil
                 && coverage.lastErrorCode?.isEmpty == false
         }
+    }
+
+    private static func scheduleSpec(
+        _ schedule: ScheduleRuleRecord,
+        item: RegimenItemRecord,
+        timelineVersion: RegimenTimelineVersion
+    ) -> ScheduleRuleSpec? {
+        guard let kind = ScheduleRuleKind(rawValue: schedule.kindRawValue),
+              let behavior = ScheduleTimeZoneBehavior(
+                rawValue: schedule.timeZoneBehaviorRawValue
+              ),
+              let anchor = try? CivilDateFact(
+                year: schedule.anchorYear,
+                month: schedule.anchorMonth,
+                day: schedule.anchorDay
+              ) else { return nil }
+
+        let endDate: CivilDateFact?
+        if let year = schedule.endYear,
+           let month = schedule.endMonth,
+           let day = schedule.endDay {
+            guard let parsed = try? CivilDateFact(year: year, month: month, day: day) else {
+                return nil
+            }
+            endDate = parsed
+        } else {
+            guard schedule.endYear == nil,
+                  schedule.endMonth == nil,
+                  schedule.endDay == nil else { return nil }
+            endDate = nil
+        }
+
+        guard endDate.map({ anchor < $0 }) ?? true else { return nil }
+        let activeStartDate = max(anchor, timelineVersion.start)
+        let activeEndDate: CivilDateFact?
+        switch (endDate, timelineVersion.end) {
+        case let (ruleEnd?, versionEnd?): activeEndDate = min(ruleEnd, versionEnd)
+        case let (ruleEnd?, nil): activeEndDate = ruleEnd
+        case let (nil, versionEnd?): activeEndDate = versionEnd
+        case (nil, nil): activeEndDate = nil
+        }
+        guard activeEndDate.map({ activeStartDate < $0 }) ?? true else { return nil }
+
+        return ScheduleRuleSpec(
+            id: schedule.id,
+            regimenVersionID: item.regimenVersionID,
+            regimenItemID: item.id,
+            displayName: item.displayName,
+            kind: kind,
+            anchorDate: anchor,
+            activeStartDate: activeStartDate,
+            endDate: activeEndDate,
+            localTimes: schedule.localTimes,
+            weekdays: schedule.weekdays,
+            intervalDays: schedule.intervalDays,
+            timeZoneBehavior: behavior,
+            fixedTimeZoneIdentifier: schedule.fixedTimeZoneIdentifier,
+            revision: schedule.revision
+        )
     }
 
     private static func validateEventChains(

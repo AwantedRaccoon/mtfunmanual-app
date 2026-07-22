@@ -54,7 +54,7 @@ struct CountdownEditor: View {
                     V25FieldSurface(
                         "温和模式名称（可选）",
                         note: "温和模式可以使用这个名称，但不会改变系统备份设置，也不会隐藏导出文件。",
-                        labelColor: theme.blue
+                        labelColor: theme.blueText
                     ) {
                         TextField("例如：私人日期", text: $gentleTitle, axis: .vertical)
                             .lineLimit(1...3)

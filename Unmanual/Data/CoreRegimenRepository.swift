@@ -31,7 +31,7 @@ extension AppWriteActor {
         try upsertRevision(
             recordType: "HistoricalTimeRecord",
             recordID: CoreTimeRegimenBackfill.stableUUID(for: record.recordKey),
-            fields: CoreFactDigestV1.historicalTime(record),
+            fields: try CoreFactDigestV1.historicalTime(record),
             reservation: reservation,
             committedAt: committedAt
         )
@@ -59,7 +59,7 @@ extension AppWriteActor {
             normalized.items,
             replacingDraftID: command.recordID
         )
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
 
         do {
             try modelContext.transaction {
@@ -238,7 +238,7 @@ extension AppWriteActor {
         try validateSealedTimeline(adding: draft)
 
         modelContext.autosaveEnabled = false
-        let reservation = try reserveRevision()
+        let reservation = try reserveRevision(committedAt: command.committedAt)
         guard reservation.localRevision == command.expectedNextLocalRevision else {
             throw AppWriteFailure.staleRecord
         }
@@ -258,8 +258,15 @@ extension AppWriteActor {
                     committedAt: command.committedAt
                 )
 
-                if let successor = try immediateSealedSuccessor(after: start, excluding: transactionDraft.id),
-                   successor.previousVersionID != transactionDraft.id {
+                let sealedSuccessor = try immediateSealedSuccessor(
+                    after: start,
+                    excluding: transactionDraft.id
+                )
+                for successor in try versionsWhosePredecessorChanges(
+                    after: start,
+                    through: sealedSuccessor?.effectiveStartDate,
+                    excluding: transactionDraft.id
+                ) where successor.previousVersionID != transactionDraft.id {
                     successor.previousVersionID = transactionDraft.id
                     try upsertRevision(
                         recordType: "RegimenPlanVersionRecord",
@@ -283,7 +290,7 @@ extension AppWriteActor {
                         try upsertRevision(
                             recordType: "HistoricalTimeRecord",
                             recordID: CoreTimeRegimenBackfill.stableUUID(for: historical.recordKey),
-                            fields: CoreFactDigestV1.historicalTime(historical),
+                            fields: try CoreFactDigestV1.historicalTime(historical),
                             reservation: reservation,
                             committedAt: command.committedAt
                         )
@@ -294,6 +301,36 @@ extension AppWriteActor {
                         state: association.state,
                         detectedAt: command.committedAt
                     )
+                }
+                let hasTodayExecutionSchema = modelContext.container.schema.entities.contains {
+                    $0.name == "AdministrationEventRecord"
+                }
+                do {
+                    let administrationEventIDs: Set<UUID>
+                    if hasTodayExecutionSchema {
+                        administrationEventIDs = Set(
+                            try modelContext.fetch(
+                                FetchDescriptor<AdministrationEventRecord>()
+                            ).map(\.id)
+                        )
+                    } else {
+                        administrationEventIDs = []
+                    }
+                    try CoreRelationshipValidator.validate(
+                        in: modelContext,
+                        failure: .corruptionSuspected,
+                        administrationEventIDs: administrationEventIDs
+                    )
+                    if hasTodayExecutionSchema {
+                        try TodayExecutionRelationshipValidator.validate(
+                            in: modelContext,
+                            failure: .corruptionSuspected
+                        )
+                    }
+                } catch {
+                    // Sealing must preserve both the canonical version chain and
+                    // every existing planned fact owned by the normalized timeline.
+                    throw AppWriteFailure.invalidInput
                 }
                 try markCommitted(at: command.committedAt)
             }
@@ -524,6 +561,34 @@ extension AppWriteActor {
                 return lhs != rhs ? lhs < rhs : $0.id.uuidString < $1.id.uuidString
             }
             .first
+    }
+
+    private func versionsWhosePredecessorChanges(
+        after start: CivilDateFact,
+        through upperBound: CivilDateFact?,
+        excluding excludedID: UUID
+    ) throws -> [RegimenPlanVersionRecord] {
+        var descriptor = FetchDescriptor<RegimenPlanVersionRecord>()
+        descriptor.fetchLimit = 513
+        let versions = try modelContext.fetch(descriptor)
+        guard versions.count <= 512 else { throw AppWriteFailure.invalidInput }
+        return versions
+            .filter { version in
+                guard version.id != excludedID,
+                      !version.isArchived,
+                      !version.requiresMigrationReview,
+                      let versionStart = version.effectiveStartDate,
+                      start < versionStart else {
+                    return false
+                }
+                return upperBound.map { versionStart <= $0 } ?? true
+            }
+            .sorted {
+                guard let lhs = $0.effectiveStartDate, let rhs = $1.effectiveStartDate else {
+                    return $0.id.uuidString < $1.id.uuidString
+                }
+                return lhs != rhs ? lhs < rhs : $0.id.uuidString < $1.id.uuidString
+            }
     }
 
     private func synchronizeAssociationIssue(

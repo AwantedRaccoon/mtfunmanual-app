@@ -365,7 +365,7 @@ private struct RegimenEditIntro: View {
             )
                 .font(theme.utility(10))
                 .tracking(0.9)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
 
             Text(isEditing ? "编辑当前方案" : "建立方案")
                 .font(
@@ -378,7 +378,7 @@ private struct RegimenEditIntro: View {
 
             Text(isEditing ? "调整今天以后使用的方案。保存后，旧方案仍会留在历史记录里。" : "先把现在使用的药物记下来，之后可以随时修改。")
                 .font(.subheadline)
-                .foregroundStyle(theme.indigo.opacity(0.7))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -403,7 +403,7 @@ private struct RegimenIdentitySlip: View {
                 Text(draftCode + " / DRAFT")
                     .font(theme.utility(10))
                     .tracking(0.7)
-                    .foregroundStyle(theme.paper.opacity(0.74))
+                    .foregroundStyle(theme.paper)
             }
             .padding(.horizontal, 16)
             .padding(.top, 15)
@@ -419,7 +419,7 @@ private struct RegimenIdentitySlip: View {
                 .accessibilityIdentifier("regimen.title")
 
             Rectangle()
-                .fill(theme.paper.opacity(0.34))
+                .fill(theme.paper)
                 .frame(height: 1)
                 .padding(.horizontal, 16)
 
@@ -462,7 +462,7 @@ private struct RegimenIdentitySlip: View {
             if let previousCode {
                 Text("届时归档 \(previousCode)")
                     .font(.caption)
-                    .foregroundStyle(theme.paper.opacity(0.64))
+                    .foregroundStyle(theme.paper)
             }
         }
         .foregroundStyle(theme.paper)
@@ -495,7 +495,7 @@ private struct RegimenMedicationLedger: View {
                         .font(.headline.weight(.black))
                     Text("从药品索引定位具体产品，或按药盒上的原始写法添加。")
                         .font(.subheadline)
-                        .foregroundStyle(theme.indigo.opacity(0.66))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(16)
@@ -520,7 +520,7 @@ private struct RegimenMedicationLedger: View {
                     Spacer()
                     Text("定位到具体产品")
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.62))
+                        .foregroundStyle(theme.secondaryText)
                 }
                 .foregroundStyle(theme.indigoDeep)
                 .padding(.horizontal, 15)
@@ -529,7 +529,7 @@ private struct RegimenMedicationLedger: View {
             }
             .buttonStyle(V25PressStyle())
             .overlay(alignment: .top) {
-                Rectangle().fill(theme.indigo.opacity(0.42)).frame(height: 1)
+                Rectangle().fill(theme.secondaryText).frame(height: 1)
             }
             .accessibilityIdentifier("regimen.addMedication")
         }
@@ -553,7 +553,7 @@ private struct RegimenMedicationLedgerRow: View {
                 Text(String(format: "%02d", position))
                     .font(theme.utility(13))
                     .monospacedDigit()
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.vermilionText)
                     .frame(width: 28, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -564,11 +564,11 @@ private struct RegimenMedicationLedgerRow: View {
                         Text(medication.englishName)
                             .font(theme.utility(9))
                             .tracking(0.25)
-                            .foregroundStyle(theme.indigo.opacity(0.58))
+                            .foregroundStyle(theme.secondaryText)
                     }
                     Text(medication.detail)
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.66))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -579,7 +579,7 @@ private struct RegimenMedicationLedgerRow: View {
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
                 .accessibilityLabel("移除 \(medication.name)")
             }
 
@@ -606,7 +606,7 @@ private struct RegimenMedicationLedgerRow: View {
         .padding(.vertical, 10)
         .frame(minHeight: 76)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.indigo.opacity(0.34)).frame(height: 1)
+            Rectangle().fill(theme.secondaryText).frame(height: 1)
         }
     }
 }
@@ -631,30 +631,30 @@ private struct RegimenRevisionNote: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(previousRegimen.code)
                         .font(theme.utility(11))
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
                     Text(previousRegimen.title)
                         .font(.subheadline.weight(.semibold))
                     Spacer()
                     Text("将转入历史")
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.58))
+                        .foregroundStyle(theme.secondaryText)
                 }
                 .padding(14)
                 .background(theme.blue.opacity(0.13))
 
-                Rectangle().fill(theme.indigo.opacity(0.4)).frame(height: 1)
+                Rectangle().fill(theme.secondaryText).frame(height: 1)
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("修改说明（可选）")
                     .font(.caption.weight(.black))
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.vermilionText)
                 TextField("例如：复诊后调整，或原产品暂时无法获得", text: $note, axis: .vertical)
                     .lineLimit(3...6)
                     .accessibilityIdentifier("regimen.note")
                 Text("保存为这次修改的备注，方便以后回看。")
                     .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.6))
+                    .foregroundStyle(theme.secondaryText)
             }
             .padding(14)
         }
@@ -678,7 +678,7 @@ private struct RegimenSaveBar: View {
             if isEditing && !dynamicTypeSize.isAccessibilitySize {
                 Text("保存后生成 \(nextCode)，原版本保留在历史记录中")
                     .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.66))
+                    .foregroundStyle(theme.secondaryText)
             }
 
             Button(
@@ -724,13 +724,13 @@ private struct RegimenImpactReviewSheet: View {
                     Text("IMPACT PROOF / 影响核对")
                         .font(theme.utility(10))
                         .tracking(0.9)
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
                     Text("封存 \(code)")
                         .font(theme.display(32, relativeTo: .largeTitle))
                         .foregroundStyle(theme.indigoDeep)
                     Text("从 \(effectiveDate.iso8601) 起生效。旧版本保持封存，不会被覆盖。")
                         .font(.body)
-                        .foregroundStyle(theme.indigo.opacity(0.72))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
                     versionProof(
@@ -748,7 +748,7 @@ private struct RegimenImpactReviewSheet: View {
                         impactRow("旅程记录", count: preview.affectedJourneyIDs.count)
                         impactRow("检查记录", count: preview.affectedLabIDs.count)
                         if !preview.affectedRecords.isEmpty {
-                            Divider().overlay(theme.indigo.opacity(0.3))
+                            Divider().overlay(theme.secondaryText)
                             ForEach(preview.affectedRecords) { record in
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(
@@ -766,7 +766,7 @@ private struct RegimenImpactReviewSheet: View {
                                         )
                                     )
                                         .font(.caption.monospaced())
-                                        .foregroundStyle(theme.indigo.opacity(0.68))
+                                        .foregroundStyle(theme.secondaryText)
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                             }
@@ -778,7 +778,7 @@ private struct RegimenImpactReviewSheet: View {
 
                     Text("取消只会关闭本页；这份校样已明确保存，但在封存前不会成为当前方案，也不会改变历史关联。")
                         .font(.caption)
-                        .foregroundStyle(theme.indigo.opacity(0.68))
+                        .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Button("确认封存并更新关联", action: confirm)
@@ -835,7 +835,7 @@ private struct RegimenImpactReviewSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label)
                 .font(.caption.weight(.black))
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             if let version {
                 Text(version.code + " · " + version.title)
                     .font(.headline)
@@ -843,7 +843,7 @@ private struct RegimenImpactReviewSheet: View {
                 if version.items.isEmpty {
                     Text("没有组成项")
                         .font(.subheadline)
-                        .foregroundStyle(theme.indigo.opacity(0.65))
+                        .foregroundStyle(theme.secondaryText)
                 } else {
                     ForEach(Array(version.items.enumerated()), id: \.offset) { index, item in
                         Text("\(index + 1). \(item)")
@@ -855,7 +855,7 @@ private struct RegimenImpactReviewSheet: View {
             } else {
                 Text(emptyCopy)
                     .font(.subheadline)
-                    .foregroundStyle(theme.indigo.opacity(0.65))
+                    .foregroundStyle(theme.secondaryText)
             }
         }
         .padding(14)

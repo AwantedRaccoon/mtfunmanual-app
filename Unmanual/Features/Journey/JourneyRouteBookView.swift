@@ -56,7 +56,7 @@ struct JourneyRouteBookView: View {
                 if let loadErrorMessage {
                     Text(loadErrorMessage)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
                         .padding(.top, 10)
                 }
 
@@ -183,7 +183,7 @@ private struct JourneyNowPoint: View {
                 if let latestEntryDateText {
                     Text("最近一次留下：\(latestEntryDateText)")
                         .font(.caption)
-                        .foregroundStyle(theme.paper.opacity(0.7))
+                        .foregroundStyle(theme.paper)
                 }
 
             }
@@ -201,7 +201,7 @@ private struct JourneyNowPoint: View {
                     Text("今天")
                         .font(theme.utility(9))
                         .tracking(0.7)
-                        .foregroundStyle(theme.indigo.opacity(0.56))
+                        .foregroundStyle(theme.secondaryText)
                 }
                 .frame(width: 50, alignment: .leading)
 
@@ -218,7 +218,7 @@ private struct JourneyNowPoint: View {
                     if let latestEntryDateText {
                         Text("最近一次留下：\(latestEntryDateText)")
                             .font(.caption)
-                            .foregroundStyle(theme.paper.opacity(0.68))
+                            .foregroundStyle(theme.paper)
                     }
 
                 }
@@ -245,12 +245,12 @@ private struct JourneyContextWaypoint: View {
                 Text("方案上下文")
                     .font(theme.utility(10))
                     .tracking(0.8)
-                    .foregroundStyle(theme.vermilion)
+                    .foregroundStyle(theme.vermilionText)
                 Text(contextLabel)
                     .font(.headline.weight(.black))
                 Text("以下记录保留这一段的方案关联")
                     .font(.caption)
-                    .foregroundStyle(theme.indigo.opacity(0.62))
+                    .foregroundStyle(theme.secondaryText)
             }
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -263,7 +263,7 @@ private struct JourneyContextWaypoint: View {
                 Text("方案")
                     .font(theme.utility(9))
                     .tracking(0.8)
-                    .foregroundStyle(theme.indigo.opacity(0.55))
+                    .foregroundStyle(theme.secondaryText)
                     .frame(width: 50, alignment: .leading)
 
                 JourneyRouteNode(kind: .context)
@@ -276,7 +276,7 @@ private struct JourneyContextWaypoint: View {
                     Text("以下记录")
                         .font(theme.utility(9))
                         .tracking(0.7)
-                        .foregroundStyle(theme.indigo.opacity(0.56))
+                        .foregroundStyle(theme.secondaryText)
                 }
                 .foregroundStyle(theme.indigoDeep)
                 .padding(.horizontal, 12)
@@ -322,7 +322,7 @@ private struct JourneyRouteStop: View {
                 Text(item.entry.recordedWeekdayText)
                     .font(theme.utility(9))
                     .tracking(0.5)
-                    .foregroundStyle(theme.indigo.opacity(0.52))
+                    .foregroundStyle(theme.secondaryText)
             }
             .frame(width: 50, alignment: .leading)
             .padding(.top, 15)
@@ -336,14 +336,14 @@ private struct JourneyRouteStop: View {
                     Text(item.isLatest ? "最近 · \(item.entry.kind.title)" : item.entry.kind.title)
                         .font(theme.utility(10))
                         .tracking(0.7)
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
 
                     Spacer(minLength: 8)
 
                     if let regimenCode = item.regimenCode {
                         Text(regimenCode)
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(theme.indigo.opacity(0.5))
+                            .foregroundStyle(theme.secondaryText)
                     }
                 }
 
@@ -358,7 +358,7 @@ private struct JourneyRouteStop: View {
             .background(item.isLatest ? theme.blue.opacity(0.2) : Color.clear)
             .overlay(alignment: .bottom) {
                 Rectangle()
-                    .fill(theme.indigo.opacity(item.isLatest ? 1 : 0.32))
+                    .fill(theme.secondaryText)
                     .frame(height: 1)
             }
         }
@@ -375,14 +375,14 @@ private struct JourneyRouteStop: View {
                 if let regimenCode = item.regimenCode {
                     Text("方案 \(regimenCode)")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(theme.indigo.opacity(0.58))
+                        .foregroundStyle(theme.secondaryText)
                 }
             }
 
             Text(item.isLatest ? "最近 · \(item.entry.kind.title)" : item.entry.kind.title)
                 .font(theme.utility(11))
                 .tracking(0.7)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
 
             Text(item.entry.text)
                 .font(theme.display(20, relativeTo: .body))
@@ -393,7 +393,7 @@ private struct JourneyRouteStop: View {
         .padding(.horizontal, item.isLatest ? 13 : 0)
         .background(item.isLatest ? theme.blue.opacity(0.2) : Color.clear)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.indigo.opacity(0.42)).frame(height: 1)
+            Rectangle().fill(theme.secondaryText).frame(height: 1)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
@@ -419,7 +419,7 @@ private struct JourneyRouteGap: View {
                 Text("相隔 \(days) 日")
                     .font(theme.utility(10))
                     .tracking(0.7)
-                    .foregroundStyle(theme.indigo.opacity(0.52))
+                    .foregroundStyle(theme.secondaryText)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityLabel("与下一条记录相隔 \(days) 天")
@@ -435,7 +435,7 @@ private struct JourneyRouteGap: View {
                         Text("相隔 \(days) 日")
                             .font(theme.utility(9))
                             .tracking(0.7)
-                            .foregroundStyle(theme.indigo.opacity(0.48))
+                            .foregroundStyle(theme.secondaryText)
                     } else {
                         Color.clear
                     }
@@ -510,7 +510,7 @@ private struct JourneyRouteEmpty: View {
                     .monospacedDigit()
                 Text("今天")
                     .font(theme.utility(9))
-                    .foregroundStyle(theme.indigo.opacity(0.54))
+                    .foregroundStyle(theme.secondaryText)
             }
             .frame(width: 50, alignment: .leading)
 
@@ -532,7 +532,7 @@ private struct JourneyRouteEmpty: View {
                     .foregroundStyle(theme.indigoDeep)
                 Text("点上方“记录旅程”，真正想留下什么时再记一句。这里不会催你连续打卡。")
                     .font(.body)
-                    .foregroundStyle(theme.indigo.opacity(0.68))
+                    .foregroundStyle(theme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.leading, 12)

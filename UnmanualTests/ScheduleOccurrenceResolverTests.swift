@@ -4,6 +4,63 @@ import XCTest
 final class ScheduleOccurrenceResolverTests: XCTestCase {
     private let ruleID = UUID(uuidString: "B3C812AF-3A23-4A74-91CE-BD4225719668")!
 
+    func testOccurrenceIdentityParserRejectsNoncanonicalOrMalformedKeys() throws {
+        let valid = "occ:v1:b3c812af-3a23-4a74-91ce-bd4225719668:2:20260722T0830"
+        let identity = try XCTUnwrap(ScheduleOccurrenceResolver.identity(for: valid))
+
+        XCTAssertEqual(identity.ruleID, ruleID)
+        XCTAssertEqual(identity.revision, 2)
+        XCTAssertEqual(identity.date, try civil(2026, 7, 22))
+        XCTAssertEqual(identity.time, try HistoricalLocalTime(hour: 8, minute: 30, second: 0))
+        XCTAssertNil(ScheduleOccurrenceResolver.identity(for: valid + "junk"))
+        XCTAssertNil(ScheduleOccurrenceResolver.identity(for: valid.replacingOccurrences(of: ":2:", with: ":02:")))
+        XCTAssertNil(ScheduleOccurrenceResolver.identity(for: valid.replacingOccurrences(of: "b3c", with: "B3C")))
+        XCTAssertNil(ScheduleOccurrenceResolver.identity(for: valid.replacingOccurrences(of: "20260722", with: "20260230")))
+        XCTAssertNil(ScheduleOccurrenceResolver.identity(for: valid.replacingOccurrences(of: "0830", with: "2460")))
+    }
+
+    func testStoredOccurrenceValidationRejectsWrongCadenceAndFixedInstantDrift() throws {
+        let rule = ScheduleRuleSpec(
+            id: ruleID,
+            regimenVersionID: UUID(),
+            regimenItemID: UUID(),
+            displayName: "周一计划",
+            kind: .weekly,
+            anchorDate: try civil(2026, 7, 20),
+            endDate: nil,
+            localTimes: "08:30",
+            weekdays: "1",
+            intervalDays: nil,
+            timeZoneBehavior: .fixedZone,
+            fixedTimeZoneIdentifier: "UTC",
+            revision: 2
+        )
+        let validKey = "occ:v1:b3c812af-3a23-4a74-91ce-bd4225719668:2:20260720T0830"
+        let validInstant = try instant("2026-07-20T08:30:00Z")
+
+        XCTAssertTrue(
+            ScheduleOccurrenceResolver.validatesStoredOccurrence(
+                key: validKey,
+                plannedInstant: validInstant,
+                rule: rule
+            )
+        )
+        XCTAssertFalse(
+            ScheduleOccurrenceResolver.validatesStoredOccurrence(
+                key: validKey.replacingOccurrences(of: "20260720", with: "20260721"),
+                plannedInstant: try instant("2026-07-21T08:30:00Z"),
+                rule: rule
+            )
+        )
+        XCTAssertFalse(
+            ScheduleOccurrenceResolver.validatesStoredOccurrence(
+                key: validKey,
+                plannedInstant: validInstant.addingTimeInterval(60),
+                rule: rule
+            )
+        )
+    }
+
     func testDailyTimesAreNormalizedSortedAndBoundedByHalfOpenIntervals() throws {
         let rule = ScheduleRuleSpec(
             id: ruleID,
@@ -103,6 +160,47 @@ final class ScheduleOccurrenceResolverTests: XCTestCase {
 
         XCTAssertTrue(result.occurrences.isEmpty)
         XCTAssertEqual(result.issues, [.capacityExceeded])
+    }
+
+    func testActiveRegimenIntervalsBoundHistoricalRulesBeforeCapacityAndIssueGeneration() throws {
+        let times = (0..<ScheduleOccurrenceResolver.maximumTimesPerRule)
+            .map { String(format: "%02d:00", $0) }
+            .joined(separator: ",")
+        let rules = try (0..<16).map { index in
+            let activeDay = (index % 7) + 1
+            return ScheduleRuleSpec(
+                id: UUID(),
+                regimenVersionID: UUID(),
+                regimenItemID: UUID(),
+                displayName: "历史方案 \(index)",
+                kind: .dailyTimes,
+                anchorDate: try civil(2026, 3, 1),
+                activeStartDate: try civil(2026, 3, activeDay),
+                endDate: try civil(2026, 3, activeDay + 1),
+                localTimes: times,
+                weekdays: "",
+                intervalDays: nil,
+                timeZoneBehavior: .fixedZone,
+                fixedTimeZoneIdentifier: "America/Chicago",
+                revision: 1
+            )
+        }
+
+        let result = try ScheduleOccurrenceResolver.occurrences(
+            rules: rules,
+            interval: DateInterval(
+                start: try instant("2026-03-01T00:00:00Z"),
+                end: try instant("2026-03-18T00:00:00Z")
+            ),
+            displayTimeZoneIdentifier: "UTC"
+        )
+
+        XCTAssertLessThan(result.occurrences.count, 300)
+        XCTAssertFalse(result.issues.contains(.capacityExceeded))
+        XCTAssertFalse(result.issues.contains { issue in
+            if case .nonexistentLocalTime = issue { return true }
+            return false
+        })
     }
 
     func testPerRuleTimeLimitFailsClosedWithoutLeakingOtherRuleOccurrences() throws {

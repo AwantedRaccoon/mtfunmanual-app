@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 @main
 struct UnmanualApp: App {
@@ -21,6 +22,31 @@ struct UnmanualApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { reconcileWhenReady() }
                 }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .unmanualReminderInputsChanged)
+                ) { notification in
+                    reminderRuntime.noteReminderInputsChanged(
+                        coverageWasInvalidated: notification.object as? Bool ?? true
+                    )
+                    reconcileWhenReady()
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+                ) { notification in
+                    reconcileForTemporalChange(notification)
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: UIApplication.significantTimeChangeNotification
+                    )
+                ) { notification in
+                    reconcileForTemporalChange(notification)
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)
+                ) { notification in
+                    reconcileForTemporalChange(notification)
+                }
 #else
             runtimeRoot
                 .environment(theme)
@@ -30,6 +56,31 @@ struct UnmanualApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { reconcileWhenReady() }
                 }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .unmanualReminderInputsChanged)
+                ) { notification in
+                    reminderRuntime.noteReminderInputsChanged(
+                        coverageWasInvalidated: notification.object as? Bool ?? true
+                    )
+                    reconcileWhenReady()
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+                ) { notification in
+                    reconcileForTemporalChange(notification)
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: UIApplication.significantTimeChangeNotification
+                    )
+                ) { notification in
+                    reconcileForTemporalChange(notification)
+                }
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)
+                ) { notification in
+                    reconcileForTemporalChange(notification)
+                }
 #endif
         }
     }
@@ -37,11 +88,32 @@ struct UnmanualApp: App {
     private func reconcileWhenReady() {
         guard case let .ready(session) = dataRuntime.state else { return }
         Task {
-            await reminderRuntime.reconcile(
-                reader: session.reader,
-                writer: session.writer
-            )
+            await reconcileAndRefresh(session: session)
         }
+    }
+
+    private func reconcileForTemporalChange(_ notification: Notification) {
+        guard AppReminderLifecyclePolicy.shouldReconcile(
+            notificationName: notification.name
+        ) else { return }
+        reconcileWhenReady()
+    }
+
+    private func reconcileAndRefresh(session: AppDataSession) async {
+        await AppReminderLifecycleFlow.reconcileThenRefresh(
+            reconcile: {
+                await reminderRuntime.reconcile(
+                    reader: session.reader,
+                    writer: session.writer
+                )
+            },
+            refresh: {
+                NotificationCenter.default.post(
+                    name: .unmanualLocalDataChanged,
+                    object: nil
+                )
+            }
+        )
     }
 
     @ViewBuilder
@@ -57,15 +129,9 @@ struct UnmanualApp: App {
                 .environment(\.appReadActor, session.reader)
                 .environment(\.localReminderRuntime, reminderRuntime)
                 .task {
+                    await reminderRuntime.resumeAfterRecovery()
                     await DemoDataSeeder.seedIfRequested(container: session.store.container)
-                    NotificationCenter.default.post(
-                        name: .unmanualLocalDataChanged,
-                        object: nil
-                    )
-                    await reminderRuntime.reconcile(
-                        reader: session.reader,
-                        writer: session.writer
-                    )
+                    await reconcileAndRefresh(session: session)
                 }
 #else
             rootView
@@ -73,14 +139,15 @@ struct UnmanualApp: App {
                 .environment(\.appReadActor, session.reader)
                 .environment(\.localReminderRuntime, reminderRuntime)
                 .task {
-                    await reminderRuntime.reconcile(
-                        reader: session.reader,
-                        writer: session.writer
-                    )
+                    await reminderRuntime.resumeAfterRecovery()
+                    await reconcileAndRefresh(session: session)
                 }
 #endif
         case let .recovery(recovery):
             RecoveryModeView(recovery: recovery, retry: dataRuntime.retry)
+                .task {
+                    _ = await reminderRuntime.suspendForRecoveryAndClearOwnedPending()
+                }
         }
     }
 
@@ -136,6 +203,29 @@ struct UnmanualApp: App {
 #else
         AppShellView()
 #endif
+    }
+}
+
+enum AppReminderLifecyclePolicy {
+    static let temporalNotificationNames: Set<Notification.Name> = [
+        .NSCalendarDayChanged,
+        UIApplication.significantTimeChangeNotification,
+        .NSSystemTimeZoneDidChange
+    ]
+
+    static func shouldReconcile(notificationName: Notification.Name) -> Bool {
+        temporalNotificationNames.contains(notificationName)
+    }
+}
+
+enum AppReminderLifecycleFlow {
+    @MainActor
+    static func reconcileThenRefresh(
+        reconcile: () async -> Void,
+        refresh: () -> Void
+    ) async {
+        await reconcile()
+        refresh()
     }
 }
 

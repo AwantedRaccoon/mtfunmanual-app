@@ -177,47 +177,235 @@ enum LocalReminderPlanner {
 struct LocalReminderReconciler: Sendable {
     let client: any LocalNotificationClient
 
+    static func desiredRequestsHaveUniqueIdentifiers(
+        _ requests: [LocalReminderRequest]
+    ) -> Bool {
+        Set(requests.map(\.identifier)).count == requests.count
+    }
+
     func reconcile(
         plan: LocalReminderPlan,
-        observedAt: Date
+        observedAt: Date,
+        isCurrent: @escaping @Sendable () async -> Bool = { true }
     ) async -> LocalReminderReconciliationObservation {
+        guard Self.desiredRequestsHaveUniqueIdentifiers(plan.requests) else {
+            return await failClosedObservation(
+                desiredCount: plan.requests.count,
+                observedAt: observedAt,
+                errorCode: "duplicate-desired-request-id"
+            )
+        }
+        guard await isCurrent() else {
+            return await failClosedObservation(
+                desiredCount: plan.requests.count,
+                observedAt: observedAt,
+                errorCode: "reconciliation-superseded"
+            )
+        }
         let pendingBefore = await client.pendingRequests()
+        guard await isCurrent() else {
+            return await failClosedObservation(
+                desiredCount: plan.requests.count,
+                observedAt: observedAt,
+                errorCode: "reconciliation-superseded"
+            )
+        }
         let ownedBefore = pendingBefore.filter {
             $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
         }
         let desiredByID = Dictionary(uniqueKeysWithValues: plan.requests.map {
             ($0.identifier, $0)
         })
+        let foreignBeforeCount = pendingBefore.count - ownedBefore.count
+        let allowedBeforeCount = max(
+            0,
+            LocalReminderPlanner.requestBudget - foreignBeforeCount
+        )
+        let allowedRequests = Array(plan.requests.prefix(allowedBeforeCount))
+        let allowedByID = Dictionary(uniqueKeysWithValues: allowedRequests.map {
+            ($0.identifier, $0)
+        })
         let staleIDs = ownedBefore.compactMap { pending -> String? in
-            guard let desired = desiredByID[pending.identifier],
+            guard let desired = allowedByID[pending.identifier],
                   Self.pending(pending, matches: desired) else {
                 return pending.identifier
             }
             return nil
         }
         if !staleIDs.isEmpty {
+            guard await isCurrent() else {
+                return await failClosedObservation(
+                    desiredCount: plan.requests.count,
+                    observedAt: observedAt,
+                    errorCode: "reconciliation-superseded"
+                )
+            }
             await client.removePendingRequests(withIdentifiers: staleIDs)
+            guard await isCurrent() else {
+                return await failClosedObservation(
+                    desiredCount: plan.requests.count,
+                    observedAt: observedAt,
+                    errorCode: "reconciliation-superseded"
+                )
+            }
         }
 
-        var errorCode: String?
+        var errorCode: String? = allowedRequests.count < plan.requests.count
+            ? "notification-budget-changed"
+            : nil
         if plan.status == .scheduledForWindow || plan.status == .limitedByBudget {
-            let matchingIDs: Set<String> = Set(ownedBefore.compactMap { pending -> String? in
-                guard let desired = desiredByID[pending.identifier],
-                      Self.pending(pending, matches: desired) else { return nil }
-                return pending.identifier
-            })
-            for request in plan.requests where !matchingIDs.contains(request.identifier) {
+            for request in allowedRequests {
+                guard await isCurrent() else {
+                    return await failClosedObservation(
+                        desiredCount: plan.requests.count,
+                        observedAt: observedAt,
+                        errorCode: "reconciliation-superseded"
+                    )
+                }
+                var canAdd = false
+                var alreadyMatches = false
+                for _ in 0..<3 {
+                    let pendingNow = await client.pendingRequests()
+                    guard await isCurrent() else {
+                        return await failClosedObservation(
+                            desiredCount: plan.requests.count,
+                            observedAt: observedAt,
+                            errorCode: "reconciliation-superseded"
+                        )
+                    }
+                    let ownedNow = pendingNow.filter {
+                        $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+                    }
+                    let foreignNowCount = pendingNow.count - ownedNow.count
+                    let allowedNowCount = max(
+                        0,
+                        LocalReminderPlanner.requestBudget - foreignNowCount
+                    )
+                    if allowedNowCount < plan.requests.count {
+                        errorCode = "notification-budget-changed"
+                    }
+                    let allowedNowIDs = Set(
+                        plan.requests.prefix(allowedNowCount).map(\.identifier)
+                    )
+                    let excessOwnedIDs = ownedNow.compactMap { pending -> String? in
+                        allowedNowIDs.contains(pending.identifier) ? nil : pending.identifier
+                    }
+                    if !excessOwnedIDs.isEmpty {
+                        await client.removePendingRequests(withIdentifiers: excessOwnedIDs)
+                        guard await isCurrent() else {
+                            return await failClosedObservation(
+                                desiredCount: plan.requests.count,
+                                observedAt: observedAt,
+                                errorCode: "reconciliation-superseded"
+                            )
+                        }
+                        continue
+                    }
+                    alreadyMatches = ownedNow.contains {
+                        $0.identifier == request.identifier
+                            && Self.pending($0, matches: request)
+                    }
+                    canAdd = !alreadyMatches
+                        && allowedNowIDs.contains(request.identifier)
+                        && pendingNow.count < LocalReminderPlanner.requestBudget
+                    break
+                }
+                guard !alreadyMatches, canAdd else { continue }
+                guard await isCurrent() else {
+                    return await failClosedObservation(
+                        desiredCount: plan.requests.count,
+                        observedAt: observedAt,
+                        errorCode: "reconciliation-superseded"
+                    )
+                }
                 do {
                     try await client.add(request)
                 } catch {
                     errorCode = "add-request-failed"
                 }
+                guard await isCurrent() else {
+                    return await failClosedObservation(
+                        desiredCount: plan.requests.count,
+                        observedAt: observedAt,
+                        errorCode: "reconciliation-superseded"
+                    )
+                }
             }
         }
 
-        let pendingAfter = await client.pendingRequests()
-        let ownedAfter = pendingAfter.filter {
+        var pendingAfter = await client.pendingRequests()
+        guard await isCurrent() else {
+            return await failClosedObservation(
+                desiredCount: plan.requests.count,
+                observedAt: observedAt,
+                errorCode: "reconciliation-superseded"
+            )
+        }
+        var ownedAfter = pendingAfter.filter {
             $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+        }
+        for _ in 0..<3 {
+            let foreignAfterCount = pendingAfter.count - ownedAfter.count
+            let allowedOwnedCount = max(
+                0,
+                LocalReminderPlanner.requestBudget - foreignAfterCount
+            )
+            guard ownedAfter.count > allowedOwnedCount else { break }
+            let allowedOwnedIDs = Set(
+                plan.requests.prefix(allowedOwnedCount).map(\.identifier)
+            )
+            let excessOwnedIDs = ownedAfter.compactMap { request in
+                allowedOwnedIDs.contains(request.identifier) ? nil : request.identifier
+            }
+            if !excessOwnedIDs.isEmpty {
+                guard await isCurrent() else {
+                    return await failClosedObservation(
+                        desiredCount: plan.requests.count,
+                        observedAt: observedAt,
+                        errorCode: "reconciliation-superseded"
+                    )
+                }
+                await client.removePendingRequests(withIdentifiers: excessOwnedIDs)
+                pendingAfter = await client.pendingRequests()
+                guard await isCurrent() else {
+                    return await failClosedObservation(
+                        desiredCount: plan.requests.count,
+                        observedAt: observedAt,
+                        errorCode: "reconciliation-superseded"
+                    )
+                }
+                ownedAfter = pendingAfter.filter {
+                    $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+                }
+                errorCode = "notification-budget-changed"
+            } else {
+                break
+            }
+        }
+        if pendingAfter.count > LocalReminderPlanner.requestBudget,
+           !ownedAfter.isEmpty {
+            guard await isCurrent() else {
+                return await failClosedObservation(
+                    desiredCount: plan.requests.count,
+                    observedAt: observedAt,
+                    errorCode: "reconciliation-superseded"
+                )
+            }
+            await client.removePendingRequests(
+                withIdentifiers: ownedAfter.map(\.identifier)
+            )
+            pendingAfter = await client.pendingRequests()
+            guard await isCurrent() else {
+                return await failClosedObservation(
+                    desiredCount: plan.requests.count,
+                    observedAt: observedAt,
+                    errorCode: "reconciliation-superseded"
+                )
+            }
+            ownedAfter = pendingAfter.filter {
+                $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+            }
+            errorCode = "notification-budget-changed"
         }
         let confirmedIDs = Set(ownedAfter.compactMap { pending -> String? in
             guard let desired = desiredByID[pending.identifier],
@@ -244,6 +432,44 @@ struct LocalReminderReconciler: Sendable {
             lastErrorCode: errorCode,
             observedAt: observedAt
         )
+    }
+
+    private func failClosedObservation(
+        desiredCount: Int,
+        observedAt: Date,
+        errorCode: String
+    ) async -> LocalReminderReconciliationObservation {
+        let didClear = await clearOwnedPending(maxAttempts: 3)
+        return LocalReminderReconciliationObservation(
+            status: .schedulingFailed,
+            scheduledThrough: nil,
+            desiredCount: desiredCount,
+            confirmedPendingCount: 0,
+            lastErrorCode: didClear
+                ? errorCode
+                : errorCode + "-owned-removal-unverified",
+            observedAt: observedAt
+        )
+    }
+
+    private func clearOwnedPending(maxAttempts: Int) async -> Bool {
+        for _ in 0..<max(1, maxAttempts) {
+            let pending = await client.pendingRequests()
+            let ownedIDs = pending.compactMap { request in
+                request.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+                    ? request.identifier
+                    : nil
+            }
+            if ownedIDs.isEmpty { return true }
+            await client.removePendingRequests(withIdentifiers: ownedIDs)
+            let remaining = await client.pendingRequests()
+            if !remaining.contains(where: {
+                $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+            }) {
+                return true
+            }
+        }
+        return false
     }
 
     private static func pending(

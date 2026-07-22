@@ -83,7 +83,7 @@ struct LabImportEditor: View {
                 if hasIncompleteEntry {
                     Text("请为已填写的项目补全有效数值和单位。")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(theme.vermilion)
+                        .foregroundStyle(theme.vermilionText)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("labImport.validation")
                 }
@@ -191,7 +191,7 @@ private struct LabImportDateSlip: View {
                 Text(regimen?.code ?? "—")
                     .font(theme.utility(10))
                     .tracking(0.7)
-                    .foregroundStyle(theme.paper.opacity(0.68))
+                    .foregroundStyle(theme.paper)
             }
 
             DatePicker(
@@ -207,12 +207,12 @@ private struct LabImportDateSlip: View {
             .accessibilityIdentifier("labImport.date")
 
             Rectangle()
-                .fill(theme.paper.opacity(0.32))
+                .fill(theme.paper)
                 .frame(height: 1)
 
             Text(regimen.map { "保存后关联到 \($0.code) · \($0.title)" } ?? "保存为未关联方案的检查记录")
                 .font(.caption)
-                .foregroundStyle(theme.paper.opacity(0.68))
+                .foregroundStyle(theme.paper)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(theme.paper)
@@ -249,7 +249,7 @@ private struct LabImportLedger: View {
             }
             .font(theme.utility(9))
             .tracking(0.7)
-            .foregroundStyle(theme.indigo.opacity(0.58))
+            .foregroundStyle(theme.secondaryText)
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
             .background(theme.mustard.opacity(0.18))
@@ -298,7 +298,7 @@ private struct LabImportLedgerRow: View {
         .padding(.vertical, 9)
         .frame(minHeight: 62)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.indigo.opacity(0.28)).frame(height: 1)
+            Rectangle().fill(theme.secondaryText).frame(height: 1)
         }
     }
 
@@ -306,18 +306,18 @@ private struct LabImportLedgerRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Text(String(format: "%02d", position))
                 .font(theme.utility(8))
-                .foregroundStyle(theme.indigo.opacity(0.38))
+                .foregroundStyle(theme.secondaryText)
                 .frame(width: 18, alignment: .leading)
             Text(entry.itemCode)
                 .font(theme.utility(11))
                 .tracking(0.4)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
                 .frame(width: 28, alignment: .leading)
             Text(entry.itemName)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(theme.indigo.opacity(0.72))
+                .foregroundStyle(theme.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -331,7 +331,7 @@ private struct LabImportLedgerRow: View {
             .padding(.horizontal, 9)
             .frame(minHeight: 44)
             .background(theme.rice.opacity(0.58))
-            .overlay { Rectangle().stroke(theme.indigo.opacity(0.52), lineWidth: 1) }
+            .overlay { Rectangle().stroke(theme.secondaryText, lineWidth: 1) }
             .accessibilityLabel("\(entry.itemName)数值")
             .accessibilityIdentifier("labImport.\(entry.itemCode).value")
     }
@@ -344,7 +344,7 @@ private struct LabImportLedgerRow: View {
             .padding(.horizontal, 9)
             .frame(minHeight: 44)
             .background(theme.rice.opacity(0.58))
-            .overlay { Rectangle().stroke(theme.indigo.opacity(0.52), lineWidth: 1) }
+            .overlay { Rectangle().stroke(theme.secondaryText, lineWidth: 1) }
             .accessibilityLabel("\(entry.itemName)单位")
             .accessibilityIdentifier("labImport.\(entry.itemCode).unit")
     }

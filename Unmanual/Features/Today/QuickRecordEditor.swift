@@ -166,14 +166,14 @@ private struct JourneyRecordIntro: View {
             Text("NEW ENTRY / 新的一页")
                 .font(dynamicTypeSize.isAccessibilitySize ? .caption.weight(.bold) : theme.utility(10))
                 .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.9)
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
             Text("记录旅程")
                 .font(dynamicTypeSize.isAccessibilitySize ? .title2.weight(.black) : theme.display(36, relativeTo: .largeTitle))
                 .foregroundStyle(theme.indigoDeep)
                 .fixedSize(horizontal: false, vertical: true)
             Text("一句就够，不需要把今天解释完整。")
                 .font(dynamicTypeSize.isAccessibilitySize ? .body : .subheadline)
-                .foregroundStyle(theme.indigo.opacity(0.68))
+                .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
@@ -190,7 +190,7 @@ private struct JourneyEntryComposer: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("想留下什么？")
                 .font(.caption.weight(.black))
-                .foregroundStyle(theme.vermilion)
+                .foregroundStyle(theme.vermilionText)
 
             TextField("写下一件想留下的事", text: $text, axis: .vertical)
                 .font(theme.display(22, relativeTo: .body))
@@ -201,7 +201,7 @@ private struct JourneyEntryComposer: View {
 
             Text("可以只写一句，也可以稍后再补充新的记录。")
                 .font(.caption)
-                .foregroundStyle(theme.indigo.opacity(0.58))
+                .foregroundStyle(theme.secondaryText)
         }
         .foregroundStyle(theme.indigoDeep)
         .padding(16)
@@ -243,7 +243,7 @@ private struct JourneyKindSelector: View {
                         Text(kind.journeyRecordDetail)
                             .font(.caption)
                             .foregroundStyle(
-                                selection == kind ? theme.paper.opacity(0.7) : theme.indigo.opacity(0.58)
+                                selection == kind ? theme.paper : theme.secondaryText
                             )
                     }
                     .foregroundStyle(selection == kind ? theme.paper : theme.indigoDeep)
@@ -252,7 +252,7 @@ private struct JourneyKindSelector: View {
                     .background(selection == kind ? theme.indigoDeep : theme.paper)
                     .overlay(alignment: .leading) {
                         Rectangle()
-                            .fill(selection == kind ? theme.mustard : theme.indigo.opacity(0.28))
+                            .fill(selection == kind ? theme.mustard : theme.secondaryText)
                             .frame(width: 4)
                     }
                     .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.25) }
@@ -280,14 +280,14 @@ private struct JourneyDateTimePlate: View {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 14) {
                     dateControl
-                    Rectangle().fill(theme.paper.opacity(0.28)).frame(height: 1)
+                    Rectangle().fill(theme.paper).frame(height: 1)
                     timeControl
                 }
             } else {
                 HStack(spacing: 14) {
                     dateControl
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Rectangle().fill(theme.paper.opacity(0.28)).frame(width: 1, height: 44)
+                    Rectangle().fill(theme.paper).frame(width: 1, height: 44)
                     timeControl
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
