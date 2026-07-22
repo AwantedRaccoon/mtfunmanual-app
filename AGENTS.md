@@ -5,6 +5,7 @@
 - 本文件适用于 `mtf-app/` 的整个目录树；更深层的 `AGENTS.md` 可以为子模块补充更具体的规则。
 - 用户在当前任务中的明确要求高于本文件。规则冲突时，优先遵守更具体、离目标文件更近的规则。
 - 本项目已确定先做 iOS 原生版本：SwiftUI + SwiftData，最低 iOS 17.0，同时支持 iPhone 与 iPad。首发功能仍以 `docs/product/` 中的规划为准；不要把未确认细节伪装成既定决定。
+- 本地后端的时间、执行、库存、化验、数据谱系、无网络与发行门禁以 `docs/architecture/0002-batch-0-contract-freeze.md` 为准；`foragent/` 中的方案和副本不是工程事实源。
 - 当项目变大时，把架构、产品和视觉细节移入 `docs/`，让根 `AGENTS.md` 保持为入口地图和不可越界合同。
 
 ## 项目定位
@@ -147,6 +148,9 @@
 
 ## 工程与变更纪律
 
+- 所有变更默认只保留在本地，不得自动推送到 GitHub。只有用户在当前任务中明确要求“推送 GitHub”或同等含义的发布操作时，才可执行 `git push`；过去任务中的推送授权不得沿用到后续任务。
+- 1.0 不得加入由 App 发起的网络请求、WebView、CloudKit/APNs、远程配置、远程内容、遥测或崩溃上传；用户显式打开系统浏览器、Files 或分享面板必须作为独立数据外流边界提示。新增任何网络能力前先立 ADR。
+- 正式 catalog seed 的来源、稳定 ID、许可证和人工复核责任未完成前，placeholder 只能进入 DEBUG、Preview 或 Test；不得进入 Release 可选目录或正式持久化事实。
 - 当前工程由 XcodeGen 2.46.0 的 `project.yml` 生成；修改项目结构后必须重新生成并提交 `.xcodeproj`。
 - App 不含第三方运行时依赖。新增依赖前先更新技术决策，说明用途、替代方案、维护状态和隐私影响。
 - 实现后端功能前，必须先调研可复用或可改造的开源项目与成熟解决方案，并评估其许可证、维护状态、安全性、隐私影响和与目标需求的匹配程度；优先采用或局部改造满足要求的方案，只有候选方案无法达成核心目标或会引入不可接受的风险与复杂度时才自行实现，并记录放弃候选方案的理由。
@@ -156,13 +160,22 @@
 - 不修改同级网站仓库来“配合” App，除非用户明确把网站也纳入当前任务。
 - 不提交密钥、`.env*`、构建产物、依赖目录、生成报告、用户问卷样本或真实医疗数据。
 
+### 多 Agent 实施与审查纪律
+
+- 实施任何功能模块、数据模块、迁移、服务或完整页面前，主 Agent 必须先界定目标、事实源、风险和完成门禁，并派出至少两个相互独立的调查 sub-agent 做只读调查。
+- 调查 sub-agent 必须从不同角度核对源码、文档、既有行为和约束，并相互验证关键结论；主 Agent 必须亲自检查证据、处理分歧并形成明确决定。结论尚未收敛前不得开始实施，也不得让调查 sub-agent 提前修改目标文件。
+- 实施完成后，必须派出一名未参与调查决策和实现的专门 review sub-agent 做独立审查。reviewer 默认只读，必须检查实际 diff、测试证据、合同一致性、用户既有改动保护和未验证项，并给出带严重级别的结论。
+- 初审发现问题时，由主 Agent 修复；二次及后续每一轮复审都必须新建一个从未参与前序调查、实现或审查的独立 review sub-agent。禁止通过 follow-up、恢复或复用上一轮 reviewer 完成复审，避免上下文和立场污染。
+- 只有最新一轮独立 reviewer 明确通过，且所有阻塞项已闭环或被诚实标为未验证，模块才可宣称完成。各轮 reviewer 的身份、结论、修复和剩余缺口必须在最终交付中简要说明。
+
 ### 唯一有效的工程命令
 
 - 安装工程生成器：`brew install xcodegen`
 - 生成工程：`xcodegen generate --spec project.yml`
 - 打开并运行：`open Unmanual.xcodeproj`，选择 `Unmanual` scheme 和本地模拟器后运行；没有 Apple Developer 账号时只使用模拟器。
 - 无签名编译：`xcodebuild -project Unmanual.xcodeproj -scheme Unmanual -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build`
-- 单元测试：先用 `xcrun simctl list devices available` 取得测试设备 UDID，再运行 `xcodebuild -project Unmanual.xcodeproj -scheme Unmanual -configuration Debug -destination 'platform=iOS Simulator,id=<SIMULATOR_UDID>' -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO test`
+- Simulator 测试：先用 `xcrun simctl list devices available` 取得测试设备 UDID，再运行 `xcodebuild -project Unmanual.xcodeproj -scheme Unmanual -configuration Debug -destination 'platform=iOS Simulator,id=<SIMULATOR_UDID>' -derivedDataPath .build/DerivedData test`。该命令使用 Xcode 的本地 ad-hoc Simulator 签名，不需要 Apple Developer Program，并保留 `CODE_SIGN_ENTITLEMENTS` 的构建处理与 simulated xcent 证据；不得加入 `CODE_SIGNING_ALLOWED=NO`。Simulator 可能不会把数据保护 entitlement 嵌入 App 签名或映射为真实保护 class，因此只能核对工程配置与代码路径，不能替代真机门禁。无签名只用于上一条 generic 编译命令。
+- Batch 1 性能 harness 的 Simulator preflight：先取得项目专属 Simulator UDID，再运行 `xcodebuild -project Unmanual.xcodeproj -scheme UnmanualPerformancePreflight -configuration Release -destination 'platform=iOS Simulator,id=<SIMULATOR_UDID>' -derivedDataPath .build/Batch1PerformancePreflight -resultBundlePath .build/Batch1PerformancePreflight.xcresult -only-testing:UnmanualPerformanceTests/Batch1ReleasePerformanceTests/testFiveYearReleasePerformance -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 3600 CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES test`。该 scheme 关闭 coverage/debugger 并显式注入 `simulator-preflight`；结果只能验证 harness，数值阈值与跨设备冻结 fixture 未确定前不得称为性能通过。原始 JSON/CSV 只从 `.xcresult` 导出到 `.build/`，不提交。
 - 当前没有独立 lint 或自动格式化依赖；以 Swift 6 编译警告、Xcode 格式和测试为基线。不要擅自引入格式化工具。
 
 ## 验证要求
