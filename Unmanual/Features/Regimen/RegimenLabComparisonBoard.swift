@@ -3,8 +3,8 @@ import SwiftUI
 struct LedgerComparisonBoard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    let activeRegimen: RegimenVersion?
-    let sampleDate: Date?
+    let activeRegimen: CoreRegimenVersionSnapshot?
+    let sampleDateText: String?
     let linkedRegimenCode: String?
     let facts: [LedgerHormoneFact]
     let importAction: () -> Void
@@ -17,14 +17,14 @@ struct LedgerComparisonBoard: View {
                 HStack(alignment: .top, spacing: 8) {
                     LedgerRegimenSpine(
                         regimen: activeRegimen,
-                        sampleDate: sampleDate,
+                        sampleDateText: sampleDateText,
                         linkedRegimenCode: linkedRegimenCode,
                         layout: .spine
                     )
                     .frame(width: 96)
 
                     LedgerLabIndex(
-                        sampleDate: sampleDate,
+                        sampleDateText: sampleDateText,
                         facts: facts,
                         importAction: importAction
                     )
@@ -41,12 +41,12 @@ struct LedgerComparisonBoard: View {
         VStack(spacing: 10) {
             LedgerRegimenSpine(
                 regimen: activeRegimen,
-                sampleDate: sampleDate,
+                sampleDateText: sampleDateText,
                 linkedRegimenCode: linkedRegimenCode,
                 layout: .banner
             )
             LedgerLabIndex(
-                sampleDate: sampleDate,
+                sampleDateText: sampleDateText,
                 facts: facts,
                 importAction: importAction
             )
@@ -63,8 +63,8 @@ private struct LedgerRegimenSpine: View {
         case banner
     }
 
-    let regimen: RegimenVersion?
-    let sampleDate: Date?
+    let regimen: CoreRegimenVersionSnapshot?
+    let sampleDateText: String?
     let linkedRegimenCode: String?
     let layout: Layout
 
@@ -112,7 +112,7 @@ private struct LedgerRegimenSpine: View {
 
             LedgerSpineDatum(
                 label: "开始",
-                value: regimen?.startedAt.unmanualShortDateText ?? "未记录"
+                value: regimen?.effectiveStartDate.iso8601 ?? "未记录"
             )
 
             Spacer(minLength: 18)
@@ -121,7 +121,7 @@ private struct LedgerRegimenSpine: View {
                 .font(theme.utility(9))
                 .tracking(0.7)
                 .foregroundStyle(theme.mustard)
-            Text(sampleDate?.unmanualShortDateText ?? "未采样")
+            Text(sampleDateText ?? "未采样")
                 .font(.caption.weight(.bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -148,7 +148,7 @@ private struct LedgerRegimenSpine: View {
                         .foregroundStyle(theme.mustard)
                     Text(regimen?.title ?? "尚未建立当前方案")
                         .font(theme.display(25, relativeTo: .title2))
-                    Text("开始 \(regimen?.startedAt.unmanualShortDateText ?? "未记录")")
+                    Text("开始 \(regimen?.effectiveStartDate.iso8601 ?? "未记录")")
                         .font(.headline.monospacedDigit())
                 }
             } else {
@@ -164,7 +164,7 @@ private struct LedgerRegimenSpine: View {
 
                     Spacer(minLength: 8)
 
-                    Text(regimen?.startedAt.unmanualShortDateText ?? "未记录开始日")
+                    Text(regimen?.effectiveStartDate.iso8601 ?? "未记录开始日")
                         .font(.caption.weight(.bold))
                         .multilineTextAlignment(.trailing)
                 }
@@ -177,7 +177,7 @@ private struct LedgerRegimenSpine: View {
                     Text("最近采样")
                         .font(theme.utility(9))
                         .foregroundStyle(theme.mustard)
-                    Text(sampleDate?.unmanualShortDateText ?? "尚无记录")
+                    Text(sampleDateText ?? "尚无记录")
                         .font(.headline.monospacedDigit())
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
@@ -190,7 +190,7 @@ private struct LedgerRegimenSpine: View {
                     Text("最近采样")
                         .font(theme.utility(9))
                         .foregroundStyle(theme.mustard)
-                    Text(sampleDate?.unmanualShortDateText ?? "尚无记录")
+                    Text(sampleDateText ?? "尚无记录")
                         .font(.subheadline.weight(.bold))
                     Spacer(minLength: 8)
                     Text(linkText)
@@ -233,7 +233,7 @@ private struct LedgerSpineDatum: View {
 private struct LedgerLabIndex: View {
     @Environment(AppTheme.self) private var theme
 
-    let sampleDate: Date?
+    let sampleDateText: String?
     let facts: [LedgerHormoneFact]
     let importAction: () -> Void
 
@@ -247,7 +247,7 @@ private struct LedgerLabIndex: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("最近检查")
                         .font(theme.display(23, relativeTo: .title3))
-                    Text(sampleDate?.unmanualShortDateText ?? "尚无采样记录")
+                    Text(sampleDateText ?? "尚无采样记录")
                         .font(theme.utility(9))
                         .tracking(0.5)
                         .foregroundStyle(theme.indigo.opacity(0.58))
@@ -356,7 +356,7 @@ private struct LedgerHormoneRow: View {
 struct LedgerHormoneFact: Identifiable {
     let order: Int
     let descriptor: LedgerHormoneDescriptor
-    let record: LabRecord?
+    let record: LabRecordSnapshot?
 
     var id: String { descriptor.code }
 }

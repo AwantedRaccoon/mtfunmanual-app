@@ -7,11 +7,11 @@ struct V25TodayHome: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    let profile: HRTProfile?
-    let countdown: CountdownRecord?
-    let regimens: [RegimenVersion]
-    let records: [LabRecord]
-    let entries: [JourneyEntry]
+    let profile: HRTProfileSnapshot?
+    let countdown: CountdownRecordSnapshot?
+    let regimens: [CoreRegimenVersionSnapshot]
+    let records: [LabRecordSnapshot]
+    let entries: [JourneyEntrySnapshot]
     let quickRecordAction: () -> Void
     let startDateAction: () -> Void
     let countdownAction: () -> Void
@@ -23,18 +23,27 @@ struct V25TodayHome: View {
         profile.map { DateFacts.hrtDay(startDate: $0.startDate) }
     }
 
-    private var activeRegimen: RegimenVersion? {
-        regimens.first(where: { $0.endedAt == nil })
+    private var activeRegimen: CoreRegimenVersionSnapshot? {
+        regimens.first(where: { regimen in
+            guard regimen.editState == .sealed, !regimen.requiresReview,
+                  let today = try? HistoricalTimestamp.captured(
+                    instant: Date(),
+                    timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+                  ).localDate else { return false }
+            return regimen.effectiveStartDate <= today
+                && (regimen.effectiveEndDate.map { today < $0 } ?? true)
+        })
     }
 
-    private var latestEntry: JourneyEntry? {
+    private var latestEntry: JourneyEntrySnapshot? {
         entries.max { $0.occurredAt < $1.occurredAt }
     }
 
-    private var latestLabRecords: [LabRecord] {
-        guard let latestDate = records.map(\.sampledAt).max() else { return [] }
+    private var latestLabRecords: [LabRecordSnapshot] {
+        guard let latest = records.max(by: { $0.sampledAt < $1.sampledAt }),
+              let latestLocalDate = latest.recordedLocalDate() else { return [] }
         let sameDayRecords = records.filter {
-            Calendar.autoupdatingCurrent.isDate($0.sampledAt, inSameDayAs: latestDate)
+            $0.recordedLocalDate() == latestLocalDate
         }
         return MetricReportFacts.orderedItemCodes(from: sameDayRecords).compactMap { itemCode in
             sameDayRecords
@@ -64,23 +73,20 @@ struct V25TodayHome: View {
     private var header: some View {
         if dynamicTypeSize.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .center) {
-                    Text("V2.5 / TODAY")
-                        .font(theme.utility(11))
-                        .tracking(0.8)
-                    Spacer()
-                    Label("仅本机", systemImage: "lock.fill")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(theme.indigo.opacity(0.66))
-                }
+                Text("LOCAL / TODAY")
+                    .font(.caption.weight(.bold))
+                Label(SystemBackupDisclosure.statusLabel, systemImage: "lock.fill")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.indigo.opacity(0.66))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("today.backupStatus")
+                    .accessibilityLabel(SystemBackupDisclosure.statusLabel)
                 Text(todayDayText)
-                    .font(.largeTitle.weight(.black))
+                    .font(.title2.weight(.black))
                 Text(todayMonthAndWeekdayText)
                     .font(.body.weight(.medium))
                     .foregroundStyle(theme.indigo.opacity(0.66))
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("V2.5 今天页，今天 \(todayDayText)，记录仅保存在本机")
             .padding(.top, 6)
             .padding(.bottom, 12)
         } else {
@@ -98,16 +104,17 @@ struct V25TodayHome: View {
                 Spacer(minLength: 8)
 
                 VStack(alignment: .trailing, spacing: 5) {
-                    Text("V2.5 / TODAY")
+                    Text("LOCAL / TODAY")
                         .font(theme.utility(11))
                         .tracking(1)
-                    Label("仅本机", systemImage: "lock.fill")
+                    Label(SystemBackupDisclosure.statusLabel, systemImage: "lock.fill")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.indigo.opacity(0.66))
+                        .accessibilityIdentifier("today.backupStatus")
                 }
                 .padding(.top, 7)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("V2.5 今天页，记录仅保存在本机")
+                .accessibilityLabel(SystemBackupDisclosure.todayAccessibility)
             }
             .padding(.top, 6)
             .padding(.bottom, 12)
@@ -330,7 +337,7 @@ struct V25TodayHome: View {
             label: "当前方案",
             value: activeRegimen?.code ?? "未建立",
             detail: activeRegimen?.title ?? "建立当前方案",
-            metadata: activeRegimen.map { "\($0.startedAt.unmanualShortDateText) 起" } ?? "",
+            metadata: activeRegimen.map { "\($0.effectiveStartDate.iso8601) 起" } ?? "",
             background: theme.paper,
             labelColor: theme.vermilion,
             accessibilityIdentifier: "today.v25.regimen",
@@ -342,7 +349,7 @@ struct V25TodayHome: View {
         V25ContextItem(
             label: "最近化验",
             value: labValue,
-            detail: latestLabRecords.first?.sampledAt.unmanualShortDateText ?? "尚无记录",
+            detail: latestLabRecords.first?.recordedShortDateText ?? "尚无记录",
             metadata: "查看完整原始记录",
             background: theme.paper,
             labelColor: theme.vermilion,
@@ -366,7 +373,7 @@ struct V25TodayHome: View {
                     .font(theme.display(dynamicTypeSize.isAccessibilitySize ? 22 : 20, relativeTo: .title3))
                     .multilineTextAlignment(.leading)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 2)
-                Text(latestEntry.map { "\($0.kind.title) · \($0.occurredAt.unmanualShortDateText)" } ?? "随时可以开始")
+                Text(latestEntry.map { "\($0.kind.title) · \($0.recordedShortDateText)" } ?? "随时可以开始")
                     .font(theme.utility(11))
                     .foregroundStyle(theme.paper.opacity(0.64))
             }
@@ -386,16 +393,24 @@ struct V25TodayHome: View {
     }
 
     private var privacyFooter: some View {
-        Text("LOCAL ONLY  ·  这些内容只来自本地记录")
-            .font(theme.utility(10))
-            .tracking(0.8)
+        Text("LOCAL FIRST  ·  \(SystemBackupDisclosure.compact)")
+            .font(dynamicTypeSize.isAccessibilitySize ? .caption.weight(.bold) : theme.utility(10))
+            .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.8)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("today.backupDisclosure")
             .foregroundStyle(theme.indigo.opacity(0.62))
             .frame(maxWidth: .infinity)
             .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 18 : 8)
     }
 
     private var hasEntryToday: Bool {
-        entries.contains { Calendar.autoupdatingCurrent.isDateInToday($0.occurredAt) }
+        guard let today = try? HistoricalTimestamp.captured(
+            instant: Date(),
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+        ).localDate else {
+            return false
+        }
+        return entries.contains { $0.recordedLocalDate() == today }
     }
 
     private var countdownValue: String {

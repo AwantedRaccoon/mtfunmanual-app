@@ -4,6 +4,11 @@ import SwiftUI
 enum V25Theme {
     static let pagePadding: CGFloat = 18
     static let contentWidth: CGFloat = 560
+    static let tabBarClearance: CGFloat = 72
+    static let accessibilityTabBarClearance: CGFloat = 252
+    static let accessibilityTabBarBottomPadding: CGFloat = 12
+    static let accessibilityTabLabelBottomPadding: CGFloat = 8
+    static let tabBarMaximumDynamicTypeSize: DynamicTypeSize = .accessibility2
     static let fieldSpacing: CGFloat = 14
     static let sectionSpacing: CGFloat = 24
     static let controlHeight: CGFloat = 52

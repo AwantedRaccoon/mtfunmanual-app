@@ -1,28 +1,22 @@
-import SwiftData
 import SwiftUI
 
 @MainActor
 struct TodayView: View {
-    @Query(sort: \HRTProfile.createdAt, order: .forward) private var profiles: [HRTProfile]
-    @Query(sort: \CountdownRecord.createdAt, order: .reverse) private var countdowns: [CountdownRecord]
-    @Query(sort: \JourneyEntry.occurredAt, order: .reverse) private var entries: [JourneyEntry]
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
-    @Query(sort: \LabRecord.sampledAt, order: .reverse) private var labRecords: [LabRecord]
+    @Environment(\.appReadActor) private var appReadActor
 
     @Binding var selectedTab: AppTab
     @State private var presentedSheet: TodaySheet?
-
-    private var profile: HRTProfile? { profiles.first }
-    private var countdown: CountdownRecord? { countdowns.first(where: { $0.archivedAt == nil }) }
+    @State private var snapshot = TodaySnapshot.empty
+    @State private var coreRegimenOverview = CoreRegimenOverviewSnapshot.empty
 
     var body: some View {
         V25Page {
             V25TodayHome(
-                profile: profile,
-                countdown: countdown,
-                regimens: regimens,
-                records: labRecords,
-                entries: entries,
+                profile: snapshot.profile,
+                countdown: snapshot.countdown,
+                regimens: coreRegimenOverview.current.map { [$0] } ?? [],
+                records: snapshot.labRecords,
+                entries: snapshot.entries,
                 quickRecordAction: { presentedSheet = .quickRecord },
                 startDateAction: { presentedSheet = .startDate },
                 countdownAction: { presentedSheet = .countdown },
@@ -32,7 +26,8 @@ struct TodayView: View {
             )
         }
         .navigationBarHidden(true)
-        .sheet(item: $presentedSheet) { destination in
+        .task { await refresh() }
+        .sheet(item: $presentedSheet, onDismiss: refreshAfterDismiss) { destination in
             switch destination {
             case .startDate:
                 StartDateEditor()
@@ -41,6 +36,24 @@ struct TodayView: View {
             case .quickRecord:
                 QuickRecordEditor()
             }
+        }
+    }
+
+    private func refreshAfterDismiss() {
+        Task { await refresh() }
+    }
+
+    private func refresh() async {
+        guard let appReadActor else { return }
+        if let updated = try? await appReadActor.todaySnapshot() {
+            snapshot = updated
+        }
+        if let today = try? HistoricalTimestamp.captured(
+            instant: Date(),
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+        ).localDate,
+        let updated = try? await appReadActor.coreRegimenOverview(asOf: today) {
+            coreRegimenOverview = updated
         }
     }
 }

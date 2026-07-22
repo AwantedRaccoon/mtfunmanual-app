@@ -1,13 +1,13 @@
-import SwiftData
 import SwiftUI
 
 @MainActor
 struct RegimenVersionEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.appDataWriter) private var appDataWriter
+    @Environment(\.appReadActor) private var appReadActor
     @Environment(AppTheme.self) private var theme
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
 
+    @State private var overview = CoreRegimenOverviewSnapshot.empty
     @State private var title = ""
     @State private var startedAt = Date()
     @State private var note = ""
@@ -15,17 +15,29 @@ struct RegimenVersionEditor: View {
     @State private var isChoosingMedication = false
     @State private var didLoadCurrentVersion = false
     @State private var saveErrorMessage: String?
+    @State private var isSaving = false
+    @State private var previewSheet: RegimenPreviewSheet?
+    @State private var draftID = UUID()
+    private let requestedDraftID: UUID?
 
-    init(initialMedications: [RegimenMedicationDraft] = []) {
+    init(
+        existingDraftID: UUID? = nil,
+        initialMedications: [RegimenMedicationDraft] = []
+    ) {
+        requestedDraftID = existingDraftID
+        _draftID = State(initialValue: existingDraftID ?? UUID())
         _draftMedications = State(initialValue: initialMedications)
     }
 
-    private var activeRegimen: RegimenVersion? {
-        regimens.first(where: { $0.endedAt == nil })
+    private var activeRegimen: CoreRegimenVersionSnapshot? { overview.current }
+    private var editingDraft: CoreRegimenVersionSnapshot? {
+        guard let requestedDraftID else { return nil }
+        return overview.drafts.first { $0.id == requestedDraftID }
     }
 
     private var draftCode: String {
-        let largestExistingNumber = regimens.compactMap { regimen in
+        if let editingDraft { return editingDraft.code }
+        let largestExistingNumber = overview.allVersions.compactMap { regimen in
             Int(regimen.code.split(separator: "-").last ?? "")
         }.max() ?? 0
         return String(format: "R-%02d", largestExistingNumber + 1)
@@ -33,57 +45,64 @@ struct RegimenVersionEditor: View {
 
     private var canSave: Bool {
         let hasTitle = !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard let activeRegimen else { return hasTitle }
-        return hasTitle && startedAt >= Calendar.current.startOfDay(for: activeRegimen.startedAt)
+        return hasTitle && !draftMedications.isEmpty
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    RegimenEditHeader(cancel: dismiss.callAsFunction)
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        RegimenEditHeader(cancel: dismiss.callAsFunction)
 
-                    RegimenEditIntro(isEditing: activeRegimen != nil)
-                        .padding(.top, 24)
+                        RegimenEditIntro(isEditing: activeRegimen != nil)
+                            .padding(.top, 24)
 
-                    RegimenIdentitySlip(
-                        title: $title,
-                        startedAt: $startedAt,
-                        draftCode: draftCode,
-                        previousCode: activeRegimen?.code
+                        RegimenIdentitySlip(
+                            title: $title,
+                            startedAt: $startedAt,
+                            draftCode: draftCode,
+                            previousCode: activeRegimen?.code
+                        )
+                        .padding(.top, 22)
+
+                        V25SectionHeader(
+                            title: "方案组成",
+                            detail: draftMedications.isEmpty ? "尚未添加" : "\(draftMedications.count) 项"
+                        )
+
+                        RegimenMedicationLedger(
+                            medications: draftMedications,
+                            addAction: { isChoosingMedication = true },
+                            removeAction: removeMedication
+                        )
+
+                        V25SectionHeader(
+                            title: "这次修改",
+                            detail: activeRegimen == nil ? "首次建立" : "旧版本留档"
+                        )
+
+                        RegimenRevisionNote(note: $note, previousRegimen: activeRegimen)
+                    }
+                    .padding(.bottom, 24)
+                    .frame(
+                        width: min(
+                            V25Theme.contentWidth,
+                            max(0, geometry.size.width - V25Theme.pagePadding * 2)
+                        ),
+                        alignment: .leading
                     )
-                    .padding(.top, 22)
-
-                    V25SectionHeader(
-                        title: "方案组成",
-                        detail: draftMedications.isEmpty ? "尚未添加" : "\(draftMedications.count) 项"
-                    )
-
-                    RegimenMedicationLedger(
-                        medications: draftMedications,
-                        addAction: { isChoosingMedication = true },
-                        removeAction: removeMedication
-                    )
-
-                    V25SectionHeader(
-                        title: "这次修改",
-                        detail: activeRegimen == nil ? "首次建立" : "旧版本留档"
-                    )
-
-                    RegimenRevisionNote(note: $note, previousRegimen: activeRegimen)
+                    .padding(.horizontal, V25Theme.pagePadding)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.bottom, 24)
-                .padding(.horizontal, V25Theme.pagePadding)
-                .frame(maxWidth: V25Theme.contentWidth)
-                .frame(maxWidth: .infinity)
+                .scrollDismissesKeyboard(.interactively)
+                .scrollIndicators(.hidden)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .scrollIndicators(.hidden)
             .background(theme.rice.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 RegimenSaveBar(
-                    isEnabled: canSave,
+                    isEnabled: canSave && !isSaving,
                     nextCode: draftCode,
                     isEditing: activeRegimen != nil,
                     action: save
@@ -97,37 +116,164 @@ struct RegimenVersionEditor: View {
             }
         }
         .tint(theme.indigo)
-        .task(id: activeRegimen?.id) {
-            loadCurrentVersionIfNeeded()
-        }
+        .task { await loadCurrentVersionIfNeeded() }
         .localSaveErrorAlert(message: $saveErrorMessage)
+        .sheet(item: $previewSheet) { sheet in
+            RegimenImpactReviewSheet(
+                preview: sheet.preview,
+                code: draftCode,
+                effectiveDate: sheet.effectiveDate,
+                isSaving: isSaving,
+                cancel: { previewSheet = nil },
+                confirm: { seal(sheet) }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
-    private func loadCurrentVersionIfNeeded() {
-        guard !didLoadCurrentVersion, let activeRegimen else { return }
-        title = activeRegimen.title
-        startedAt = max(Date(), Calendar.current.startOfDay(for: activeRegimen.startedAt))
+    private func loadCurrentVersionIfNeeded() async {
+        do {
+            let today = try HistoricalTimestamp.captured(
+                instant: Date(),
+                timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+            ).localDate
+            if let updated = try await appReadActor?.coreRegimenOverview(asOf: today) {
+                overview = updated
+            }
+        } catch {
+            saveErrorMessage = "暂时无法读取当前方案，原资料没有被修改。"
+        }
+        guard !didLoadCurrentVersion else { return }
+        guard let source = editingDraft ?? activeRegimen else {
+            didLoadCurrentVersion = true
+            return
+        }
+        let isCloningSealedVersion = editingDraft == nil
+        title = source.title
+        note = source.changeReason
+        if let sourceDate = try? displayDate(from: source.effectiveStartDate) {
+            startedAt = sourceDate
+        }
+        draftMedications = source.items.map {
+            RegimenMedicationDraft(
+                id: isCloningSealedVersion ? UUID() : $0.id,
+                catalogID: $0.catalogProductID,
+                catalogVersion: $0.catalogVersion,
+                name: $0.displayName,
+                englishName: $0.genericName,
+                detail: $0.productSnapshot.isEmpty
+                    ? [$0.dosageForm, $0.route, $0.doseOriginal, $0.unitOriginal]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " · ")
+                    : $0.productSnapshot,
+                dosageForm: $0.dosageForm,
+                route: $0.route,
+                doseOriginal: $0.doseOriginal,
+                unitOriginal: $0.unitOriginal,
+                schedule: $0.schedule?.input(cloningIdentity: isCloningSealedVersion),
+                productSnapshot: $0.productSnapshot,
+                origin: $0.catalogProductID == nil ? .custom : .catalog
+            )
+        }
         didLoadCurrentVersion = true
     }
 
-    private func save() {
-        do {
-            if let activeRegimen {
-                activeRegimen.endedAt = startedAt
-            }
+    private func displayDate(from date: CivilDateFact) throws -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        guard let value = calendar.date(
+            from: DateComponents(year: date.year, month: date.month, day: date.day, hour: 12)
+        ) else {
+            throw AppWriteFailure.invalidInput
+        }
+        return value
+    }
 
-            modelContext.insert(
-                RegimenVersion(
+    private func save() {
+        guard !isSaving else { return }
+        guard let appDataWriter else {
+            saveErrorMessage = "本地资料尚未准备好，请稍后再试。"
+            return
+        }
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            do {
+                let effectiveDate = try HistoricalTimestamp.captured(
+                    instant: startedAt,
+                    timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+                    provenance: .userEntered
+                ).localDate
+                let previousVersionID = editingDraft?.previousVersionID
+                    ?? overview.allVersions
+                        .filter {
+                            $0.editState == .sealed
+                                && !$0.requiresReview
+                                && $0.effectiveStartDate < effectiveDate
+                        }
+                        .sorted {
+                            $0.effectiveStartDate != $1.effectiveStartDate
+                                ? $0.effectiveStartDate < $1.effectiveStartDate
+                                : $0.id.uuidString < $1.id.uuidString
+                        }
+                        .last?.id
+                let command = SaveRegimenDraftCommand(
+                    recordID: draftID,
+                    previousVersionID: previousVersionID,
                     code: draftCode,
-                    title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                    startedAt: startedAt,
-                    note: note.trimmingCharacters(in: .whitespacesAndNewlines)
+                    title: title,
+                    effectiveStartDate: effectiveDate,
+                    changeReason: note,
+                    items: draftMedications.map {
+                        RegimenItemInput(
+                            id: $0.id,
+                            catalogProductID: $0.catalogID,
+                            catalogVersion: $0.catalogVersion,
+                            displayName: $0.name,
+                            genericName: $0.englishName,
+                            dosageForm: $0.dosageForm,
+                            route: $0.route,
+                            doseOriginal: $0.doseOriginal,
+                            unitOriginal: $0.unitOriginal,
+                            productSnapshot: $0.productSnapshot,
+                            schedule: $0.schedule
+                        )
+                    },
+                    committedAt: Date()
                 )
-            )
-            try modelContext.save()
-            dismiss()
-        } catch {
-            saveErrorMessage = "修改仍保留在当前页面，请检查后再保存。"
+                try await appDataWriter.saveRegimenDraft(command)
+                let preview = try await appDataWriter.previewRegimenChange(draftID: draftID)
+                previewSheet = RegimenPreviewSheet(
+                    preview: preview,
+                    effectiveDate: effectiveDate
+                )
+            } catch {
+                saveErrorMessage = "校样仍保留在当前页面，请检查后再保存。"
+            }
+        }
+    }
+
+    private func seal(_ sheet: RegimenPreviewSheet) {
+        guard !isSaving, let appDataWriter else { return }
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            do {
+                try await appDataWriter.sealRegimenDraft(
+                    SealRegimenDraftCommand(
+                        draftID: sheet.preview.draftID,
+                        expectedNextLocalRevision: sheet.preview.expectedNextLocalRevision,
+                        draftDigest: sheet.preview.draftDigest,
+                        committedAt: Date()
+                    )
+                )
+                previewSheet = nil
+                dismiss()
+            } catch {
+                previewSheet = nil
+                saveErrorMessage = "核对期间资料已经变化，请重新查看影响后再封存。"
+            }
         }
     }
 
@@ -143,6 +289,7 @@ struct RegimenVersionEditor: View {
 
 private struct RegimenEditHeader: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let cancel: () -> Void
 
@@ -155,7 +302,7 @@ private struct RegimenEditHeader: View {
 
             Spacer()
 
-            Text("LOCAL / CURRENT PLAN")
+            Text(dynamicTypeSize.isAccessibilitySize ? "方案编辑" : "LOCAL / CURRENT PLAN")
                 .font(theme.utility(10))
                 .tracking(0.9)
         }
@@ -168,18 +315,28 @@ private struct RegimenEditHeader: View {
 
 private struct RegimenEditIntro: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let isEditing: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(isEditing ? "CURRENT PLAN / 正在修改" : "FIRST PLAN / 初次建立")
+            Text(
+                dynamicTypeSize.isAccessibilitySize
+                    ? (isEditing ? "正在修改" : "初次建立")
+                    : (isEditing ? "CURRENT PLAN / 正在修改" : "FIRST PLAN / 初次建立")
+            )
                 .font(theme.utility(10))
                 .tracking(0.9)
                 .foregroundStyle(theme.vermilion)
 
             Text(isEditing ? "编辑当前方案" : "建立方案")
-                .font(theme.display(36, relativeTo: .largeTitle))
+                .font(
+                    theme.display(
+                        dynamicTypeSize.isAccessibilitySize ? 26 : 36,
+                        relativeTo: dynamicTypeSize.isAccessibilitySize ? .headline : .largeTitle
+                    )
+                )
                 .foregroundStyle(theme.indigoDeep)
 
             Text(isEditing ? "调整今天以后使用的方案。保存后，旧方案仍会留在历史记录里。" : "先把现在使用的药物记下来，之后可以随时修改。")
@@ -398,7 +555,7 @@ private struct RegimenRevisionNote: View {
     @Environment(AppTheme.self) private var theme
 
     @Binding var note: String
-    let previousRegimen: RegimenVersion?
+    let previousRegimen: CoreRegimenVersionSnapshot?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -456,7 +613,10 @@ private struct RegimenSaveBar: View {
                     .foregroundStyle(theme.indigo.opacity(0.66))
             }
 
-            Button(isEditing ? "保存修改" : "保存方案", action: action)
+            Button(
+                dynamicTypeSize.isAccessibilitySize ? "保存校样" : "保存校样并核对影响",
+                action: action
+            )
                 .buttonStyle(V25PrimaryButtonStyle())
                 .disabled(!isEnabled)
                 .opacity(isEnabled ? 1 : 0.46)
@@ -469,5 +629,170 @@ private struct RegimenSaveBar: View {
         .overlay(alignment: .top) {
             Rectangle().fill(theme.indigo).frame(height: 1)
         }
+    }
+}
+
+private struct RegimenPreviewSheet: Identifiable {
+    let preview: RegimenChangePreview
+    let effectiveDate: CivilDateFact
+
+    var id: UUID { preview.draftID }
+}
+
+private struct RegimenImpactReviewSheet: View {
+    @Environment(AppTheme.self) private var theme
+
+    let preview: RegimenChangePreview
+    let code: String
+    let effectiveDate: CivilDateFact
+    let isSaving: Bool
+    let cancel: () -> Void
+    let confirm: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("IMPACT PROOF / 影响核对")
+                        .font(theme.utility(10))
+                        .tracking(0.9)
+                        .foregroundStyle(theme.vermilion)
+                    Text("封存 \(code)")
+                        .font(theme.display(32, relativeTo: .largeTitle))
+                        .foregroundStyle(theme.indigoDeep)
+                    Text("从 \(effectiveDate.iso8601) 起生效。旧版本保持封存，不会被覆盖。")
+                        .font(.body)
+                        .foregroundStyle(theme.indigo.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    versionProof(
+                        label: "变更前",
+                        version: preview.before,
+                        emptyCopy: "这是第一个方案版本"
+                    )
+                    versionProof(
+                        label: "变更后",
+                        version: preview.after,
+                        emptyCopy: ""
+                    )
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        impactRow("旅程记录", count: preview.affectedJourneyIDs.count)
+                        impactRow("检查记录", count: preview.affectedLabIDs.count)
+                        if !preview.affectedRecords.isEmpty {
+                            Divider().overlay(theme.indigo.opacity(0.3))
+                            ForEach(preview.affectedRecords) { record in
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(
+                                        (record.sourceRecordType == "JourneyEntry" ? "旅程" : "检查")
+                                            + " · " + record.localDate.iso8601
+                                    )
+                                        .font(.caption.weight(.black))
+                                    Text(record.summary)
+                                        .font(.subheadline)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(
+                                        associationChangeText(
+                                            before: record.beforeRegimenVersionID,
+                                            after: record.afterRegimenVersionID
+                                        )
+                                    )
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(theme.indigo.opacity(0.68))
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .background(theme.paper)
+                    .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
+
+                    Text("取消只会关闭本页；这份校样已明确保存，但在封存前不会成为当前方案，也不会改变历史关联。")
+                        .font(.caption)
+                        .foregroundStyle(theme.indigo.opacity(0.68))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button("确认封存并更新关联", action: confirm)
+                        .buttonStyle(V25PrimaryButtonStyle())
+                        .disabled(isSaving)
+                        .accessibilityIdentifier("regimen.confirmSeal")
+                }
+                .padding(V25Theme.pagePadding)
+            }
+            .background(theme.rice.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("返回修改", action: cancel)
+                }
+            }
+        }
+        .tint(theme.indigo)
+    }
+
+    private func impactRow(_ title: String, count: Int) -> some View {
+        HStack {
+            Text(title).font(.body.weight(.semibold))
+            Spacer()
+            Text("\(count) 条")
+                .font(.body.monospacedDigit().weight(.black))
+        }
+        .foregroundStyle(theme.indigoDeep)
+        .frame(minHeight: 44)
+    }
+
+    private func associationChangeText(before: UUID?, after: UUID?) -> String {
+        let beforeCode = before.flatMap(codeForRegimen) ?? "未关联"
+        let afterCode = after.flatMap(codeForRegimen) ?? "未关联"
+        return beforeCode + " → " + afterCode
+    }
+
+    private func codeForRegimen(_ id: UUID) -> String? {
+        if preview.after.code.isEmpty == false, id == preview.draftID {
+            return preview.after.code
+        }
+        if let before = preview.before,
+           preview.affectedRecords.contains(where: { $0.beforeRegimenVersionID == id }) {
+            return before.code
+        }
+        return String(id.uuidString.prefix(8))
+    }
+
+    @ViewBuilder
+    private func versionProof(
+        label: String,
+        version: RegimenChangeVersionPreview?,
+        emptyCopy: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(.caption.weight(.black))
+                .foregroundStyle(theme.vermilion)
+            if let version {
+                Text(version.code + " · " + version.title)
+                    .font(.headline)
+                    .foregroundStyle(theme.indigoDeep)
+                if version.items.isEmpty {
+                    Text("没有组成项")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.indigo.opacity(0.65))
+                } else {
+                    ForEach(Array(version.items.enumerated()), id: \.offset) { index, item in
+                        Text("\(index + 1). \(item)")
+                            .font(.subheadline)
+                            .foregroundStyle(theme.indigo)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            } else {
+                Text(emptyCopy)
+                    .font(.subheadline)
+                    .foregroundStyle(theme.indigo.opacity(0.65))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.paper)
+        .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
     }
 }

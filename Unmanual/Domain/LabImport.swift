@@ -37,6 +37,23 @@ struct LabImportEntry: Equatable, Sendable {
 enum LabImportService {
     static func regimen(
         for sampledAt: Date,
+        among regimens: [RegimenVersionSnapshot],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> RegimenVersionSnapshot? {
+        let sampleDay = calendar.startOfDay(for: sampledAt)
+        return regimens
+            .sorted { $0.startedAt > $1.startedAt }
+            .first { regimen in
+                let startDay = calendar.startOfDay(for: regimen.startedAt)
+                let endDay = regimen.endedAt.map { calendar.startOfDay(for: $0) }
+                guard startDay <= sampleDay else { return false }
+                guard let endDay else { return true }
+                return sampleDay < endDay
+            }
+    }
+
+    static func regimen(
+        for sampledAt: Date,
         among regimens: [RegimenVersion],
         calendar: Calendar = .autoupdatingCurrent
     ) -> RegimenVersion? {
@@ -52,46 +69,4 @@ enum LabImportService {
             }
     }
 
-    @discardableResult
-    static func save(
-        entries: [LabImportEntry],
-        sampledAt: Date,
-        regimenVersionID: UUID?,
-        in modelContext: ModelContext,
-        calendar: Calendar = .autoupdatingCurrent
-    ) throws -> Int {
-        let completedEntries = entries.filter(\.isComplete)
-        let existingRecords = try modelContext.fetch(FetchDescriptor<LabRecord>())
-
-        for entry in completedEntries {
-            guard let numericValue = entry.numericValue else { continue }
-            if let existingRecord = existingRecords.first(where: {
-                $0.itemCode.caseInsensitiveCompare(entry.itemCode) == .orderedSame
-                    && calendar.isDate($0.sampledAt, inSameDayAs: sampledAt)
-            }) {
-                existingRecord.itemName = entry.itemName
-                existingRecord.itemCode = entry.itemCode
-                existingRecord.rawValue = entry.cleanRawValue
-                existingRecord.numericValue = numericValue
-                existingRecord.unit = entry.cleanUnit
-                existingRecord.sampledAt = sampledAt
-                existingRecord.regimenVersionID = regimenVersionID
-            } else {
-                modelContext.insert(
-                    LabRecord(
-                        itemName: entry.itemName,
-                        itemCode: entry.itemCode,
-                        rawValue: entry.cleanRawValue,
-                        numericValue: numericValue,
-                        unit: entry.cleanUnit,
-                        sampledAt: sampledAt,
-                        regimenVersionID: regimenVersionID
-                    )
-                )
-            }
-        }
-
-        try modelContext.save()
-        return completedEntries.count
-    }
 }

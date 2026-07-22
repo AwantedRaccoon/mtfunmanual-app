@@ -50,7 +50,7 @@ final class CountdownRecord {
     }
 }
 
-enum JourneyEntryKind: String, CaseIterable, Codable, Identifiable {
+enum JourneyEntryKind: String, CaseIterable, Codable, Identifiable, Sendable {
     case change
     case feeling
     case question

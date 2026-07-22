@@ -47,11 +47,13 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.mtfbook.unmanual
         PRODUCT_NAME: Unmanual
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Unmanual/Resources/Unmanual.entitlements
         DEVELOPMENT_TEAM: ""
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     scheme:
       testTargets:
         - UnmanualTests
+        - UnmanualUITests
       gatherCoverageData: true
 
   UnmanualTests:
@@ -66,12 +68,38 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.mtfbook.unmanual.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  UnmanualUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UnmanualUITests
+    dependencies:
+      - target: Unmanual
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mtfbook.unmanual.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+  UnmanualPerformanceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: UnmanualPerformanceTests
+      - path: UnmanualTests/LegacyUnversionedStoreFactory.swift
+    dependencies:
+      - target: Unmanual
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mtfbook.unmanual.performance-tests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Unmanual:
     build:
       targets:
         Unmanual: all
         UnmanualTests: [test]
+        UnmanualUITests: [test]
     run:
       config: Debug
     test:
@@ -79,5 +107,22 @@ schemes:
       gatherCoverageData: true
       targets:
         - name: UnmanualTests
+        - name: UnmanualUITests
     archive:
       config: Release
+
+  UnmanualPerformancePreflight:
+    build:
+      targets:
+        Unmanual: all
+        UnmanualPerformanceTests: [test]
+    test:
+      config: Release
+      gatherCoverageData: false
+      debugEnabled: false
+      environmentVariables:
+        UNMANUAL_BATCH1_PERF_MODE: simulator-preflight
+      targets:
+        - name: UnmanualPerformanceTests
+          parallelizable: false
+          randomExecutionOrder: false

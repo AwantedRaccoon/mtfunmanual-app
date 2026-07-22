@@ -2,9 +2,21 @@ import Foundation
 
 enum MetricReportFacts {
     static func orderedItemCodes(from records: [LabRecord]) -> [String] {
-        Dictionary(grouping: records, by: \.itemCode)
+        orderedItemCodes(records: records, itemCode: \.itemCode, sampledAt: \.sampledAt)
+    }
+
+    static func orderedItemCodes(from records: [LabRecordSnapshot]) -> [String] {
+        orderedItemCodes(records: records, itemCode: \.itemCode, sampledAt: \.sampledAt)
+    }
+
+    private static func orderedItemCodes<Record>(
+        records: [Record],
+        itemCode: KeyPath<Record, String>,
+        sampledAt: KeyPath<Record, Date>
+    ) -> [String] {
+        Dictionary(grouping: records, by: { $0[keyPath: itemCode] })
             .compactMap { itemCode, itemRecords in
-                itemRecords.map(\.sampledAt).max().map { (itemCode, $0) }
+                itemRecords.map { $0[keyPath: sampledAt] }.max().map { (itemCode, $0) }
             }
             .sorted { lhs, rhs in
                 if lhs.1 != rhs.1 {

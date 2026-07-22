@@ -4,22 +4,26 @@ import XCTest
 
 @MainActor
 final class LabImportServiceTests: XCTestCase {
-    func testSaveStoresCompletedRowsAndSkipsBlankRows() throws {
-        let container = try makeContainer()
-        let context = container.mainContext
+    func testSaveStoresCompletedRowsAndSkipsBlankRows() async throws {
+        let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
+        let writer = AppWriteActor(modelContainer: container)
         let sampledAt = Date(timeIntervalSince1970: 1_720_000_000)
-        let regimenID = UUID()
 
-        let savedCount = try LabImportService.save(
-            entries: [
-                LabImportEntry(itemName: "雌二醇", itemCode: "E2", rawValue: "172", unit: "pg/mL"),
-                LabImportEntry(itemName: "睾酮", itemCode: "T", rawValue: "", unit: "")
-            ],
-            sampledAt: sampledAt,
-            regimenVersionID: regimenID,
-            in: context
+        let savedCount = try await writer.saveLabImport(
+            SaveLabImportCommand(
+                entries: [
+                    LabImportEntry(itemName: "雌二醇", itemCode: "E2", rawValue: "172", unit: "pg/mL"),
+                    LabImportEntry(itemName: "睾酮", itemCode: "T", rawValue: "", unit: "")
+                ],
+                sampledAt: sampledAt,
+                regimenVersionID: nil,
+                committedAt: sampledAt
+            )
         )
 
+        let context = ModelContext(container)
         let records = try context.fetch(FetchDescriptor<LabRecord>())
         XCTAssertEqual(savedCount, 1)
         XCTAssertEqual(records.count, 1)
@@ -27,40 +31,58 @@ final class LabImportServiceTests: XCTestCase {
         XCTAssertEqual(records.first?.rawValue, "172")
         XCTAssertEqual(records.first?.numericValue, 172)
         XCTAssertEqual(records.first?.unit, "pg/mL")
-        XCTAssertEqual(records.first?.sampledAt, sampledAt)
-        XCTAssertEqual(records.first?.regimenVersionID, regimenID)
+        XCTAssertEqual(
+            records.first?.sampledAt,
+            Date(
+                timeIntervalSinceReferenceDate:
+                    floor(sampledAt.timeIntervalSinceReferenceDate / 60) * 60
+            )
+        )
+        XCTAssertNil(records.first?.regimenVersionID)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 3)
     }
 
-    func testSaveUpdatesAnExistingItemFromTheSameSampleDay() throws {
-        let container = try makeContainer()
-        let context = container.mainContext
+    func testSavePreservesASecondSampleOfTheSameItemOnTheSameDay() async throws {
+        let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
+        let writer = AppWriteActor(modelContainer: container)
         let sampledAt = Date(timeIntervalSince1970: 1_720_000_000)
-        let existing = LabRecord(
-            itemName: "雌二醇",
-            itemCode: "E2",
-            rawValue: "165",
-            numericValue: 165,
-            unit: "pg/mL",
-            sampledAt: sampledAt
+        _ = try await writer.saveLabImport(
+            SaveLabImportCommand(
+                entries: [
+                    LabImportEntry(itemName: "雌二醇", itemCode: "E2", rawValue: "165", unit: "pg/mL")
+                ],
+                sampledAt: sampledAt,
+                regimenVersionID: nil,
+                committedAt: sampledAt
+            )
         )
-        context.insert(existing)
-        try context.save()
+        let context = ModelContext(container)
+        let existingID = try XCTUnwrap(context.fetch(FetchDescriptor<LabRecord>()).first?.id)
 
-        let savedCount = try LabImportService.save(
-            entries: [
-                LabImportEntry(itemName: "雌二醇", itemCode: "E2", rawValue: "172.5", unit: "pg/mL")
-            ],
-            sampledAt: sampledAt.addingTimeInterval(3_600),
-            regimenVersionID: nil,
-            in: context
+        let savedCount = try await writer.saveLabImport(
+            SaveLabImportCommand(
+                entries: [
+                    LabImportEntry(itemName: "雌二醇", itemCode: "E2", rawValue: "172.5", unit: "pg/mL")
+                ],
+                sampledAt: sampledAt.addingTimeInterval(3_600),
+                regimenVersionID: nil,
+                committedAt: sampledAt.addingTimeInterval(3_600)
+            )
         )
 
-        let records = try context.fetch(FetchDescriptor<LabRecord>())
+        let records = try context.fetch(
+            FetchDescriptor<LabRecord>(sortBy: [SortDescriptor(\.sampledAt)])
+        )
         XCTAssertEqual(savedCount, 1)
-        XCTAssertEqual(records.count, 1)
-        XCTAssertEqual(records.first?.id, existing.id)
-        XCTAssertEqual(records.first?.rawValue, "172.5")
-        XCTAssertEqual(records.first?.numericValue, 172.5)
+        XCTAssertEqual(records.count, 2)
+        XCTAssertEqual(records.first?.id, existingID)
+        XCTAssertEqual(records.first?.rawValue, "165")
+        XCTAssertEqual(records.first?.numericValue, 165)
+        XCTAssertEqual(records.last?.rawValue, "172.5")
+        XCTAssertEqual(records.last?.numericValue, 172.5)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 5)
     }
 
     func testChineseDecimalSeparatorIsAccepted() {
@@ -97,11 +119,6 @@ final class LabImportServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result?.id, oldRegimen.id)
-    }
-
-    private func makeContainer() throws -> ModelContainer {
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        return try ModelContainer(for: LabRecord.self, configurations: configuration)
     }
 
     private func date(day: Int, calendar: Calendar) -> Date {

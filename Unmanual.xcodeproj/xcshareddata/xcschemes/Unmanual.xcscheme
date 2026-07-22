@@ -51,6 +51,17 @@
                ReferencedContainer = "container:Unmanual.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "45E3C6014521BA0AA3B157B8"
+               BuildableName = "UnmanualUITests.xctest"
+               BlueprintName = "UnmanualUITests"
+               ReferencedContainer = "container:Unmanual.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
       <CommandLineArguments>
       </CommandLineArguments>

@@ -1,35 +1,21 @@
-import SwiftData
 import SwiftUI
 
 @MainActor
 struct ArchiveView: View {
     @Environment(AppTheme.self) private var theme
-    @Query(sort: \HRTProfile.startDate) private var profiles: [HRTProfile]
-    @Query(sort: \CountdownRecord.targetDate, order: .reverse) private var countdowns: [CountdownRecord]
-    @Query(sort: \JourneyEntry.occurredAt, order: .reverse) private var entries: [JourneyEntry]
-    @Query(sort: \LabRecord.sampledAt, order: .reverse) private var labRecords: [LabRecord]
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
+    @Environment(\.appReadActor) private var appReadActor
 
     @State private var destination: ArchiveDestination?
-
-    private var snapshot: ArchiveSnapshot {
-        ArchiveSnapshot(
-            profiles: profiles,
-            countdowns: countdowns,
-            entries: entries,
-            labRecords: labRecords,
-            regimens: regimens
-        )
-    }
+    @State private var snapshot = AppArchiveSnapshot.empty
 
     var body: some View {
         V25Page {
             VStack(alignment: .leading, spacing: 0) {
                 V25PageHeader(
-                    register: "V2.5 / LOCAL ARCHIVE",
+                    register: "LOCAL / ARCHIVE",
                     title: "档案",
                     subtitle: "整理、带走，也决定留下什么。",
-                    status: "仅在本机"
+                    status: SystemBackupDisclosure.statusLabel
                 )
 
                 V25SectionHeader(
@@ -41,11 +27,21 @@ struct ArchiveView: View {
 
                 V25SectionHeader(title: "整理并带走", detail: "先预览，再生成")
 
+#if DEBUG
                 ArchiveExportDesk(
                     snapshot: snapshot,
                     summaryAction: { destination = .visitSummary },
-                    exportAction: { destination = .rawExport }
+                    exportAction: { destination = .rawExport },
+                    importAction: { destination = .rawImport }
                 )
+#else
+                ArchiveExportDesk(
+                    snapshot: snapshot,
+                    summaryAction: { destination = .visitSummary },
+                    exportAction: {},
+                    importAction: {}
+                )
+#endif
 
                 V25SectionHeader(title: "数据与隐私", detail: "你来决定")
 
@@ -61,77 +57,38 @@ struct ArchiveView: View {
                     knowledgeAction: { destination = .knowledgeSearch }
                 )
 
-                V25PrivacyFooter(text: "导出前会完整预览；导出的文件不再受 App 保护")
+#if DEBUG
+                V25PrivacyFooter(text: "\(SystemBackupDisclosure.compact)；JSON 导入导出仅为开发原型")
+#else
+                V25PrivacyFooter(text: SystemBackupDisclosure.compact)
+#endif
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task { await refreshSnapshot() }
         .sheet(item: $destination) { destination in
-            ArchivePreviewSheet(destination: destination, snapshot: snapshot)
+            Group {
+                switch destination {
+#if DEBUG
+                case .rawExport:
+                    ArchiveDataExportSheet()
+                case .rawImport:
+                    ArchiveDataImportSheet()
+#endif
+                default:
+                    ArchivePreviewSheet(destination: destination, snapshot: snapshot)
+                }
+            }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
     }
-}
 
-private struct ArchiveSnapshot {
-    let journeyCount: Int
-    let labSampleCount: Int
-    let labRecordCount: Int
-    let regimenCount: Int
-    let profileCount: Int
-    let countdownCount: Int
-    let firstActivityDate: Date?
-    let latestActivityDate: Date?
-
-    init(
-        profiles: [HRTProfile],
-        countdowns: [CountdownRecord],
-        entries: [JourneyEntry],
-        labRecords: [LabRecord],
-        regimens: [RegimenVersion]
-    ) {
-        let calendar = Calendar.autoupdatingCurrent
-        let sampleDays = Set(labRecords.map { calendar.startOfDay(for: $0.sampledAt) })
-        let dates = profiles.map(\.startDate)
-            + entries.map(\.occurredAt)
-            + labRecords.map(\.sampledAt)
-            + regimens.map(\.startedAt)
-
-        journeyCount = entries.count
-        labSampleCount = sampleDays.count
-        labRecordCount = labRecords.count
-        regimenCount = regimens.count
-        profileCount = profiles.count
-        countdownCount = countdowns.count
-        firstActivityDate = dates.min()
-        latestActivityDate = dates.max()
-    }
-
-    var exportItemCount: Int {
-        journeyCount + labRecordCount + regimenCount + profileCount + countdownCount
-    }
-
-    var supportingDateCount: Int {
-        profileCount + countdownCount
-    }
-
-    var hasContent: Bool {
-        exportItemCount > 0
-    }
-
-    var rangeLabel: String {
-        guard let firstActivityDate, let latestActivityDate else {
-            return "还没有记录范围"
+    private func refreshSnapshot() async {
+        guard let appReadActor else { return }
+        if let loaded = try? await appReadActor.archiveSnapshot() {
+            snapshot = loaded
         }
-
-        let first = firstActivityDate.formatted(.dateTime.year().month(.twoDigits))
-        let latest = latestActivityDate.formatted(.dateTime.year().month(.twoDigits))
-        return first == latest ? first : "\(first) — \(latest)"
-    }
-
-    var latestActivityLabel: String {
-        guard let latestActivityDate else { return "等待第一笔" }
-        return "更新至 " + latestActivityDate.formatted(.dateTime.month().day())
     }
 }
 
@@ -139,7 +96,7 @@ private struct ArchiveDossierCover: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    let snapshot: ArchiveSnapshot
+    let snapshot: AppArchiveSnapshot
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -200,7 +157,7 @@ private struct ArchiveDossierCover: View {
         .padding(.bottom, 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "本机个人档案，旅程 \(snapshot.journeyCount) 笔，检查 \(snapshot.labSampleCount) 次，方案 \(snapshot.regimenCount) 版，范围 \(snapshot.rangeLabel)"
+            "本机个人档案，旅程 \(snapshot.journeyCount) 笔，检查记录 \(snapshot.labRecordCount) 项，方案 \(snapshot.regimenCount) 版，范围 \(snapshot.rangeLabel)"
         )
     }
 
@@ -228,7 +185,7 @@ private struct ArchiveDossierCover: View {
 private struct ArchiveCounts: View {
     @Environment(AppTheme.self) private var theme
 
-    let snapshot: ArchiveSnapshot
+    let snapshot: AppArchiveSnapshot
     let stacked: Bool
 
     var body: some View {
@@ -244,7 +201,7 @@ private struct ArchiveCounts: View {
     @ViewBuilder
     private var countItems: some View {
         ArchiveCount(value: snapshot.journeyCount, label: "旅程", color: theme.vermilion)
-        ArchiveCount(value: snapshot.labSampleCount, label: "检查", color: theme.blue)
+        ArchiveCount(value: snapshot.labRecordCount, label: "检查项", color: theme.blue)
         ArchiveCount(value: snapshot.regimenCount, label: "方案", color: theme.moss)
     }
 }
@@ -274,9 +231,10 @@ private struct ArchiveCount: View {
 }
 
 private struct ArchiveExportDesk: View {
-    let snapshot: ArchiveSnapshot
+    let snapshot: AppArchiveSnapshot
     let summaryAction: () -> Void
     let exportAction: () -> Void
+    let importAction: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -285,20 +243,34 @@ private struct ArchiveExportDesk: View {
                 title: "整理就诊材料",
                 detail: "选择时间范围和内容，先生成一份可核对的预览。",
                 badge: "PDF",
+                symbol: "arrow.up.right",
                 style: .primary,
                 action: summaryAction
             )
 
+#if DEBUG
             ArchiveActionRow(
-                kicker: "原始副本",
-                title: "导出自己的数据",
-                detail: snapshot.exportItemCount == 0
-                    ? "留下记录后，可以按类别生成原始数据文件。"
-                    : "共 \(snapshot.exportItemCount) 条原始数据，可按类别分别选择。",
-                badge: "CSV",
+                kicker: "开发原型",
+                title: "试验 JSON 导出",
+                detail: snapshot.developmentExportItemCount == 0
+                    ? "留下测试记录后，可以检查结构副本流程；这不是完整或安全备份。"
+                    : "将 \(snapshot.developmentExportItemCount) 条原型可支持记录写入结构副本；这不是完整或安全备份。",
+                badge: "JSON",
+                symbol: "arrow.up.right",
                 style: .secondary,
                 action: exportAction
             )
+
+            ArchiveActionRow(
+                kicker: "开发原型",
+                title: "试验 JSON 导入",
+                detail: "当前只按 ID 试验写入，尚无 dataset、digest 或正式冲突处理；只用于开发数据。",
+                badge: "JSON",
+                symbol: "arrow.down.left",
+                style: .secondary,
+                action: importAction
+            )
+#endif
         }
     }
 }
@@ -312,6 +284,7 @@ private struct ArchiveActionRow: View {
     let title: String
     let detail: String
     let badge: String
+    let symbol: String
     let style: Style
     let action: () -> Void
 
@@ -341,7 +314,7 @@ private struct ArchiveActionRow: View {
                         .frame(minHeight: 24)
                         .overlay { Rectangle().stroke(foreground.opacity(0.72), lineWidth: 1) }
 
-                    Image(systemName: "arrow.up.right")
+                    Image(systemName: symbol)
                         .font(.system(size: 13, weight: .black))
                 }
             }
@@ -383,8 +356,9 @@ private struct ArchiveControlLedger: View {
             ArchiveLedgerRow(
                 title: "本地存储说明",
                 detail: "看看哪些内容留在设备里，导出后又会发生什么。",
-                status: "当前：本机",
+                status: "当前：\(SystemBackupDisclosure.statusLabel)",
                 color: theme.blue,
+                accessibilityIdentifier: "archive.localStorage",
                 action: storageAction
             )
             ArchiveLedgerRow(
@@ -392,6 +366,7 @@ private struct ArchiveControlLedger: View {
                 detail: "逐项检查记录，不提供含糊的“一键无痕”承诺。",
                 status: "逐项处理",
                 color: theme.vermilion,
+                accessibilityIdentifier: "archive.deleteAndReset",
                 action: deleteAction
             )
         }
@@ -406,6 +381,7 @@ private struct ArchiveLedgerRow: View {
     let detail: String
     let status: String
     let color: Color
+    let accessibilityIdentifier: String
     let action: () -> Void
 
     var body: some View {
@@ -444,6 +420,7 @@ private struct ArchiveLedgerRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(V25PressStyle())
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
@@ -510,7 +487,10 @@ private struct ArchiveSupplementIndex: View {
 
 private enum ArchiveDestination: String, Identifiable {
     case visitSummary
+#if DEBUG
     case rawExport
+    case rawImport
+#endif
     case localStorage
     case deleteAndReset
     case unitConversion
@@ -521,7 +501,10 @@ private enum ArchiveDestination: String, Identifiable {
     var title: String {
         switch self {
         case .visitSummary: "整理就诊材料"
-        case .rawExport: "导出自己的数据"
+#if DEBUG
+        case .rawExport: "导出 App 数据"
+        case .rawImport: "导入 App 数据"
+#endif
         case .localStorage: "本地存储说明"
         case .deleteAndReset: "删除与重置"
         case .unitConversion: "单位换算"
@@ -532,7 +515,10 @@ private enum ArchiveDestination: String, Identifiable {
     var eyebrow: String {
         switch self {
         case .visitSummary: "SUMMARY / PREVIEW"
-        case .rawExport: "DATA / PREVIEW"
+#if DEBUG
+        case .rawExport: "DATA / EXPORT"
+        case .rawImport: "DATA / IMPORT"
+#endif
         case .localStorage: "LOCAL / PRIVACY"
         case .deleteAndReset: "DATA / CONTROL"
         case .unitConversion: "UTILITY / CONVERT"
@@ -543,7 +529,10 @@ private enum ArchiveDestination: String, Identifiable {
     var detail: String {
         switch self {
         case .visitSummary: "选择时间范围和内容，整理成一页摘要。"
-        case .rawExport: "按类别选择原始记录，完整预览后才生成文件。"
+#if DEBUG
+        case .rawExport: "开发期结构副本原型，不是完整或安全备份。"
+        case .rawImport: "开发期按 ID 写入原型，正式冲突合同尚未实现。"
+#endif
         case .localStorage: "这里会逐项说明本机数据、系统备份和导出文件之间的边界。"
         case .deleteAndReset: "删除前先列出准确对象和影响范围，并再次确认。"
         case .unitConversion: "输入数值与单位，查看并保存换算结果。"
@@ -557,7 +546,7 @@ private struct ArchivePreviewSheet: View {
     @Environment(AppTheme.self) private var theme
 
     let destination: ArchiveDestination
-    let snapshot: ArchiveSnapshot
+    let snapshot: AppArchiveSnapshot
 
     var body: some View {
         V25EditorPage(
@@ -597,12 +586,16 @@ private struct ArchivePreviewSheet: View {
             .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
 
             V25PrivacyFooter(text: footerText)
+                .accessibilityIdentifier("archive.preview.footer")
         }
     }
 
     private var sectionTitle: String {
         switch destination {
-        case .visitSummary, .rawExport: "将怎样处理"
+        case .visitSummary: "将怎样处理"
+#if DEBUG
+        case .rawExport, .rawImport: "将怎样处理"
+#endif
         case .localStorage, .deleteAndReset: "边界与确认"
         case .unitConversion, .knowledgeSearch: "这个附页负责"
         }
@@ -616,17 +609,26 @@ private struct ArchivePreviewSheet: View {
                 ("选择包含内容", "当前方案、检查、旅程记录和仍想询问的问题。"),
                 ("查看完整预览", "确认所选内容后，再生成 PDF。")
             ]
+#if DEBUG
         case .rawExport:
             return [
                 ("旅程", "当前有 \(snapshot.journeyCount) 笔。"),
-                ("检查", "当前有 \(snapshot.labRecordCount) 项原始结果，来自 \(snapshot.labSampleCount) 个采样日。"),
+                ("检查", "当前有 \(snapshot.labRecordCount) 项原始结果。"),
                 ("方案", "当前有 \(snapshot.regimenCount) 个历史版本。"),
                 ("日期", "当前有 \(snapshot.profileCount) 个开始日与 \(snapshot.countdownCount) 个 Countdown。")
             ]
+        case .rawImport:
+            return [
+                ("选择测试文件", "只接受当前原型生成的兼容 JSON。"),
+                ("核对清单", "写入前展示每一类记录数量。"),
+                ("原型限制", "当前按 ID 写入；dataset、digest 和正式冲突处理尚未实现。")
+            ]
+#endif
         case .localStorage:
             return [
-                ("App 内记录", "当前使用本机 SwiftData 存储，不要求账号。"),
-                ("系统与设备", "系统备份、锁屏和最近任务属于不同保护范围。"),
+                ("App 内记录", SystemBackupDisclosure.summary),
+                ("上传与同步", SystemBackupDisclosure.networkBoundary),
+                ("系统备份", SystemBackupDisclosure.systemBackupBoundary),
                 ("导出文件", "离开 App 后，不再受 App 内保护。")
             ]
         case .deleteAndReset:
@@ -654,10 +656,14 @@ private struct ArchivePreviewSheet: View {
         switch destination {
         case .visitSummary:
             "把选定范围内的记录整理到同一页"
+#if DEBUG
         case .rawExport:
-            "这里先确认导出范围；文件生成能力将在数据层实现后接入"
+            "仅供 DEBUG 验证结构，不作为恢复承诺"
+        case .rawImport:
+            "仅使用开发数据；正式冲突处理尚未实现"
+#endif
         case .localStorage:
-            "温和呈现不等同于系统级隐私保护"
+            "系统备份由设备管理，不等于 App 主动上传或同步"
         case .deleteAndReset:
             "删除功能实现前必须逐项验证恢复与关联关系"
         case .unitConversion:

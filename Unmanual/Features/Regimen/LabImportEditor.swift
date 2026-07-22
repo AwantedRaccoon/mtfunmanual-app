@@ -1,22 +1,40 @@
-import SwiftData
 import SwiftUI
 
 @MainActor
 struct LabImportEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.appDataWriter) private var appDataWriter
+    @Environment(\.appReadActor) private var appReadActor
     @Environment(AppTheme.self) private var theme
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
-    @Query(sort: \LabRecord.sampledAt, order: .reverse) private var labRecords: [LabRecord]
 
+    @State private var regimens: [CoreRegimenVersionSnapshot] = []
     @State private var sampledAt = Date()
     @State private var entries = LedgerHormoneDescriptor.all.map {
         LabImportEntry(itemName: $0.name, itemCode: $0.code, rawValue: "", unit: "")
     }
+    @State private var existingRecordsOnSelectedDay = 0
     @State private var saveErrorMessage: String?
+    @State private var isSaving = false
 
-    private var associatedRegimen: RegimenVersion? {
-        LabImportService.regimen(for: sampledAt, among: regimens)
+    private var associatedRegimen: CoreRegimenVersionSnapshot? {
+        guard let localDate = try? HistoricalTimestamp.captured(
+            instant: sampledAt,
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+            provenance: .userEntered
+        ).localDate else { return nil }
+        let timeline = regimens.map {
+            RegimenTimelineVersion(
+                id: $0.id,
+                start: $0.effectiveStartDate,
+                end: $0.effectiveEndDate,
+                editState: $0.editState,
+                requiresReview: $0.requiresReview
+            )
+        }
+        guard let current = RegimenTimelineResolver.project(timeline, asOf: localDate).current else {
+            return nil
+        }
+        return regimens.first { $0.id == current.id }
     }
 
     private var completedCount: Int {
@@ -34,7 +52,7 @@ struct LabImportEditor: View {
     var body: some View {
         NavigationStack {
             V25EditorPage(
-                register: "V2.5 / LAB IMPORT",
+                register: "LOCAL / LAB RECORD",
                 eyebrow: "NEW SAMPLE",
                 title: "导入检查记录",
                 detail: "选择采样日期，填写这次报告中的项目；没有记录的项目可以留空。",
@@ -46,6 +64,14 @@ struct LabImportEditor: View {
                 )
 
                 LabImportDateSlip(sampledAt: $sampledAt, regimen: associatedRegimen)
+
+                if existingRecordsOnSelectedDay > 0 {
+                    Text("这一天已有 \(existingRecordsOnSelectedDay) 项记录。本次保存会作为新的采样保留，不会覆盖原记录。")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.indigo)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("labImport.existingSampleNotice")
+                }
 
                 V25SectionHeader(
                     title: "性激素六项",
@@ -65,46 +91,85 @@ struct LabImportEditor: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 V25SaveBar(
                     title: "保存 \(completedCount) 项记录",
-                    isEnabled: canSave,
+                    isEnabled: canSave && !isSaving,
                     accessibilityIdentifier: "labImport.save",
                     action: save
                 )
             }
         }
         .tint(theme.indigo)
+        .task { await loadRegimens() }
         .task(id: Calendar.autoupdatingCurrent.startOfDay(for: sampledAt)) {
-            loadRecordsForSelectedDay()
+            await loadExistingRecordCount()
         }
         .localSaveErrorAlert(message: $saveErrorMessage)
     }
 
-    private func loadRecordsForSelectedDay() {
-        let calendar = Calendar.autoupdatingCurrent
-        entries = LedgerHormoneDescriptor.all.map { descriptor in
-            let record = labRecords.first {
-                descriptor.matches(itemCode: $0.itemCode)
-                    && calendar.isDate($0.sampledAt, inSameDayAs: sampledAt)
-            }
-            return LabImportEntry(
-                itemName: descriptor.name,
-                itemCode: descriptor.code,
-                rawValue: record?.rawValue ?? "",
-                unit: record?.unit ?? ""
+    private func loadRegimens() async {
+        guard let today = try? HistoricalTimestamp.captured(
+            instant: Date(),
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+        ).localDate,
+        let updated = try? await appReadActor?.coreRegimenOverview(asOf: today) else { return }
+        regimens = updated.allVersions
+    }
+
+    private func loadExistingRecordCount() async {
+        guard let appReadActor else { return }
+        let fallbackTimeZone = TimeZone.autoupdatingCurrent
+        guard let requestedDay = try? HistoricalTimestamp.captured(
+            instant: sampledAt,
+            timeZoneIdentifier: fallbackTimeZone.identifier
+        ).localDate else {
+            saveErrorMessage = "暂时无法读取这一天的既有记录，原资料没有被修改。"
+            return
+        }
+        existingRecordsOnSelectedDay = 0
+        do {
+            let records = try await appReadActor.labRecords(
+                on: requestedDay,
+                fallbackTimeZone: fallbackTimeZone
             )
+            guard let currentSelectedDay = try? HistoricalTimestamp.captured(
+                instant: sampledAt,
+                timeZoneIdentifier: fallbackTimeZone.identifier
+            ).localDate,
+            currentSelectedDay == requestedDay else { return }
+            existingRecordsOnSelectedDay = records.count
+        } catch {
+            saveErrorMessage = "暂时无法读取这一天的既有记录，原资料没有被修改。"
         }
     }
 
     private func save() {
-        do {
-            try LabImportService.save(
-                entries: entries,
-                sampledAt: sampledAt,
-                regimenVersionID: associatedRegimen?.id,
-                in: modelContext
-            )
-            dismiss()
-        } catch {
-            saveErrorMessage = "已填写的内容仍保留在当前页面，请检查后再保存。"
+        guard !isSaving else { return }
+        guard let appDataWriter else {
+            saveErrorMessage = "本地资料尚未准备好，请稍后再试。"
+            return
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        let components = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute],
+            from: sampledAt
+        )
+        let minutePrecisionSampledAt = calendar.date(from: components) ?? sampledAt
+        let command = SaveLabImportCommand(
+            entries: entries,
+            sampledAt: minutePrecisionSampledAt,
+            regimenVersionID: associatedRegimen?.id,
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+            precision: .minute
+        )
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            do {
+                _ = try await appDataWriter.saveLabImport(command)
+                dismiss()
+            } catch {
+                saveErrorMessage = "已填写的内容仍保留在当前页面，请检查后再保存。"
+            }
         }
     }
 }
@@ -113,7 +178,7 @@ private struct LabImportDateSlip: View {
     @Environment(AppTheme.self) private var theme
 
     @Binding var sampledAt: Date
-    let regimen: RegimenVersion?
+    let regimen: CoreRegimenVersionSnapshot?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -130,10 +195,10 @@ private struct LabImportDateSlip: View {
             }
 
             DatePicker(
-                "采样日期",
+                "采样日期与时间",
                 selection: $sampledAt,
                 in: ...Date(),
-                displayedComponents: .date
+                displayedComponents: [.date, .hourAndMinute]
             )
             .datePickerStyle(.compact)
             .font(.headline.weight(.bold))

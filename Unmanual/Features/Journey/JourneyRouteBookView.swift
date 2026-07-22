@@ -1,14 +1,24 @@
-import SwiftData
 import SwiftUI
 
 @MainActor
 struct JourneyRouteBookView: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Query(sort: \JourneyEntry.occurredAt, order: .reverse) private var entries: [JourneyEntry]
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
+    @Environment(\.appReadActor) private var appReadActor
 
-    let recordAction: () -> Void
+    @State private var entries: [JourneyEntrySnapshot] = []
+    @State private var regimenCodes: [UUID: String] = [:]
+    @State private var nextCursor: JourneyPageCursor?
+    @State private var isLoadingPage = false
+    @State private var loadErrorMessage: String?
+
+    private let refreshToken: Int
+    private let recordAction: () -> Void
+
+    init(refreshToken: Int = 0, recordAction: @escaping () -> Void) {
+        self.refreshToken = refreshToken
+        self.recordAction = recordAction
+    }
 
     var body: some View {
         let items = routeItems
@@ -16,10 +26,12 @@ struct JourneyRouteBookView: View {
         V25Page {
             VStack(alignment: .leading, spacing: 0) {
                 V25PageHeader(
-                    register: "V2.5 / ROUTE",
+                    register: "JOURNEY / ROUTE",
                     title: "旅程",
                     subtitle: "沿着事实回看，不要求连续打卡。",
-                    status: entries.isEmpty ? "尚无路线" : "\(entries.count) 个停靠点"
+                    status: entries.isEmpty
+                        ? "尚无路线"
+                        : (nextCursor == nil ? "\(entries.count) 个停靠点" : "最近 \(entries.count) 个停靠点")
                 )
 
                 JourneyPageRecordAction(action: recordAction)
@@ -33,17 +45,33 @@ struct JourneyRouteBookView: View {
                         .padding(.top, 16)
                 }
 
+                if nextCursor != nil {
+                    Button(isLoadingPage ? "正在读取…" : "加载更早记录", action: loadOlderPage)
+                        .buttonStyle(V25SecondaryButtonStyle())
+                        .disabled(isLoadingPage)
+                        .padding(.top, 18)
+                        .accessibilityIdentifier("journey.loadOlder")
+                }
+
+                if let loadErrorMessage {
+                    Text(loadErrorMessage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.vermilion)
+                        .padding(.top, 10)
+                }
+
                 V25PrivacyFooter(text: "路线只由你的本地记录组成")
                     .padding(.bottom, 42)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: refreshToken) { await loadFirstPage() }
     }
 
     @ViewBuilder
     private func route(_ items: [JourneyRouteItem]) -> some View {
         LazyVStack(spacing: 0) {
-            JourneyNowPoint(latestEntryDate: items.first?.entry.occurredAt)
+            JourneyNowPoint(latestEntryDateText: items.first?.entry.recordedFullDateText)
 
             ForEach(items) { item in
                 if item.startsContext {
@@ -66,9 +94,6 @@ struct JourneyRouteBookView: View {
     }
 
     private var routeItems: [JourneyRouteItem] {
-        let regimenCodes = Dictionary(uniqueKeysWithValues: regimens.map { ($0.id, $0.code) })
-        let calendar = Calendar.autoupdatingCurrent
-
         return entries.enumerated().map { index, entry in
             let regimenCode = entry.regimenVersionID.flatMap { regimenCodes[$0] }
             let previousRegimenCode: String? = {
@@ -77,10 +102,12 @@ struct JourneyRouteBookView: View {
             }()
             let startsContext = index == 0 || regimenCode != previousRegimenCode
             let gapAfter: Int? = {
-                guard entries.indices.contains(index + 1) else { return nil }
-                let currentDay = calendar.startOfDay(for: entry.occurredAt)
-                let olderDay = calendar.startOfDay(for: entries[index + 1].occurredAt)
-                return max(0, calendar.dateComponents([.day], from: olderDay, to: currentDay).day ?? 0)
+                guard entries.indices.contains(index + 1),
+                      let currentDay = entry.recordedLocalDate(),
+                      let olderDay = entries[index + 1].recordedLocalDate() else {
+                    return nil
+                }
+                return max(0, currentDay.days(since: olderDay) ?? 0)
             }()
 
             return JourneyRouteItem(
@@ -92,10 +119,43 @@ struct JourneyRouteBookView: View {
             )
         }
     }
+
+    private func loadFirstPage() async {
+        guard let appReadActor, !isLoadingPage else { return }
+        isLoadingPage = true
+        defer { isLoadingPage = false }
+        do {
+            let page = try await appReadActor.journeyPage(after: nil)
+            entries = page.entries
+            regimenCodes = page.regimenCodes
+            nextCursor = page.nextCursor
+            loadErrorMessage = nil
+        } catch {
+            loadErrorMessage = "暂时无法读取旅程，原记录没有被修改。"
+        }
+    }
+
+    private func loadOlderPage() {
+        guard let appReadActor, let cursor = nextCursor, !isLoadingPage else { return }
+        isLoadingPage = true
+        Task {
+            defer { isLoadingPage = false }
+            do {
+                let page = try await appReadActor.journeyPage(after: cursor)
+                let existingIDs = Set(entries.map(\.id))
+                entries.append(contentsOf: page.entries.filter { !existingIDs.contains($0.id) })
+                regimenCodes.merge(page.regimenCodes) { current, _ in current }
+                nextCursor = page.nextCursor
+                loadErrorMessage = nil
+            } catch {
+                loadErrorMessage = "暂时无法读取更早的记录，请稍后重试。"
+            }
+        }
+    }
 }
 
 private struct JourneyRouteItem: Identifiable {
-    let entry: JourneyEntry
+    let entry: JourneyEntrySnapshot
     let regimenCode: String?
     let startsContext: Bool
     let gapAfter: Int?
@@ -109,7 +169,7 @@ private struct JourneyNowPoint: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    let latestEntryDate: Date?
+    let latestEntryDateText: String?
 
     var body: some View {
         if dynamicTypeSize.isAccessibilitySize {
@@ -120,8 +180,8 @@ private struct JourneyNowPoint: View {
                     .foregroundStyle(theme.mustard)
                 Text("从这里向过去回看")
                     .font(theme.display(25, relativeTo: .title2))
-                if let latestEntryDate {
-                    Text("最近一次留下：\(latestEntryDate.formatted(.dateTime.year().month().day()))")
+                if let latestEntryDateText {
+                    Text("最近一次留下：\(latestEntryDateText)")
                         .font(.caption)
                         .foregroundStyle(theme.paper.opacity(0.7))
                 }
@@ -155,8 +215,8 @@ private struct JourneyNowPoint: View {
                         .foregroundStyle(theme.mustard)
                     Text("从这里向过去回看")
                         .font(theme.display(23, relativeTo: .title3))
-                    if let latestEntryDate {
-                        Text("最近一次留下：\(latestEntryDate.formatted(.dateTime.month().day()))")
+                    if let latestEntryDateText {
+                        Text("最近一次留下：\(latestEntryDateText)")
                             .font(.caption)
                             .foregroundStyle(theme.paper.opacity(0.68))
                     }
@@ -256,10 +316,10 @@ private struct JourneyRouteStop: View {
     private var compactStop: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.entry.occurredAt.formatted(.dateTime.month(.twoDigits).day(.twoDigits)))
+                Text(item.entry.recordedMonthDayText)
                     .font(theme.utility(12))
                     .monospacedDigit()
-                Text(item.entry.occurredAt.formatted(.dateTime.weekday(.abbreviated)))
+                Text(item.entry.recordedWeekdayText)
                     .font(theme.utility(9))
                     .tracking(0.5)
                     .foregroundStyle(theme.indigo.opacity(0.52))
@@ -309,7 +369,7 @@ private struct JourneyRouteStop: View {
     private var accessibilityStop: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(item.entry.occurredAt.formatted(.dateTime.month().day().weekday(.abbreviated)))
+                Text(item.entry.recordedMonthDayWeekdayText)
                     .font(.headline.monospacedDigit())
                 Spacer(minLength: 8)
                 if let regimenCode = item.regimenCode {
@@ -341,7 +401,7 @@ private struct JourneyRouteStop: View {
 
     private var accessibilityText: String {
         let latest = item.isLatest ? "最近一条，" : ""
-        let date = item.entry.occurredAt.formatted(.dateTime.year().month().day())
+        let date = item.entry.recordedFullDateText
         let regimen = item.regimenCode.map { "，方案 \($0)" } ?? ""
         return "\(latest)\(date)，\(item.entry.kind.title)\(regimen)，\(item.entry.text)"
     }

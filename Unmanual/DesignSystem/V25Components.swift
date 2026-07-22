@@ -2,6 +2,7 @@ import SwiftUI
 
 struct V25Page<Content: View>: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private let content: Content
 
@@ -13,9 +14,20 @@ struct V25Page<Content: View>: View {
         GeometryReader { geometry in
             ScrollView {
                 content
+                    .frame(
+                        width: min(
+                            V25Theme.contentWidth,
+                            max(0, geometry.size.width - V25Theme.pagePadding * 2)
+                        ),
+                        alignment: .leading
+                    )
                     .padding(.horizontal, V25Theme.pagePadding)
-                    .padding(.bottom, 30)
-                    .frame(maxWidth: V25Theme.contentWidth)
+                    .padding(
+                        .bottom,
+                        30 + (dynamicTypeSize.isAccessibilitySize
+                            ? V25Theme.accessibilityTabBarClearance
+                            : V25Theme.tabBarClearance)
+                    )
                     .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
@@ -44,16 +56,19 @@ struct V25PageHeader: View {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(register.uppercased())
-                        .font(theme.utility(11))
+                        .font(.caption.weight(.bold))
                         .tracking(0.8)
                     Text(title)
-                        .font(theme.display(38, relativeTo: .largeTitle))
+                        .font(.title2.weight(.black))
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(subtitle)
                         .font(.body)
                         .foregroundStyle(theme.indigo.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(status)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.indigo.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 HStack(alignment: .top, spacing: 18) {
@@ -93,19 +108,33 @@ struct V25PageHeader: View {
 
 struct V25SectionHeader: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let title: String
     let detail: String
 
     var body: some View {
-        HStack(alignment: .lastTextBaseline, spacing: 12) {
-            Text(title)
-                .font(.headline.weight(.black))
-            Spacer()
-            Text(detail.uppercased())
-                .font(theme.utility(9))
-                .tracking(0.8)
-                .foregroundStyle(theme.indigo.opacity(0.58))
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .font(.headline.weight(.black))
+                    Text(detail.uppercased())
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.indigo.opacity(0.58))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                HStack(alignment: .lastTextBaseline, spacing: 12) {
+                    Text(title)
+                        .font(.headline.weight(.black))
+                    Spacer()
+                    Text(detail.uppercased())
+                        .font(theme.utility(9))
+                        .tracking(0.8)
+                        .foregroundStyle(theme.indigo.opacity(0.58))
+                }
+            }
         }
         .foregroundStyle(theme.indigoDeep)
         .padding(.top, 18)
@@ -158,22 +187,38 @@ struct V25FieldSurface<Content: View>: View {
 
 struct V25EditorHeader: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let register: String
     let cancel: () -> Void
 
     var body: some View {
-        HStack {
-            Button("取消", action: cancel)
-                .font(.body.weight(.semibold))
-                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                .buttonStyle(.plain)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button("取消", action: cancel)
+                        .font(.body.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .buttonStyle(.plain)
+                    Text(register.uppercased())
+                        .font(.caption2.weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack {
+                    Button("取消", action: cancel)
+                        .font(.body.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .buttonStyle(.plain)
 
-            Spacer()
+                    Spacer()
 
-            Text(register.uppercased())
-                .font(theme.utility(10))
-                .tracking(0.9)
+                    Text(register.uppercased())
+                        .font(theme.utility(10))
+                        .tracking(0.9)
+                }
+            }
         }
         .foregroundStyle(theme.indigo)
         .overlay(alignment: .bottom) {
@@ -184,6 +229,7 @@ struct V25EditorHeader: View {
 
 struct V25EditorIntro: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let eyebrow: String
     let title: String
@@ -192,14 +238,15 @@ struct V25EditorIntro: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(eyebrow.uppercased())
-                .font(theme.utility(10))
-                .tracking(0.9)
+                .font(dynamicTypeSize.isAccessibilitySize ? .caption.weight(.bold) : theme.utility(10))
+                .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.9)
                 .foregroundStyle(theme.vermilion)
             Text(title)
-                .font(theme.display(34, relativeTo: .largeTitle))
+                .font(dynamicTypeSize.isAccessibilitySize ? .title2.weight(.black) : theme.display(34, relativeTo: .largeTitle))
                 .foregroundStyle(theme.indigoDeep)
+                .fixedSize(horizontal: false, vertical: true)
             Text(detail)
-                .font(.subheadline)
+                .font(dynamicTypeSize.isAccessibilitySize ? .body : .subheadline)
                 .foregroundStyle(theme.indigo.opacity(0.68))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -233,20 +280,28 @@ struct V25EditorPage<Content: View>: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: V25Theme.sectionSpacing) {
-                V25EditorHeader(register: register, cancel: cancel)
-                V25EditorIntro(eyebrow: eyebrow, title: title, detail: detail)
-                content
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: V25Theme.sectionSpacing) {
+                    V25EditorHeader(register: register, cancel: cancel)
+                    V25EditorIntro(eyebrow: eyebrow, title: title, detail: detail)
+                    content
+                }
+                .frame(
+                    width: min(
+                        V25Theme.contentWidth,
+                        max(0, geometry.size.width - V25Theme.pagePadding * 2)
+                    ),
+                    alignment: .leading
+                )
+                .padding(.horizontal, V25Theme.pagePadding)
+                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, V25Theme.pagePadding)
-            .padding(.bottom, 24)
-            .frame(maxWidth: V25Theme.contentWidth)
-            .frame(maxWidth: .infinity)
+            .defaultScrollAnchor(.top)
+            .scrollDismissesKeyboard(.interactively)
+            .scrollIndicators(.hidden)
         }
-        .defaultScrollAnchor(.top)
-        .scrollDismissesKeyboard(.interactively)
-        .scrollIndicators(.hidden)
         .background(theme.rice.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -306,15 +361,21 @@ struct V25EmptyState: View {
 
 struct V25PrivacyFooter: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let text: String
 
     var body: some View {
-        Label(text, systemImage: "lock.fill")
-            .font(theme.utility(9))
-            .tracking(0.7)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "lock.fill")
+                .accessibilityHidden(true)
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+            .font(dynamicTypeSize.isAccessibilitySize ? .caption.weight(.bold) : theme.utility(9))
+            .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.7)
             .foregroundStyle(theme.indigo.opacity(0.58))
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 14)
             .accessibilityElement(children: .combine)
     }

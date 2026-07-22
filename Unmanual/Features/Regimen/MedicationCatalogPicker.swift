@@ -1,31 +1,52 @@
 import SwiftUI
 
-struct RegimenMedicationDraft: Identifiable, Hashable {
-    enum Origin: Hashable {
+struct RegimenMedicationDraft: Identifiable, Equatable {
+    enum Origin: Equatable {
         case catalog
         case custom
     }
 
     let id: UUID
     let catalogID: String?
+    let catalogVersion: String?
     let name: String
     let englishName: String
     let detail: String
+    let dosageForm: String
+    let route: String
+    let doseOriginal: String
+    let unitOriginal: String
+    let schedule: RegimenScheduleInput?
+    let productSnapshot: String
     let origin: Origin
 
     init(
         id: UUID = UUID(),
         catalogID: String? = nil,
+        catalogVersion: String? = nil,
         name: String,
         englishName: String = "",
         detail: String,
+        dosageForm: String = "",
+        route: String = "",
+        doseOriginal: String = "",
+        unitOriginal: String = "",
+        schedule: RegimenScheduleInput? = nil,
+        productSnapshot: String? = nil,
         origin: Origin
     ) {
         self.id = id
         self.catalogID = catalogID
+        self.catalogVersion = catalogVersion
         self.name = name
         self.englishName = englishName
         self.detail = detail
+        self.dosageForm = dosageForm
+        self.route = route
+        self.doseOriginal = doseOriginal
+        self.unitOriginal = unitOriginal
+        self.schedule = schedule
+        self.productSnapshot = productSnapshot ?? detail
         self.origin = origin
     }
 }
@@ -64,6 +85,9 @@ struct MedicationCatalogEntry: Identifiable, Hashable {
             name: product.displayName,
             englishName: englishName,
             detail: "\(product.manufacturer) · \(product.form) · \(product.routeTitle)",
+            dosageForm: product.form,
+            route: product.routeTitle,
+            productSnapshot: "\(product.manufacturer) · \(product.form) · \(product.routeTitle)",
             origin: .catalog
         )
     }
@@ -86,6 +110,7 @@ struct MedicationProductVariant: Identifiable, Hashable {
 }
 
 enum MedicationCatalog {
+#if DEBUG
     static let entries: [MedicationCatalogEntry] = [
         MedicationCatalogEntry(
             id: "estradiol",
@@ -221,6 +246,9 @@ enum MedicationCatalog {
             ]
         )
     ]
+#else
+    static let entries: [MedicationCatalogEntry] = []
+#endif
 
     static func search(_ query: String) -> [MedicationCatalogEntry] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -274,7 +302,10 @@ struct MedicationCatalogPicker: View {
                 )
 
                 if results.isEmpty {
-                    MedicationNoResults(query: query)
+                    MedicationNoResults(
+                        query: query,
+                        catalogUnavailable: MedicationCatalog.entries.isEmpty
+                    )
                 } else {
                     VStack(spacing: 0) {
                         ForEach(results) { entry in
@@ -530,14 +561,19 @@ private struct MedicationNoResults: View {
     @Environment(AppTheme.self) private var theme
 
     let query: String
+    let catalogUnavailable: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("NO MATCH")
+            Text(catalogUnavailable ? "CATALOG PENDING" : "NO MATCH")
                 .font(theme.utility(10))
                 .tracking(0.8)
                 .foregroundStyle(theme.vermilion)
-            Text("索引里暂时没有“\(query)”。")
+            Text(
+                catalogUnavailable
+                    ? "正式药品目录尚未提供。"
+                    : "索引里暂时没有“\(query)”。"
+            )
                 .font(theme.display(23, relativeTo: .title3))
                 .foregroundStyle(theme.indigoDeep)
             Text("你仍然可以按药盒、处方或自己的原始记录添加，不需要换成目录里的近似名称。")
@@ -980,7 +1016,10 @@ private struct MedicationCustomEntryEditor: View {
 
     @State private var name: String
     @State private var genericName = ""
-    @State private var formAndRoute = ""
+    @State private var dosageForm = ""
+    @State private var route = ""
+    @State private var doseOriginal = ""
+    @State private var unitOriginal = ""
 
     init(
         suggestedName: String,
@@ -999,7 +1038,7 @@ private struct MedicationCustomEntryEditor: View {
 
     var body: some View {
         V25EditorPage(
-            register: "V2.5 / CUSTOM ENTRY",
+            register: "LOCAL / CUSTOM ENTRY",
             eyebrow: "ORIGINAL WORDING",
             title: "自定义药物",
             detail: "按药盒、处方或自己的记录原样填写；以后可以再关联到药品目录。",
@@ -1016,12 +1055,27 @@ private struct MedicationCustomEntryEditor: View {
                         .accessibilityIdentifier("medication.custom.generic")
                 }
 
-                V25FieldSurface(
-                    "剂型与途径（可选）",
-                    note: "名称和说明会按输入内容保存。"
-                ) {
-                    TextField("例如：片剂 · 口服", text: $formAndRoute)
+                V25FieldSurface("剂型（可选）") {
+                    TextField("例如：片剂、凝胶", text: $dosageForm)
                         .accessibilityIdentifier("medication.custom.form")
+                }
+
+                V25FieldSurface("给药途径（可选）") {
+                    TextField("例如：口服、经皮", text: $route)
+                        .accessibilityIdentifier("medication.custom.route")
+                }
+
+                V25FieldSurface(
+                    "用量原文（可选）",
+                    note: "只保存你的原始写法，不推荐或纠正用量。"
+                ) {
+                    TextField("例如：药盒或自己的记录原文", text: $doseOriginal)
+                        .accessibilityIdentifier("medication.custom.dose")
+                }
+
+                V25FieldSurface("单位原文（可选）") {
+                    TextField("例如：片、泵、贴", text: $unitOriginal)
+                        .accessibilityIdentifier("medication.custom.unit")
                 }
             }
         }
@@ -1038,12 +1092,22 @@ private struct MedicationCustomEntryEditor: View {
     private func add() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedGenericName = genericName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedDetail = formAndRoute.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedForm = dosageForm.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedRoute = route.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDose = doseOriginal.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUnit = unitOriginal.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = [trimmedForm, trimmedRoute, trimmedDose, trimmedUnit]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
         addAction(
             RegimenMedicationDraft(
                 name: trimmedName,
                 englishName: trimmedGenericName,
-                detail: trimmedDetail.isEmpty ? "自定义条目 · 待补充" : trimmedDetail,
+                detail: detail.isEmpty ? "自定义条目 · 待补充" : detail,
+                dosageForm: trimmedForm,
+                route: trimmedRoute,
+                doseOriginal: trimmedDose,
+                unitOriginal: trimmedUnit,
                 origin: .custom
             )
         )

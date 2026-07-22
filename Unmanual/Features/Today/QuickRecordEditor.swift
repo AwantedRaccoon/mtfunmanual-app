@@ -1,22 +1,23 @@
-import SwiftData
 import SwiftUI
 
 @MainActor
 struct QuickRecordEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.appDataWriter) private var appDataWriter
     @Environment(AppTheme.self) private var theme
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
 
     @State private var text = ""
     @State private var kind: JourneyEntryKind = .moment
     @State private var occurredAt = Date()
     @State private var temporalEditor: JourneyTemporalField?
     @State private var saveErrorMessage: String?
+    @State private var isSaving = false
     @FocusState private var isTextFocused: Bool
 
-    private var activeRegimen: RegimenVersion? {
-        regimens.first(where: { $0.endedAt == nil })
+    private let autofocus: Bool
+
+    init(autofocus: Bool = true) {
+        self.autofocus = autofocus
     }
 
     private var canSave: Bool {
@@ -50,7 +51,8 @@ struct QuickRecordEditor: View {
                         editTimeAction: { presentTemporalEditor(.time) }
                     )
 
-                    V25PrivacyFooter(text: "这条记录只保存在你的本地旅程中")
+                    V25PrivacyFooter(text: SystemBackupDisclosure.quickRecord)
+                        .accessibilityIdentifier("quickRecord.backupDisclosure")
                         .padding(.bottom, 24)
                 }
                 .padding(.horizontal, V25Theme.pagePadding)
@@ -64,12 +66,12 @@ struct QuickRecordEditor: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 V25SaveBar(
                     title: "保存到旅程",
-                    isEnabled: canSave,
+                    isEnabled: canSave && !isSaving,
                     accessibilityIdentifier: "quickRecord.save",
                     action: save
                 )
             }
-            .onAppear { isTextFocused = true }
+            .onAppear { isTextFocused = autofocus }
         }
         .tint(theme.indigo)
         .localSaveErrorAlert(message: $saveErrorMessage)
@@ -90,40 +92,63 @@ struct QuickRecordEditor: View {
     }
 
     private func save() {
-        do {
-            modelContext.insert(
-                JourneyEntry(
-                    text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-                    kind: kind,
-                    occurredAt: occurredAt,
-                    regimenVersionID: activeRegimen?.id
-                )
-            )
-            try modelContext.save()
-            dismiss()
-        } catch {
-            saveErrorMessage = "这条旅程仍在当前页面，请检查后再保存。"
+        guard !isSaving else { return }
+        guard let appDataWriter else {
+            saveErrorMessage = "本地资料尚未准备好，请稍后再试。"
+            return
+        }
+        let command = AddJourneyEntryCommand(
+            text: text,
+            kind: kind,
+            occurredAt: occurredAt,
+            regimenVersionID: nil,
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+        )
+        isSaving = true
+        Task {
+            defer { isSaving = false }
+            do {
+                try await appDataWriter.addJourneyEntry(command)
+                dismiss()
+            } catch {
+                saveErrorMessage = "这条旅程仍在当前页面，请检查后再保存。"
+            }
         }
     }
 }
 
 private struct JourneyRecordHeader: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let cancel: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button("取消", action: cancel)
-                .font(.body.weight(.semibold))
-                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                .buttonStyle(.plain)
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 4) {
+                    Button("取消", action: cancel)
+                        .font(.body.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .buttonStyle(.plain)
+                    Text("LOCAL / JOURNEY")
+                        .font(.caption2.weight(.bold))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 12) {
+                    Button("取消", action: cancel)
+                        .font(.body.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .buttonStyle(.plain)
 
-            Spacer()
+                    Spacer()
 
-            Text("LOCAL / JOURNEY")
-                .font(theme.utility(10))
-                .tracking(0.9)
+                    Text("LOCAL / JOURNEY")
+                        .font(theme.utility(10))
+                        .tracking(0.9)
+                }
+            }
         }
         .foregroundStyle(theme.indigo)
         .overlay(alignment: .bottom) {
@@ -134,19 +159,22 @@ private struct JourneyRecordHeader: View {
 
 private struct JourneyRecordIntro: View {
     @Environment(AppTheme.self) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("NEW ENTRY / 新的一页")
-                .font(theme.utility(10))
-                .tracking(0.9)
+                .font(dynamicTypeSize.isAccessibilitySize ? .caption.weight(.bold) : theme.utility(10))
+                .tracking(dynamicTypeSize.isAccessibilitySize ? 0 : 0.9)
                 .foregroundStyle(theme.vermilion)
             Text("记录旅程")
-                .font(theme.display(36, relativeTo: .largeTitle))
+                .font(dynamicTypeSize.isAccessibilitySize ? .title2.weight(.black) : theme.display(36, relativeTo: .largeTitle))
                 .foregroundStyle(theme.indigoDeep)
+                .fixedSize(horizontal: false, vertical: true)
             Text("一句就够，不需要把今天解释完整。")
-                .font(.subheadline)
+                .font(dynamicTypeSize.isAccessibilitySize ? .body : .subheadline)
                 .foregroundStyle(theme.indigo.opacity(0.68))
+                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
     }

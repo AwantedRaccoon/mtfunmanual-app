@@ -4,43 +4,49 @@ import SwiftUI
 @main
 struct UnmanualApp: App {
     @State private var theme = AppTheme()
-
-    private let modelContainer: ModelContainer = {
-        let schema = Schema([
-            HRTProfile.self,
-            CountdownRecord.self,
-            RegimenVersion.self,
-            JourneyEntry.self,
-            LabRecord.self
-        ])
-        #if DEBUG
-        let usesTemporaryEmptyStore = ProcessInfo.processInfo.arguments.contains("-unmanual-empty-store")
-        #else
-        let usesTemporaryEmptyStore = false
-        #endif
-        let configuration = ModelConfiguration(
-            schema: schema,
-            isStoredInMemoryOnly: usesTemporaryEmptyStore
-        )
-
-        do {
-            return try ModelContainer(for: schema, configurations: [configuration])
-        } catch {
-            fatalError("Unable to create local model container: \(error)")
-        }
-    }()
+    @State private var dataRuntime = AppDataRuntime()
 
     var body: some Scene {
         WindowGroup {
-            rootView
+#if DEBUG
+            runtimeRoot
+                .environment(theme)
+                .modifier(DebugDynamicTypeOverride())
+                .task {
+                    dataRuntime.openIfNeeded()
+                }
+#else
+            runtimeRoot
                 .environment(theme)
                 .task {
-#if DEBUG
-                    DemoDataSeeder.seedIfRequested(container: modelContainer)
-#endif
+                    dataRuntime.openIfNeeded()
                 }
+#endif
         }
-        .modelContainer(modelContainer)
+    }
+
+    @ViewBuilder
+    private var runtimeRoot: some View {
+        switch dataRuntime.state {
+        case .opening:
+            AppDataOpeningView()
+        case let .ready(session):
+#if DEBUG
+            rootView
+                .modelContainer(session.store.container)
+                .environment(\.appDataWriter, session.writer)
+                .environment(\.appReadActor, session.reader)
+                .task {
+                    DemoDataSeeder.seedIfRequested(container: session.store.container)
+                }
+#else
+            rootView
+                .environment(\.appDataWriter, session.writer)
+                .environment(\.appReadActor, session.reader)
+#endif
+        case let .recovery(recovery):
+            RecoveryModeView(recovery: recovery, retry: dataRuntime.retry)
+        }
     }
 
     @ViewBuilder
@@ -54,10 +60,18 @@ struct UnmanualApp: App {
             NavigationStack {
                 JourneyView()
             }
+        } else if ProcessInfo.processInfo.arguments.contains("-unmanual-archive-import") {
+            ArchiveDataImportSheet()
+        } else if ProcessInfo.processInfo.arguments.contains("-unmanual-archive-export") {
+            ArchiveDataExportSheet()
         } else if ProcessInfo.processInfo.arguments.contains("-unmanual-archive") {
             NavigationStack {
                 ArchiveView()
             }
+        } else if ProcessInfo.processInfo.arguments.contains("-unmanual-quick-record") {
+            QuickRecordEditor(autofocus: false)
+        } else if ProcessInfo.processInfo.arguments.contains("-unmanual-countdown") {
+            CountdownEditor()
         } else if ProcessInfo.processInfo.arguments.contains("-unmanual-regimen-editor") {
             RegimenVersionEditor(
                 initialMedications: [
@@ -66,6 +80,8 @@ struct UnmanualApp: App {
                         name: "雌二醇透皮贴片",
                         englishName: "Estradiol",
                         detail: "产品资料待目录接入 · 贴片 · 经皮",
+                        dosageForm: "贴片",
+                        route: "经皮",
                         origin: .catalog
                     ),
                     RegimenMedicationDraft(
@@ -73,6 +89,8 @@ struct UnmanualApp: App {
                         name: "螺内酯片",
                         englishName: "Spironolactone",
                         detail: "产品资料待目录接入 · 片剂 · 口服",
+                        dosageForm: "片剂",
+                        route: "口服",
                         origin: .catalog
                     )
                 ]
@@ -85,3 +103,16 @@ struct UnmanualApp: App {
 #endif
     }
 }
+
+#if DEBUG
+private struct DebugDynamicTypeOverride: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if ProcessInfo.processInfo.arguments.contains("-unmanual-ui-test-accessibility5") {
+            content.environment(\.dynamicTypeSize, .accessibility5)
+        } else {
+            content
+        }
+    }
+}
+#endif

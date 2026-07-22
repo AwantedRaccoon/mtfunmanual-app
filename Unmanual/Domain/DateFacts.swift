@@ -31,3 +31,46 @@ extension Date {
         )
     }
 }
+
+extension CivilDateFact {
+    var unmanualShortDateText: String {
+        "\(year)/\(month)/\(day)"
+    }
+
+    var unmanualMonthDayText: String {
+        String(format: "%02d/%02d", month, day)
+    }
+
+    var unmanualFullDateText: String {
+        "\(year)年\(month)月\(day)日"
+    }
+
+    var unmanualWeekdayText: String {
+        guard let weekday = gregorianUTCDate.map({ gregorianUTCCalendar.component(.weekday, from: $0) })
+        else {
+            return ""
+        }
+        let symbols = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+        return symbols[weekday - 1]
+    }
+
+    func days(since older: CivilDateFact) -> Int? {
+        guard let newerDate = gregorianUTCDate,
+              let olderDate = older.gregorianUTCDate else {
+            return nil
+        }
+        return gregorianUTCCalendar.dateComponents([.day], from: olderDate, to: newerDate).day
+    }
+
+    private var gregorianUTCDate: Date? {
+        gregorianUTCCalendar.date(
+            from: DateComponents(year: year, month: month, day: day, hour: 12)
+        )
+    }
+
+    private var gregorianUTCCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+}

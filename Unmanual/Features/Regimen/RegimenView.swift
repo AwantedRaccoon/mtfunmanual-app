@@ -1,39 +1,39 @@
-import SwiftData
 import SwiftUI
 
 @MainActor
 struct RegimenView: View {
     @Environment(AppTheme.self) private var theme
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
-    @Query(sort: \LabRecord.sampledAt, order: .reverse) private var labRecords: [LabRecord]
+    @Environment(\.appReadActor) private var appReadActor
+    @State private var snapshot = CoreRegimenOverviewSnapshot.empty
     @State private var presentedSheet: RegimenPlanSheet?
+    @State private var loadErrorMessage: String?
+    @State private var isLoading = true
 
-    private var activeRegimen: RegimenVersion? {
-        regimens.first(where: { $0.endedAt == nil })
+    private var activeRegimen: CoreRegimenVersionSnapshot? { snapshot.current }
+
+    private var historicalRegimens: [CoreRegimenVersionSnapshot] { snapshot.history }
+
+    private var latestSampleRecord: LabRecordSnapshot? {
+        snapshot.labRecords.first
     }
 
-    private var historicalRegimens: [RegimenVersion] {
-        regimens.filter { $0.endedAt != nil }
+    private var latestSampleDateText: String? {
+        latestSampleRecord?.recordedShortDateText
     }
 
-    private var latestSampleDate: Date? {
-        labRecords.first?.sampledAt
-    }
-
-    private var latestSampleRecords: [LabRecord] {
-        guard let latestSampleDate else { return [] }
-        let calendar = Calendar.autoupdatingCurrent
-        return labRecords.filter {
-            calendar.isDate($0.sampledAt, inSameDayAs: latestSampleDate)
+    private var latestSampleRecords: [LabRecordSnapshot] {
+        guard let latestLocalDate = latestSampleRecord?.recordedLocalDate() else { return [] }
+        return snapshot.labRecords.filter {
+            $0.recordedLocalDate() == latestLocalDate
         }
     }
 
-    private var latestSampleRegimen: RegimenVersion? {
+    private var latestSampleRegimen: CoreRegimenVersionSnapshot? {
         let linkedIDs = Set(latestSampleRecords.compactMap(\.regimenVersionID))
         guard linkedIDs.count == 1, let linkedID = linkedIDs.first else {
             return nil
         }
-        return regimens.first(where: { $0.id == linkedID })
+        return snapshot.allVersions.first(where: { $0.id == linkedID })
     }
 
     private var hormoneFacts: [LedgerHormoneFact] {
@@ -52,54 +52,38 @@ struct RegimenView: View {
         hormoneFacts.filter { $0.record != nil }.count
     }
 
-    private var previewMedications: [RegimenPlanEntry] {
-#if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains("-unmanual-demo-home") else {
-            return []
-        }
-        return [
+    private var persistedMedications: [RegimenPlanEntry] {
+        (activeRegimen?.items ?? []).enumerated().map { index, item in
             RegimenPlanEntry(
-                order: 1,
-                name: "戊酸雌二醇片",
-                route: "口服",
-                slots: [.morning, .evening]
-            ),
-            RegimenPlanEntry(
-                order: 2,
-                name: "螺内酯片",
-                route: "口服",
-                slots: [.morning]
+                order: index + 1,
+                name: item.displayName,
+                route: [item.dosageForm, item.route, item.doseOriginal, item.unitOriginal]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " · "),
+                scheduleText: item.scheduleSummary
             )
-        ]
-#else
-        return []
-#endif
+        }
     }
 
     var body: some View {
         V25Page {
             VStack(alignment: .leading, spacing: 0) {
                 V25PageHeader(
-                    register: "V2.5 / INDEX PROOF",
+                    register: "REGIMEN / INDEX",
                     title: "方案",
                     subtitle: "把正在使用的版本与最近一次采样并排核对。",
                     status: "六项记录 \(recordedHormoneCount)/6"
                 )
 
-                V25SectionHeader(
-                    title: "当前对照",
-                    detail: contextDetail
-                )
-
-                LedgerComparisonBoard(
-                    activeRegimen: activeRegimen,
-                    sampleDate: latestSampleDate,
-                    linkedRegimenCode: latestSampleRegimen?.code,
-                    facts: hormoneFacts,
-                    importAction: presentLabImport
-                )
-
-                V25SectionHeader(
+                if isLoading {
+                    RegimenLoadingState()
+                } else if let loadErrorMessage {
+                    RegimenLoadErrorState(
+                        message: loadErrorMessage,
+                        retry: { Task { await refresh() } }
+                    )
+                } else {
+                    V25SectionHeader(
                     title: "方案",
                     detail: activeRegimen.map { $0.code + " · 生效中" } ?? "尚未建立"
                 )
@@ -107,8 +91,8 @@ struct RegimenView: View {
                 if let activeRegimen {
                     RegimenPlanFolio(
                         regimen: activeRegimen,
-                        medications: previewMedications,
-                        latestSampleDate: latestSampleDate,
+                        medications: persistedMedications,
+                        latestSampleDateText: latestSampleDateText,
                         isLatestSampleLinked: latestSampleRegimen?.id == activeRegimen.id,
                         changeAction: presentNewVersion
                     )
@@ -116,18 +100,54 @@ struct RegimenView: View {
                     RegimenPlanMissingState(createAction: presentNewVersion)
                 }
 
+                if !snapshot.upcoming.isEmpty {
+                    RegimenUpcomingNote(regimens: snapshot.upcoming)
+                        .padding(.top, 16)
+                }
+
+                if !snapshot.drafts.isEmpty {
+                    RegimenDraftNote(regimens: snapshot.drafts, openDraft: presentDraft)
+                        .padding(.top, 12)
+                }
+
                 if !historicalRegimens.isEmpty {
                     RegimenPlanArchiveNote(regimens: historicalRegimens)
                         .padding(.top, 16)
+                }
+
+                if snapshot.isTimelineAmbiguous || snapshot.reviewIssueCount > 0 {
+                    Text("有 \(max(snapshot.reviewIssueCount, 1)) 项时间或方案关联需要核对；未核对项不会自动成为当前方案。")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.vermilion)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 14)
+                        .accessibilityIdentifier("regimen.reviewIssue")
+                }
+
+                V25SectionHeader(
+                    title: "当前对照",
+                    detail: contextDetail
+                )
+
+                    LedgerComparisonBoard(
+                        activeRegimen: activeRegimen,
+                        sampleDateText: latestSampleDateText,
+                        linkedRegimenCode: latestSampleRegimen?.code,
+                    facts: hormoneFacts,
+                    importAction: presentLabImport
+                )
                 }
             }
             .padding(.bottom, 42)
         }
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(item: $presentedSheet) { destination in
+        .task { await refresh() }
+        .sheet(item: $presentedSheet, onDismiss: refreshAfterDismiss) { destination in
             switch destination {
             case .createVersion:
                 RegimenVersionEditor()
+            case let .editDraft(draftID):
+                RegimenVersionEditor(existingDraftID: draftID)
             case .labImport:
                 LabImportEditor()
             }
@@ -136,7 +156,7 @@ struct RegimenView: View {
 
     private var contextDetail: String {
         let regimen = activeRegimen?.code ?? "无当前版本"
-        let sample = latestSampleDate?.unmanualShortDateText ?? "无采样"
+        let sample = latestSampleDateText ?? "无采样"
         return regimen + " × " + sample
     }
 
@@ -147,14 +167,42 @@ struct RegimenView: View {
     private func presentLabImport() {
         presentedSheet = .labImport
     }
+
+    private func presentDraft(_ draftID: UUID) {
+        presentedSheet = .editDraft(draftID)
+    }
+
+    private func refreshAfterDismiss() {
+        Task { await refresh() }
+    }
+
+    private func refresh() async {
+        isLoading = true
+        defer { isLoading = false }
+        guard let appReadActor else {
+            loadErrorMessage = "本地资料尚未准备好。"
+            return
+        }
+        do {
+            let today = try HistoricalTimestamp.captured(
+                instant: Date(),
+                timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+            ).localDate
+            let updated = try await appReadActor.coreRegimenOverview(asOf: today)
+            snapshot = updated
+            loadErrorMessage = nil
+        } catch {
+            loadErrorMessage = "暂时无法读取方案，原资料没有被修改。"
+        }
+    }
 }
 
 private struct RegimenPlanFolio: View {
     @Environment(AppTheme.self) private var theme
 
-    let regimen: RegimenVersion
+    let regimen: CoreRegimenVersionSnapshot
     let medications: [RegimenPlanEntry]
-    let latestSampleDate: Date?
+    let latestSampleDateText: String?
     let isLatestSampleLinked: Bool
     let changeAction: () -> Void
 
@@ -163,17 +211,17 @@ private struct RegimenPlanFolio: View {
             RegimenPlanSpread(
                 regimen: regimen,
                 medications: medications,
-                latestSampleDate: latestSampleDate,
+                latestSampleDateText: latestSampleDateText,
                 isLatestSampleLinked: isLatestSampleLinked
             )
 
-            if !regimen.note.isEmpty {
+            if !regimen.changeReason.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 9) {
                     Text("NOTE")
                         .font(theme.utility(8))
                         .tracking(0.8)
                         .foregroundStyle(theme.vermilion)
-                    Text(regimen.note)
+                    Text(regimen.changeReason)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.indigoDeep)
                         .fixedSize(horizontal: false, vertical: true)
@@ -200,9 +248,9 @@ private struct RegimenPlanSpread: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    let regimen: RegimenVersion
+    let regimen: CoreRegimenVersionSnapshot
     let medications: [RegimenPlanEntry]
-    let latestSampleDate: Date?
+    let latestSampleDateText: String?
     let isLatestSampleLinked: Bool
 
     var body: some View {
@@ -242,7 +290,7 @@ private struct RegimenPlanSpread: View {
 
             RegimenPlanContextBand(
                 regimen: regimen,
-                latestSampleDate: latestSampleDate,
+                latestSampleDateText: latestSampleDateText,
                 isLatestSampleLinked: isLatestSampleLinked
             )
         }
@@ -405,20 +453,20 @@ private struct RegimenPlanContextBand: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    let regimen: RegimenVersion
-    let latestSampleDate: Date?
+    let regimen: CoreRegimenVersionSnapshot
+    let latestSampleDateText: String?
     let isLatestSampleLinked: Bool
 
     var body: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 11) {
-                    contextItem(label: "开始", value: regimen.startedAt.unmanualShortDateText)
+                    contextItem(label: "开始", value: regimen.effectiveStartDate.iso8601)
                     contextItem(label: "最近采样", value: sampleDescription)
                 }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    contextItem(label: "开始", value: regimen.startedAt.unmanualShortDateText)
+                    contextItem(label: "开始", value: regimen.effectiveStartDate.iso8601)
                     Rectangle()
                         .fill(theme.indigo.opacity(0.28))
                         .frame(width: 1, height: 28)
@@ -451,8 +499,8 @@ private struct RegimenPlanContextBand: View {
     }
 
     private var sampleDescription: String {
-        guard let latestSampleDate else { return "尚无记录" }
-        return latestSampleDate.unmanualShortDateText
+        guard let latestSampleDateText else { return "尚无记录" }
+        return latestSampleDateText
             + (isLatestSampleLinked ? " · 已关联" : " · 未关联")
     }
 }
@@ -503,7 +551,7 @@ private struct RegimenPlanMissingState: View {
 private struct RegimenPlanArchiveNote: View {
     @Environment(AppTheme.self) private var theme
 
-    let regimens: [RegimenVersion]
+    let regimens: [CoreRegimenVersionSnapshot]
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -530,35 +578,140 @@ private struct RegimenPlanArchiveNote: View {
     }
 }
 
+private struct RegimenUpcomingNote: View {
+    @Environment(AppTheme.self) private var theme
+
+    let regimens: [CoreRegimenVersionSnapshot]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("UPCOMING / 即将生效")
+                .font(theme.utility(9))
+                .tracking(0.8)
+                .foregroundStyle(theme.vermilion)
+            ForEach(regimens) { regimen in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(regimen.code)
+                        .font(theme.utility(10))
+                    Text(regimen.title)
+                        .font(.subheadline.weight(.bold))
+                    Spacer(minLength: 8)
+                    Text(regimen.effectiveStartDate.iso8601)
+                        .font(.caption.monospacedDigit())
+                }
+                .foregroundStyle(theme.indigoDeep)
+                .frame(minHeight: 44)
+            }
+        }
+        .padding(12)
+        .background(theme.mustard.opacity(0.14))
+        .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct RegimenDraftNote: View {
+    @Environment(AppTheme.self) private var theme
+
+    let regimens: [CoreRegimenVersionSnapshot]
+    let openDraft: (UUID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("DRAFT")
+                    .font(theme.utility(9))
+                    .tracking(0.8)
+                    .foregroundStyle(theme.vermilion)
+                Text("有 \(regimens.count) 份未封存校样，不会参与当前方案或历史关联。")
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(regimens) { regimen in
+                Button {
+                    openDraft(regimen.id)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(regimen.code)
+                            .font(theme.utility(9))
+                        Text(regimen.title)
+                            .font(.subheadline.weight(.semibold))
+                        Spacer(minLength: 8)
+                        Text("继续编辑")
+                            .font(.caption.weight(.bold))
+                    }
+                    .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("regimen.openDraft.\(regimen.id.uuidString)")
+            }
+        }
+        .foregroundStyle(theme.indigoDeep)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { Rectangle().fill(theme.indigo).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(theme.indigo).frame(height: 1) }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct RegimenLoadingState: View {
+    @Environment(AppTheme.self) private var theme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            Text("正在读取本地方案…")
+                .font(.body.weight(.semibold))
+        }
+        .foregroundStyle(theme.indigo)
+        .frame(maxWidth: .infinity, minHeight: 132, alignment: .center)
+        .accessibilityIdentifier("regimen.loading")
+    }
+}
+
+private struct RegimenLoadErrorState: View {
+    @Environment(AppTheme.self) private var theme
+
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("方案暂时没有读出来")
+                .font(.headline.weight(.black))
+            Text(message)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("重新读取方案", action: retry)
+                .buttonStyle(V25PrimaryButtonStyle())
+                .accessibilityIdentifier("regimen.retry")
+        }
+        .foregroundStyle(theme.indigoDeep)
+        .padding(.vertical, 22)
+        .accessibilityIdentifier("regimen.loadError")
+    }
+}
+
 private struct RegimenPlanEntry: Identifiable, Hashable {
     let order: Int
     let name: String
     let route: String
-    let slots: [RegimenPlanSlot]
+    let scheduleText: String
 
     var id: Int { order }
 
-    var scheduleText: String {
-        slots.map(\.title).joined(separator: " · ")
-    }
 }
 
-private enum RegimenPlanSlot: String, Hashable {
-    case morning
-    case evening
-
-    var title: String {
-        switch self {
-        case .morning: "早"
-        case .evening: "晚"
-        }
-    }
-
-}
-
-private enum RegimenPlanSheet: String, Identifiable {
+private enum RegimenPlanSheet: Identifiable {
     case createVersion
+    case editDraft(UUID)
     case labImport
 
-    var id: String { rawValue }
+    var id: String {
+        switch self {
+        case .createVersion: "createVersion"
+        case let .editDraft(id): "editDraft-" + id.uuidString
+        case .labImport: "labImport"
+        }
+    }
 }

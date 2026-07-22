@@ -3,10 +3,11 @@ import SwiftUI
 @MainActor
 struct JourneyView: View {
     @State private var presentedSheet: JourneySheet?
+    @State private var refreshToken = 0
 
     var body: some View {
-        JourneyRouteBookView(recordAction: presentRecordEditor)
-            .sheet(item: $presentedSheet) { destination in
+        JourneyRouteBookView(refreshToken: refreshToken, recordAction: presentRecordEditor)
+            .sheet(item: $presentedSheet, onDismiss: refreshAfterDismiss) { destination in
                 switch destination {
                 case .quickRecord:
                     QuickRecordEditor()
@@ -16,6 +17,10 @@ struct JourneyView: View {
 
     private func presentRecordEditor() {
         presentedSheet = .quickRecord
+    }
+
+    private func refreshAfterDismiss() {
+        refreshToken &+= 1
     }
 }
 
