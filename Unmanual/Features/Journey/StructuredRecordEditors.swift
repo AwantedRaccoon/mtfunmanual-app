@@ -3,7 +3,7 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-private struct AttachmentPhotoTransfer: Transferable, Sendable {
+struct AttachmentPhotoTransfer: Transferable, Sendable {
     let data: Data
     let typeIdentifier: String
 
@@ -24,11 +24,109 @@ private struct AttachmentPhotoTransfer: Transferable, Sendable {
     }
 }
 
-struct AttachmentDraft: Identifiable {
-    let id = UUID()
-    let data: Data
-    let filename: String
-    let typeIdentifier: String
+struct AttachmentPhotoImportResult: Sendable {
+    let drafts: [AttachmentDraft]
+    let failureCount: Int
+}
+
+@MainActor
+func importAttachmentPhotos(
+    _ items: [PhotosPickerItem],
+    existingAttachments: [AttachmentDraft],
+    batchIsCurrent: @escaping @MainActor () -> Bool,
+    filenamePrefix: String
+) async -> AttachmentPhotoImportResult? {
+    let remainingSlots = AttachmentSelectionCapacity.remainingSlots(
+        existingCount: existingAttachments.count
+    )
+    let acceptedItems = Array(items.prefix(remainingSlots))
+    var failureCount = AttachmentSelectionCapacity.rejectedSelectionCount(
+        selectedCount: items.count,
+        existingCount: existingAttachments.count
+    )
+    var imported: [AttachmentDraft] = []
+
+    for item in acceptedItems {
+        guard !Task.isCancelled else { return nil }
+        let transferred: AttachmentPhotoTransfer
+        do {
+            guard let loaded = try await item.loadTransferable(
+                type: AttachmentPhotoTransfer.self
+            ) else {
+                failureCount += 1
+                continue
+            }
+            transferred = loaded
+        } catch {
+            failureCount += 1
+            continue
+        }
+        guard !Task.isCancelled else { return nil }
+        guard batchIsCurrent() else {
+            return AttachmentPhotoImportResult(
+                drafts: [],
+                failureCount: items.count
+            )
+        }
+        let currentDrafts = existingAttachments + imported
+        guard canAppendAttachment(
+            byteCount: Int64(transferred.data.count),
+            to: currentDrafts
+        ) else {
+            failureCount += 1
+            continue
+        }
+        imported.append(
+            AttachmentDraft(
+                data: transferred.data,
+                filename:
+                    "\(filenamePrefix)-\(existingAttachments.count + imported.count + 1)",
+                typeIdentifier: transferred.typeIdentifier
+            )
+        )
+    }
+    guard !Task.isCancelled else { return nil }
+    guard batchIsCurrent() else {
+        return AttachmentPhotoImportResult(
+            drafts: [],
+            failureCount: items.count
+        )
+    }
+    return AttachmentPhotoImportResult(
+        drafts: imported,
+        failureCount: failureCount
+    )
+}
+
+@MainActor
+func importAttachmentFiles(
+    _ urls: [URL],
+    existingAttachments: [AttachmentDraft],
+    batchIsCurrent: @escaping @MainActor () -> Bool
+) async -> AttachmentPhotoImportResult? {
+    guard !Task.isCancelled else { return nil }
+    let result = await AttachmentFileImportWorker.shared.load(
+        urls: urls,
+        existingByteCounts:
+            existingAttachments.map { Int64($0.data.count) }
+    )
+    guard !Task.isCancelled else { return nil }
+    guard batchIsCurrent() else {
+        return AttachmentPhotoImportResult(
+            drafts: [],
+            failureCount: urls.count
+        )
+    }
+    return AttachmentPhotoImportResult(
+        drafts: result.items.map {
+            AttachmentDraft(
+                data: $0.data,
+                filename: $0.filename,
+                typeIdentifier: $0.typeIdentifier
+            )
+        },
+        failureCount: result.failureCount
+    )
 }
 
 struct LabResultDraft: Identifiable {
@@ -58,11 +156,10 @@ struct LabResultDraft: Identifiable {
 @MainActor
 struct LabSampleEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appDataWriter) private var writer
     @Environment(\.appReadActor) private var reader
-    @Environment(\.attachmentFileStore) private var fileStore
+    @Environment(\.attachmentMutationService) private var attachmentService
     @Environment(\.attachmentIntegrityFailureHandler)
-    private var attachmentIntegrityFailureHandler
+    private var integrityFailureHandler
     @Environment(AppTheme.self) private var theme
 
     @State private var specimen = ""
@@ -73,6 +170,7 @@ struct LabSampleEditor: View {
     @State private var attachments: [AttachmentDraft] = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var photoImportState = AttachmentImportBatchState()
+    @State private var photoImportTask: Task<Void, Never>?
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var importsFiles = false
@@ -155,26 +253,33 @@ struct LabSampleEditor: View {
         .localSaveErrorAlert(message: $errorMessage)
         .onChange(of: photoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
-            let batchID = photoImportState.begin()
-            Task {
-                let failureCount = await importPhotos(
+            photoImportTask?.cancel()
+            let batchID = photoImportState.begin(
+                selectedCount: newItems.count
+            )
+            let existingAttachments = attachments
+            photoImportTask = Task {
+                guard let result = await importAttachmentPhotos(
                     newItems,
-                    batchID: batchID
-                )
-                photoImportState.recordFailures(failureCount)
-                guard photoImportState.finish(batchID) else {
-                    if failureCount > 0 {
-                        errorMessage =
-                            "较早一次选择中有 \(failureCount) 个照片没有导入。记录尚未保存；请检查当前附件。"
-                    }
-                    return
-                }
+                    existingAttachments: existingAttachments,
+                    batchIsCurrent: {
+                        photoImportState.isCurrent(batchID)
+                    },
+                    filenamePrefix: "照片"
+                ) else { return }
+                guard photoImportState.isCurrent(batchID) else { return }
+                photoImportState.recordFailures(result.failureCount)
+                _ = photoImportState.finish(batchID)
+                attachments.append(contentsOf: result.drafts)
                 photoItems = []
-                if failureCount > 0 {
+                if result.failureCount > 0 {
                     errorMessage =
-                        "有 \(failureCount) 个所选照片没有导入。记录尚未保存；请检查后重新选择。"
+                        "有 \(result.failureCount) 个所选照片没有导入。记录尚未保存；请检查后重新选择。"
                 }
             }
+        }
+        .onDisappear {
+            photoImportTask?.cancel()
         }
         .task { await loadDefinitions() }
 #if DEBUG
@@ -235,7 +340,7 @@ struct LabSampleEditor: View {
             labeledField("项目代码（可选）", text: result.code, prompt: "按报告原文填写")
                 .disabled(result.wrappedValue.definitionID != nil)
             labeledField("结果", text: result.value, prompt: "例如：< 172.50")
-                .keyboardType(.decimalPad)
+                .keyboardType(.numbersAndPunctuation)
             labeledField("单位", text: result.unit, prompt: "按报告原文填写")
             labeledField("参考区间（可选）", text: result.reference, prompt: "不据此自动判定")
             labeledField("检测方法 / 变体（可选）", text: result.variant, prompt: "例如：方法 A")
@@ -252,7 +357,7 @@ struct LabSampleEditor: View {
     }
 
     private func save() {
-        guard canSave, let writer, let fileStore else {
+        guard canSave, let attachmentService else {
             errorMessage = "本地资料尚未准备好，或还有未填写完整的结果。"
             return
         }
@@ -276,14 +381,8 @@ struct LabSampleEditor: View {
         isSaving = true
         Task {
             defer { isSaving = false }
-            var preparedAttachments: [PreparedAttachmentMetadata] = []
-            var databaseCommitted = false
             do {
-                preparedAttachments = try prepareAttachmentMetadata(
-                    attachments,
-                    fileStore: fileStore
-                )
-                _ = try await writer.createLabSample(
+                _ = try await attachmentService.createLabSample(
                     CreateLabSampleCommand(
                         operationID: UUID(),
                         sampleID: sampleID,
@@ -307,26 +406,18 @@ struct LabSampleEditor: View {
                                 assayOrVariantOriginal: $0.draft.variant
                             )
                         },
-                        attachments: preparedAttachments,
                         committedAt: Date()
-                    )
+                    ),
+                    attachmentDrafts: attachments
                 )
-                databaseCommitted = true
-                for attachment in preparedAttachments {
-                    try fileStore.markMetadataCommitted(attachment)
-                }
                 dismiss()
             } catch {
-                if !databaseCommitted {
-                    for attachment in preparedAttachments {
-                        try? fileStore.discard(operationID: attachment.operationID)
-                    }
+                if error as? AttachmentMutationFailure == .recoveryRequired {
+                    errorMessage =
+                        "附件没有完成安全收尾。App 已暂停本地资料访问。"
+                } else {
                     errorMessage =
                         "记录仍保留在当前页面，请检查后再保存。"
-                } else {
-                    attachmentIntegrityFailureHandler?()
-                    errorMessage =
-                        "记录已写入，但附件没有通过最终完整性检查。App 已暂停本地资料访问。"
                 }
             }
         }
@@ -334,59 +425,18 @@ struct LabSampleEditor: View {
 
     private func loadDefinitions() async {
         guard let reader else { return }
-        definitions = (try? await reader.labItemDefinitions()) ?? []
-    }
-
-    private func importPhotos(
-        _ items: [PhotosPickerItem],
-        batchID: UUID
-    ) async -> Int {
-        let remainingSlots = AttachmentSelectionCapacity.remainingSlots(
-            existingCount: attachments.count
-        )
-        var failureCount =
-            AttachmentSelectionCapacity.rejectedSelectionCount(
-                selectedCount: items.count,
-                existingCount: attachments.count
-            )
-        for (index, item) in items.prefix(remainingSlots).enumerated() {
-            let transferred: AttachmentPhotoTransfer
-            do {
-                guard let loaded = try await item.loadTransferable(
-                    type: AttachmentPhotoTransfer.self
-                ) else {
-                    failureCount += 1
-                    continue
-                }
-                transferred = loaded
-            } catch {
-                failureCount += 1
-                continue
+        do {
+            definitions = try await reader.labItemDefinitions()
+        } catch {
+            if error as? AppDataFailure == .corruptionSuspected {
+                integrityFailureHandler?()
+                errorMessage =
+                    "化验项目没有通过本地完整性检查。App 将进入恢复模式。"
+            } else {
+                errorMessage =
+                    "暂时无法读取化验项目；原资料没有被修改。"
             }
-            guard photoImportState.isCurrent(batchID) else {
-                failureCount += 1
-                return failureCount
-            }
-            guard canAppendAttachment(
-                byteCount: Int64(transferred.data.count),
-                to: attachments
-            ) else {
-                failureCount += 1
-                continue
-            }
-            guard attachments.count < AttachmentFileStore.maximumOwnerFiles else {
-                failureCount += 1
-                continue
-            }
-            attachments.append(
-                AttachmentDraft(
-                    data: transferred.data,
-                    filename: "照片-\(attachments.count + index + 1)",
-                    typeIdentifier: transferred.typeIdentifier
-                )
-            )
         }
-        return failureCount
     }
 
 #if DEBUG
@@ -397,43 +447,25 @@ struct LabSampleEditor: View {
                 "无法读取所选文件。记录尚未保存；请检查文件后重新选择。"
             return
         }
-        let remainingSlots = AttachmentSelectionCapacity.remainingSlots(
-            existingCount: attachments.count
-        )
-        var failureCount =
-            AttachmentSelectionCapacity.rejectedSelectionCount(
-                selectedCount: urls.count,
-                existingCount: attachments.count
-            )
-        for url in urls.prefix(remainingSlots) {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            let payload: BoundedAttachmentPayload
-            do {
-                payload = try AttachmentImportFacts.loadBoundedFile(at: url)
-            } catch {
-                failureCount += 1
-                continue
+        photoImportTask?.cancel()
+        let batchID = photoImportState.begin(selectedCount: urls.count)
+        let existingAttachments = attachments
+        photoImportTask = Task {
+            guard let result = await importAttachmentFiles(
+                urls,
+                existingAttachments: existingAttachments,
+                batchIsCurrent: {
+                    photoImportState.isCurrent(batchID)
+                }
+            ) else { return }
+            guard photoImportState.isCurrent(batchID) else { return }
+            photoImportState.recordFailures(result.failureCount)
+            _ = photoImportState.finish(batchID)
+            attachments.append(contentsOf: result.drafts)
+            if result.failureCount > 0 {
+                errorMessage =
+                    "有 \(result.failureCount) 个所选文件没有导入。记录尚未保存；单个附件最多 20 MiB，本条最多 6 个、合计 60 MiB。"
             }
-            guard canAppendAttachment(
-                byteCount: Int64(payload.data.count),
-                to: attachments
-            ) else {
-                failureCount += 1
-                continue
-            }
-            attachments.append(
-                AttachmentDraft(
-                    data: payload.data,
-                    filename: url.lastPathComponent,
-                    typeIdentifier: payload.typeIdentifier
-                )
-            )
-        }
-        if failureCount > 0 {
-            photoImportState.recordFailures(failureCount)
-            errorMessage =
-                "有 \(failureCount) 个所选文件没有导入。记录尚未保存；单个附件最多 20 MiB，本条最多 6 个、合计 60 MiB。"
         }
     }
 #endif
@@ -442,11 +474,11 @@ struct LabSampleEditor: View {
 @MainActor
 struct StatusObservationEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appDataWriter) private var writer
     @Environment(\.appReadActor) private var reader
-    @Environment(\.attachmentFileStore) private var fileStore
+    @Environment(\.appDataWriter) private var writer
+    @Environment(\.attachmentMutationService) private var attachmentService
     @Environment(\.attachmentIntegrityFailureHandler)
-    private var attachmentIntegrityFailureHandler
+    private var integrityFailureHandler
     @Environment(AppTheme.self) private var theme
 
     @State private var metrics: [StatusMetricSnapshot] = []
@@ -458,6 +490,7 @@ struct StatusObservationEditor: View {
     @State private var attachments: [AttachmentDraft] = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var photoImportState = AttachmentImportBatchState()
+    @State private var photoImportTask: Task<Void, Never>?
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var importsFiles = false
@@ -584,26 +617,33 @@ struct StatusObservationEditor: View {
         .task { await loadMetrics() }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
-            let batchID = photoImportState.begin()
-            Task {
-                let failureCount = await importStatusPhotos(
+            photoImportTask?.cancel()
+            let batchID = photoImportState.begin(
+                selectedCount: items.count
+            )
+            let existingAttachments = attachments
+            photoImportTask = Task {
+                guard let result = await importAttachmentPhotos(
                     items,
-                    batchID: batchID
-                )
-                photoImportState.recordFailures(failureCount)
-                guard photoImportState.finish(batchID) else {
-                    if failureCount > 0 {
-                        errorMessage =
-                            "较早一次选择中有 \(failureCount) 个照片没有导入。状态尚未保存；请检查当前附件。"
-                    }
-                    return
-                }
+                    existingAttachments: existingAttachments,
+                    batchIsCurrent: {
+                        photoImportState.isCurrent(batchID)
+                    },
+                    filenamePrefix: "状态附件"
+                ) else { return }
+                guard photoImportState.isCurrent(batchID) else { return }
+                photoImportState.recordFailures(result.failureCount)
+                _ = photoImportState.finish(batchID)
+                attachments.append(contentsOf: result.drafts)
                 photoItems = []
-                if failureCount > 0 {
+                if result.failureCount > 0 {
                     errorMessage =
-                        "有 \(failureCount) 个所选照片没有导入。状态尚未保存；请检查后重新选择。"
+                        "有 \(result.failureCount) 个所选照片没有导入。状态尚未保存；请检查后重新选择。"
                 }
             }
+        }
+        .onDisappear {
+            photoImportTask?.cancel()
         }
         .confirmationDialog(
             "归档后，旧记录仍会保留；这个指标不再出现在新记录选项中。",
@@ -631,15 +671,13 @@ struct StatusObservationEditor: View {
     }
 
     private func save() {
-        guard canSave, let writer, let fileStore else {
+        guard canSave, let attachmentService else {
             errorMessage = "请选择或新建一个状态指标。"
             return
         }
         isSaving = true
         Task {
             defer { isSaving = false }
-            var preparedAttachments: [PreparedAttachmentMetadata] = []
-            var databaseCommitted = false
             do {
                 let metricID: UUID
                 let newMetric: NewStatusMetricInput?
@@ -661,11 +699,7 @@ struct StatusObservationEditor: View {
                     provenance: .userEntered
                 )
                 let observationID = UUID()
-                preparedAttachments = try prepareAttachmentMetadata(
-                    attachments,
-                    fileStore: fileStore
-                )
-                _ = try await writer.recordStatusObservation(
+                _ = try await attachmentService.recordStatusObservation(
                     RecordStatusObservationCommand(
                         operationID: UUID(),
                         observationID: observationID,
@@ -673,25 +707,17 @@ struct StatusObservationEditor: View {
                         newMetric: newMetric,
                         ordinalLevel: level,
                         note: note,
-                        timestamp: timestamp,
-                        attachments: preparedAttachments
-                    )
+                        timestamp: timestamp
+                    ),
+                    attachmentDrafts: attachments
                 )
-                databaseCommitted = true
-                for attachment in preparedAttachments {
-                    try fileStore.markMetadataCommitted(attachment)
-                }
                 dismiss()
             } catch {
-                if !databaseCommitted {
-                    for attachment in preparedAttachments {
-                        try? fileStore.discard(operationID: attachment.operationID)
-                    }
-                    errorMessage = "状态仍保留在当前页面，请检查后再保存。"
-                } else {
-                    attachmentIntegrityFailureHandler?()
+                if error as? AttachmentMutationFailure == .recoveryRequired {
                     errorMessage =
-                        "状态已写入，但附件没有通过最终完整性检查。App 已暂停本地资料访问。"
+                        "附件没有完成安全收尾。App 已暂停本地资料访问。"
+                } else {
+                    errorMessage = "状态仍保留在当前页面，请检查后再保存。"
                 }
             }
         }
@@ -717,62 +743,20 @@ struct StatusObservationEditor: View {
 
     private func loadMetrics() async {
         guard let reader else { return }
-        if let loaded = try? await reader.statusMetrics() {
+        do {
+            let loaded = try await reader.statusMetrics()
             metrics = loaded
             selectedMetricID = loaded.first(where: { !$0.isArchived })?.id
+        } catch {
+            if error as? AppDataFailure == .corruptionSuspected {
+                integrityFailureHandler?()
+                errorMessage =
+                    "状态指标没有通过本地完整性检查。App 将进入恢复模式。"
+            } else {
+                errorMessage =
+                    "暂时无法读取状态指标；原资料没有被修改。"
+            }
         }
-    }
-
-    private func importStatusPhotos(
-        _ items: [PhotosPickerItem],
-        batchID: UUID
-    ) async -> Int {
-        let remainingSlots = AttachmentSelectionCapacity.remainingSlots(
-            existingCount: attachments.count
-        )
-        var failureCount =
-            AttachmentSelectionCapacity.rejectedSelectionCount(
-                selectedCount: items.count,
-                existingCount: attachments.count
-            )
-        for item in items.prefix(remainingSlots) {
-            let transferred: AttachmentPhotoTransfer
-            do {
-                guard let loaded = try await item.loadTransferable(
-                    type: AttachmentPhotoTransfer.self
-                ) else {
-                    failureCount += 1
-                    continue
-                }
-                transferred = loaded
-            } catch {
-                failureCount += 1
-                continue
-            }
-            guard photoImportState.isCurrent(batchID) else {
-                failureCount += 1
-                return failureCount
-            }
-            guard canAppendAttachment(
-                byteCount: Int64(transferred.data.count),
-                to: attachments
-            ) else {
-                failureCount += 1
-                continue
-            }
-            guard attachments.count < AttachmentFileStore.maximumOwnerFiles else {
-                failureCount += 1
-                continue
-            }
-            attachments.append(
-                AttachmentDraft(
-                    data: transferred.data,
-                    filename: "状态附件-\(attachments.count + 1)",
-                    typeIdentifier: transferred.typeIdentifier
-                )
-            )
-        }
-        return failureCount
     }
 
 #if DEBUG
@@ -783,49 +767,31 @@ struct StatusObservationEditor: View {
                 "无法读取所选文件。状态尚未保存；请检查文件后重新选择。"
             return
         }
-        let remainingSlots = AttachmentSelectionCapacity.remainingSlots(
-            existingCount: attachments.count
-        )
-        var failureCount =
-            AttachmentSelectionCapacity.rejectedSelectionCount(
-                selectedCount: urls.count,
-                existingCount: attachments.count
-            )
-        for url in urls.prefix(remainingSlots) {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            let payload: BoundedAttachmentPayload
-            do {
-                payload = try AttachmentImportFacts.loadBoundedFile(at: url)
-            } catch {
-                failureCount += 1
-                continue
+        photoImportTask?.cancel()
+        let batchID = photoImportState.begin(selectedCount: urls.count)
+        let existingAttachments = attachments
+        photoImportTask = Task {
+            guard let result = await importAttachmentFiles(
+                urls,
+                existingAttachments: existingAttachments,
+                batchIsCurrent: {
+                    photoImportState.isCurrent(batchID)
+                }
+            ) else { return }
+            guard photoImportState.isCurrent(batchID) else { return }
+            photoImportState.recordFailures(result.failureCount)
+            _ = photoImportState.finish(batchID)
+            attachments.append(contentsOf: result.drafts)
+            if result.failureCount > 0 {
+                errorMessage =
+                    "有 \(result.failureCount) 个所选文件没有导入。状态尚未保存；单个附件最多 20 MiB，本条最多 6 个、合计 60 MiB。"
             }
-            guard canAppendAttachment(
-                byteCount: Int64(payload.data.count),
-                to: attachments
-            ) else {
-                failureCount += 1
-                continue
-            }
-            attachments.append(
-                AttachmentDraft(
-                    data: payload.data,
-                    filename: url.lastPathComponent,
-                    typeIdentifier: payload.typeIdentifier
-                )
-            )
-        }
-        if failureCount > 0 {
-            photoImportState.recordFailures(failureCount)
-            errorMessage =
-                "有 \(failureCount) 个所选文件没有导入。状态尚未保存；单个附件最多 20 MiB，本条最多 6 个、合计 60 MiB。"
         }
     }
 #endif
 }
 
-private struct AttachmentPickerSection: View {
+struct AttachmentPickerSection: View {
     @Environment(AppTheme.self) private var theme
     @Binding var attachments: [AttachmentDraft]
     @Binding var photoItems: [PhotosPickerItem]
@@ -843,7 +809,8 @@ private struct AttachmentPickerSection: View {
                 maxSelectionCount: AttachmentSelectionCapacity.pickerLimit(
                     existingCount: attachments.count
                 ),
-                matching: .images
+                matching: .images,
+                preferredItemEncoding: .current
             ) {
                 Label(
                     selectionLabel,
@@ -923,36 +890,6 @@ private struct AttachmentPickerSection: View {
     }
 }
 
-@MainActor
-func prepareAttachmentMetadata(
-    _ drafts: [AttachmentDraft],
-    fileStore: AttachmentFileStore
-) throws -> [PreparedAttachmentMetadata] {
-    try AttachmentOwnerCapacity.validate(
-        byteCounts: drafts.map { Int64($0.data.count) }
-    )
-    var prepared: [PreparedAttachmentMetadata] = []
-    do {
-        for draft in drafts {
-            let staged = try fileStore.stage(
-                data: draft.data,
-                attachmentID: UUID(),
-                originalFilename: draft.filename,
-                typeIdentifier: draft.typeIdentifier,
-                operationID: UUID()
-            )
-            prepared.append(PreparedAttachmentMetadata(staged))
-            _ = try fileStore.commit(staged)
-        }
-        return prepared
-    } catch {
-        for attachment in prepared {
-            try? fileStore.discard(operationID: attachment.operationID)
-        }
-        throw error
-    }
-}
-
 private func canAppendAttachment(
     byteCount: Int64,
     to drafts: [AttachmentDraft]
@@ -1000,6 +937,7 @@ enum AttachmentSelectionCapacity {
 struct AttachmentImportBatchState {
     private(set) var activeID: UUID?
     private(set) var unresolvedFailureCount = 0
+    private var activeSelectionCount = 0
 
     var isImporting: Bool {
         activeID != nil
@@ -1009,9 +947,13 @@ struct AttachmentImportBatchState {
         unresolvedFailureCount > 0
     }
 
-    mutating func begin() -> UUID {
+    mutating func begin(selectedCount: Int = 0) -> UUID {
+        if activeID != nil {
+            unresolvedFailureCount += max(0, activeSelectionCount)
+        }
         let id = UUID()
         activeID = id
+        activeSelectionCount = max(0, selectedCount)
         return id
     }
 
@@ -1023,6 +965,7 @@ struct AttachmentImportBatchState {
     mutating func finish(_ id: UUID) -> Bool {
         guard activeID == id else { return false }
         activeID = nil
+        activeSelectionCount = 0
         return true
     }
 
@@ -1086,6 +1029,7 @@ private struct LabeledEditorField: View {
                 .foregroundStyle(theme.indigo)
             TextField(prompt, text: $text, axis: .vertical)
                 .lineLimit(1...4)
+                .accessibilityLabel(label)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 48)
                 .background(theme.paper)

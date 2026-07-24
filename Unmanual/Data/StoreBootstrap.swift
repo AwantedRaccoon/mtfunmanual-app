@@ -851,13 +851,21 @@ struct AppDataStoreBootstrapper {
         }
 
         if journal.phase == .preparing {
+            guard journal.targetGenerationID != pointer.generationID else {
+                throw AppDataFailure.migrationFailed
+            }
             let targetPresence = existingStoreBundleParts(
                 at: layout.storeURL(for: journal.targetGenerationID)
             )
             if targetPresence.main || targetPresence.wal || targetPresence.shm {
-                journal.targetGenerationID = UUID()
-                journal.updatedAt = Date()
-                try journalStore.write(journal)
+                // This exact inactive generation is owned by the preparing
+                // journal. Rebuild it in place so an interrupted V4 copy
+                // cannot leave an orphan or silently change recovery identity.
+                try fileManager.removeItem(
+                    at: layout.generationDirectoryURL(
+                        for: journal.targetGenerationID
+                    )
+                )
             }
             try prepareGeneration(journal.targetGenerationID)
             try copyStoreBundle(

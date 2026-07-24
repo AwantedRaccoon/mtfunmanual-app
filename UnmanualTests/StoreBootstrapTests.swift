@@ -291,6 +291,234 @@ final class StoreBootstrapTests: XCTestCase {
         )
     }
 
+    func testV4ActiveGenerationUpgradesThroughInactiveV5Copy() throws {
+        let layout = try makeLayout()
+        let sourceGenerationID = UUID()
+        let sourceStoreURL = layout.storeURL(for: sourceGenerationID)
+        try FileManager.default.createDirectory(
+            at: sourceStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var datasetID: UUID!
+        var factCount = 0
+        var revisionCount = 0
+        try autoreleasepool {
+            let container = try AppModelContainerFactory.makeTodayContainer(
+                at: sourceStoreURL
+            )
+            _ = try LegacyV1Backfill.run(in: container)
+            _ = try CoreTimeRegimenBackfill.run(
+                in: container,
+                assumedTimeZoneIdentifier: "UTC"
+            )
+            _ = try TodayExecutionBackfill.run(in: container)
+            let context = ModelContext(container)
+            datasetID = try XCTUnwrap(
+                context.fetch(FetchDescriptor<DatasetMetadata>()).first
+            ).datasetID
+            revisionCount = try context.fetchCount(
+                FetchDescriptor<RecordRevision>()
+            )
+            factCount = revisionCount
+        }
+        try GenerationPointerStore(layout: layout).write(
+            GenerationPointer(
+                generationID: sourceGenerationID,
+                schemaVersion: "4.0.0",
+                origin: .newInstall,
+                datasetID: datasetID,
+                minimumFactCount: factCount,
+                minimumRevisionCount: revisionCount
+            )
+        )
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: sourceGenerationID,
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        let sourceProtection = try StoreFileProtectionAuditor(
+            backupPolicy: .systemManaged,
+            verificationMode: .simulatorTestHarness
+        ).hardenAndInspect(
+            storeURL: sourceStoreURL,
+            resources: layout.protectionResources(for: sourceGenerationID)
+        )
+        XCTAssertTrue(sourceProtection.isAcceptableForCurrentPlatform)
+        let sourceDigest = try sha256(of: sourceStoreURL)
+
+        let upgraded = try makeTestBootstrapper(layout: layout).open()
+        let pointer = try GenerationPointerStore(layout: layout).read()
+        let context = ModelContext(upgraded.container)
+
+        XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
+        XCTAssertEqual(pointer.schemaVersion, "5.0.0")
+        XCTAssertEqual(pointer.generationID, upgraded.generationID)
+        XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
+        XCTAssertEqual(
+            try context.fetch(
+                FetchDescriptor<PersonalTimelineBackfillState>()
+            ).first?.completedAt != nil,
+            true
+        )
+        XCTAssertNoThrow(
+            try PersonalTimelineRelationshipValidator.validate(
+                in: context,
+                failure: .migrationFailed
+            )
+        )
+    }
+
+    func testV4ToV5CrashBeforePointerPreservesSourceAndResumesSameTarget() throws {
+        let layout = try makeLayout()
+        let sourceGenerationID = UUID()
+        let sourceStoreURL = layout.storeURL(for: sourceGenerationID)
+        try FileManager.default.createDirectory(
+            at: sourceStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var datasetID: UUID!
+        var factCount = 0
+        var revisionCount = 0
+        try autoreleasepool {
+            let container = try AppModelContainerFactory.makeTodayContainer(
+                at: sourceStoreURL
+            )
+            _ = try LegacyV1Backfill.run(in: container)
+            _ = try CoreTimeRegimenBackfill.run(
+                in: container,
+                assumedTimeZoneIdentifier: "UTC"
+            )
+            _ = try TodayExecutionBackfill.run(in: container)
+            let context = ModelContext(container)
+            datasetID = try XCTUnwrap(
+                context.fetch(FetchDescriptor<DatasetMetadata>()).first
+            ).datasetID
+            revisionCount = try context.fetchCount(
+                FetchDescriptor<RecordRevision>()
+            )
+            factCount = revisionCount
+        }
+        try GenerationPointerStore(layout: layout).write(
+            GenerationPointer(
+                generationID: sourceGenerationID,
+                schemaVersion: "4.0.0",
+                origin: .newInstall,
+                datasetID: datasetID,
+                minimumFactCount: factCount,
+                minimumRevisionCount: revisionCount
+            )
+        )
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: sourceGenerationID,
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        _ = try StoreFileProtectionAuditor(
+            backupPolicy: .systemManaged,
+            verificationMode: .simulatorTestHarness
+        ).hardenAndInspect(
+            storeURL: sourceStoreURL,
+            resources: layout.protectionResources(for: sourceGenerationID)
+        )
+        let sourceBundleBefore = try durableStoreBundleHashes(
+            at: sourceStoreURL
+        )
+        let bootstrapper = makeTestBootstrapper(layout: layout)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open(failAt: .afterValidationBeforePointer)
+        ) { error in
+            XCTAssertEqual(error as? StoreBootstrapInterruption, .injected)
+        }
+        let interruptedPointer = try GenerationPointerStore(layout: layout).read()
+        let interruptedJournal = try MigrationJournalStore(layout: layout).read()
+        XCTAssertEqual(interruptedPointer.generationID, sourceGenerationID)
+        XCTAssertEqual(interruptedPointer.schemaVersion, "4.0.0")
+        XCTAssertEqual(interruptedJournal.sourceGenerationID, sourceGenerationID)
+        XCTAssertEqual(interruptedJournal.phase, .validated)
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: sourceStoreURL),
+            sourceBundleBefore
+        )
+
+        let resumed = try bootstrapper.open()
+        let activatedPointer = try GenerationPointerStore(layout: layout).read()
+
+        XCTAssertEqual(resumed.generationID, interruptedJournal.targetGenerationID)
+        XCTAssertEqual(
+            activatedPointer.generationID,
+            interruptedJournal.targetGenerationID
+        )
+        XCTAssertEqual(activatedPointer.schemaVersion, "5.0.0")
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: sourceStoreURL),
+            sourceBundleBefore
+        )
+    }
+
+    func testV4ToV5PreparingInterruptsReuseSameTargetWithoutOrphans() throws {
+        for failpoint in [
+            StoreBootstrapFailpoint.duringLegacyBundleCopyAfterMain,
+            .afterGenerationPrepared,
+        ] {
+            let layout = try makeLayout()
+            let source = try seedActiveV4Generation(in: layout)
+            let bootstrapper = makeTestBootstrapper(layout: layout)
+
+            XCTAssertThrowsError(
+                try bootstrapper.open(failAt: failpoint)
+            ) { error in
+                XCTAssertEqual(error as? StoreBootstrapInterruption, .injected)
+            }
+            let interruptedPointer = try GenerationPointerStore(
+                layout: layout
+            ).read()
+            let interruptedJournal = try MigrationJournalStore(
+                layout: layout
+            ).read()
+            let targetID = interruptedJournal.targetGenerationID
+            XCTAssertEqual(
+                interruptedPointer.generationID,
+                source.generationID
+            )
+            XCTAssertEqual(interruptedPointer.schemaVersion, "4.0.0")
+            XCTAssertEqual(
+                try durableStoreBundleHashes(at: source.storeURL),
+                source.durableHashes
+            )
+            XCTAssertEqual(
+                try directoryEntryNames(at: layout.generationsURL),
+                [
+                    source.generationID.uuidString.lowercased(),
+                    targetID.uuidString.lowercased(),
+                ].sorted()
+            )
+
+            let resumed = try bootstrapper.open()
+
+            XCTAssertEqual(resumed.generationID, targetID)
+            XCTAssertEqual(
+                try GenerationPointerStore(layout: layout).read().generationID,
+                targetID
+            )
+            XCTAssertEqual(
+                try durableStoreBundleHashes(at: source.storeURL),
+                source.durableHashes
+            )
+            XCTAssertEqual(
+                try directoryEntryNames(at: layout.generationsURL),
+                [
+                    source.generationID.uuidString.lowercased(),
+                    targetID.uuidString.lowercased(),
+                ].sorted()
+            )
+        }
+    }
+
     func testProductionBackupPolicyAllowsSystemManagedDeviceBackup() {
         XCTAssertEqual(SystemBackupPolicy.production, .systemManaged)
     }
@@ -1451,9 +1679,93 @@ final class StoreBootstrapTests: XCTestCase {
         )
     }
 
+    private struct V4SourceFixture {
+        let generationID: UUID
+        let storeURL: URL
+        let durableHashes: [String: String]
+    }
+
+    private func seedActiveV4Generation(
+        in layout: AppDataStoreLayout
+    ) throws -> V4SourceFixture {
+        let generationID = UUID()
+        let storeURL = layout.storeURL(for: generationID)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var datasetID: UUID!
+        var factCount = 0
+        var revisionCount = 0
+        try autoreleasepool {
+            let container = try AppModelContainerFactory.makeTodayContainer(
+                at: storeURL
+            )
+            _ = try LegacyV1Backfill.run(in: container)
+            _ = try CoreTimeRegimenBackfill.run(
+                in: container,
+                assumedTimeZoneIdentifier: "UTC"
+            )
+            _ = try TodayExecutionBackfill.run(in: container)
+            let context = ModelContext(container)
+            datasetID = try XCTUnwrap(
+                context.fetch(FetchDescriptor<DatasetMetadata>()).first
+            ).datasetID
+            revisionCount = try context.fetchCount(
+                FetchDescriptor<RecordRevision>()
+            )
+            factCount = revisionCount
+        }
+        try GenerationPointerStore(layout: layout).write(
+            GenerationPointer(
+                generationID: generationID,
+                schemaVersion: "4.0.0",
+                origin: .newInstall,
+                datasetID: datasetID,
+                minimumFactCount: factCount,
+                minimumRevisionCount: revisionCount
+            )
+        )
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: generationID,
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        _ = try StoreFileProtectionAuditor(
+            backupPolicy: .systemManaged,
+            verificationMode: .simulatorTestHarness
+        ).hardenAndInspect(
+            storeURL: storeURL,
+            resources: layout.protectionResources(for: generationID)
+        )
+        return V4SourceFixture(
+            generationID: generationID,
+            storeURL: storeURL,
+            durableHashes: try durableStoreBundleHashes(at: storeURL)
+        )
+    }
+
     private func sha256(of url: URL) throws -> String {
         let data = try Data(contentsOf: url)
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func durableStoreBundleHashes(
+        at storeURL: URL
+    ) throws -> [String: String] {
+        var hashes: [String: String] = [:]
+        // SQLite may update the shared-memory lock table for a read-only
+        // connection. The durable source facts live in main + WAL; those
+        // bytes must remain identical through an inactive-generation upgrade.
+        for suffix in ["", "-wal"] {
+            let part = URL(fileURLWithPath: storeURL.path + suffix)
+            if FileManager.default.fileExists(atPath: part.path) {
+                hashes[suffix] = try sha256(of: part)
+            }
+        }
+        return hashes
     }
 
     private func profileDigest(_ profile: HRTProfile) throws -> String {

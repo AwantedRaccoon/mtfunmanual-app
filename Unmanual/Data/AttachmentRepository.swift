@@ -302,18 +302,45 @@ extension AppWriteActor {
 
         let ownerType = command.ownerType.rawValue
         let ownerID = command.ownerID
-        let active = try modelContext.fetch(
-            FetchDescriptor<AttachmentRecord>(
-                predicate: #Predicate {
-                    $0.ownerTypeRawValue == ownerType
-                        && $0.ownerID == ownerID
-                        && $0.deletedAt == nil
-                }
-            )
+        var activeDescriptor = FetchDescriptor<AttachmentRecord>(
+            predicate: #Predicate {
+                $0.ownerTypeRawValue == ownerType
+                    && $0.ownerID == ownerID
+                    && $0.deletedAt == nil
+            }
         )
-        let total = active.reduce(Int64(0)) { partial, record in
-            let addition = partial.addingReportingOverflow(record.byteCount)
-            return addition.overflow ? Int64.max : addition.partialValue
+        activeDescriptor.fetchLimit =
+            AttachmentFileStore.maximumOwnerFiles + 1
+        let active = try modelContext.fetch(activeDescriptor)
+        guard active.count <= AttachmentFileStore.maximumOwnerFiles else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        var total: Int64 = 0
+        for record in active {
+            guard let snapshot = AttachmentSnapshot(record),
+                  snapshot.ownerType == command.ownerType,
+                  snapshot.ownerID == command.ownerID,
+                  snapshot.createdAt.timeIntervalSince1970.isFinite,
+                  (try? AttachmentMetadataFacts.normalize(
+                      PreparedAttachmentMetadata(
+                          operationID: record.operationID,
+                          attachmentID: record.id,
+                          relativePath: record.relativePath,
+                          originalFilename: record.originalFilename,
+                          typeIdentifier: record.typeIdentifier,
+                          byteCount: record.byteCount,
+                          sha256Hex: record.sha256Hex
+                      )
+                  )) != nil else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let addition = total.addingReportingOverflow(snapshot.byteCount)
+            guard !addition.overflow,
+                  addition.partialValue
+                    <= AttachmentFileStore.maximumOwnerBytes else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            total = addition.partialValue
         }
         guard active.count < AttachmentFileStore.maximumOwnerFiles,
               total <= AttachmentFileStore.maximumOwnerBytes - command.byteCount else {
@@ -483,16 +510,51 @@ extension AppReadActor {
         ownerID: UUID
     ) throws -> [AttachmentSnapshot] {
         let rawType = ownerType.rawValue
-        return try modelContext.fetch(
-            FetchDescriptor<AttachmentRecord>(
-                predicate: #Predicate {
-                    $0.ownerTypeRawValue == rawType
-                        && $0.ownerID == ownerID
-                        && $0.deletedAt == nil
-                },
-                sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.id)]
+        var descriptor = FetchDescriptor<AttachmentRecord>(
+            predicate: #Predicate {
+                $0.ownerTypeRawValue == rawType
+                    && $0.ownerID == ownerID
+                    && $0.deletedAt == nil
+            },
+            sortBy: [SortDescriptor(\.createdAt), SortDescriptor(\.id)]
+        )
+        descriptor.fetchLimit = AttachmentFileStore.maximumOwnerFiles + 1
+        let records = try modelContext.fetch(descriptor)
+        guard records.count <= AttachmentFileStore.maximumOwnerFiles else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        var totalBytes: Int64 = 0
+        var snapshots: [AttachmentSnapshot] = []
+        snapshots.reserveCapacity(records.count)
+        for record in records {
+            guard let snapshot = AttachmentSnapshot(record),
+                  snapshot.ownerType == ownerType,
+                  snapshot.ownerID == ownerID,
+                  snapshot.createdAt.timeIntervalSince1970.isFinite,
+                  (try? AttachmentMetadataFacts.normalize(
+                      PreparedAttachmentMetadata(
+                          operationID: record.operationID,
+                          attachmentID: record.id,
+                          relativePath: record.relativePath,
+                          originalFilename: record.originalFilename,
+                          typeIdentifier: record.typeIdentifier,
+                          byteCount: record.byteCount,
+                          sha256Hex: record.sha256Hex
+                      )
+                  )) != nil else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let addition = totalBytes.addingReportingOverflow(
+                snapshot.byteCount
             )
-        ).compactMap(AttachmentSnapshot.init)
+            guard !addition.overflow,
+                  addition.partialValue <= AttachmentFileStore.maximumOwnerBytes else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            totalBytes = addition.partialValue
+            snapshots.append(snapshot)
+        }
+        return snapshots
     }
 
 }

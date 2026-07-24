@@ -23,8 +23,13 @@ enum PersonalTimelineRelationshipValidator {
         guard definitions.count
                 <= PersonalTimelineCapacity.maximumLabItemDefinitions,
               definitions.allSatisfy({
-            !$0.displayName.isEmpty
-                && ($0.kind != .bundled || $0.bundledStableID?.isEmpty == false)
+            guard let kind = LabItemDefinitionKind(
+                rawValue: $0.kindRawValue
+            ) else {
+                return false
+            }
+            return !$0.displayName.isEmpty
+                && (kind != .bundled || $0.bundledStableID?.isEmpty == false)
         }) else {
             throw failure
         }

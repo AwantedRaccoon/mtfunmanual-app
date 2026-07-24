@@ -39,16 +39,18 @@ struct AppDataSession {
     let store: BootstrappedAppDataStore
     let writer: AppDataWriter
     let reader: AppReadActor
-    let attachmentFileStore: AttachmentFileStore
+    let attachmentMutationService: AttachmentMutationService
+    let attachmentMutationRecoveryLatch: AttachmentMutationRecoveryLatch
 
     init(
         store: BootstrappedAppDataStore,
         verifyStoreProtection: @escaping @Sendable (StoreFileProtectionPlan) async -> Bool,
-        onProtectionFailure: @escaping @Sendable () async -> Void
+        onProtectionFailure: @escaping @Sendable () async -> Void,
+        onAttachmentIntegrityFailure: @escaping @Sendable () async -> Void
     ) {
         self.store = store
         let storage = AppWriteActor(modelContainer: store.container)
-        self.writer = AppDataWriter(
+        let writer = AppDataWriter(
             storage: storage,
             verifyStoreProtection: {
                 guard let plan = store.protectionPlan else { return true }
@@ -64,8 +66,17 @@ struct AppDataSession {
                 }
             }
         )
+        self.writer = writer
         self.reader = AppReadActor(modelContainer: store.container)
-        self.attachmentFileStore = AttachmentFileStore(rootURL: store.attachmentRootURL)
+        let fileStore = AttachmentFileStore(rootURL: store.attachmentRootURL)
+        let recoveryLatch = AttachmentMutationRecoveryLatch()
+        self.attachmentMutationRecoveryLatch = recoveryLatch
+        self.attachmentMutationService = AttachmentMutationService(
+            writer: writer,
+            fileStore: fileStore,
+            recoveryLatch: recoveryLatch,
+            onRecoveryRequired: onAttachmentIntegrityFailure
+        )
     }
 }
 
@@ -121,6 +132,7 @@ final class AppDataRuntime {
     func handleAttachmentIntegrityFailure(generationID: UUID) {
         guard case let .ready(session) = state,
               session.store.generationID == generationID else { return }
+        session.attachmentMutationRecoveryLatch.invalidate()
         state = .recovery(
             AppDataRecoveryState(reason: .corruptionSuspected)
         )
@@ -140,6 +152,11 @@ final class AppDataRuntime {
                         verifyStoreProtection: verifyStoreProtection,
                         onProtectionFailure: { [weak self] in
                             await self?.handlePostCommitProtectionFailure(
+                                generationID: generationID
+                            )
+                        },
+                        onAttachmentIntegrityFailure: { [weak self] in
+                            await self?.handleAttachmentIntegrityFailure(
                                 generationID: generationID
                             )
                         }
@@ -162,6 +179,7 @@ final class AppDataRuntime {
     private func handlePostCommitProtectionFailure(generationID: UUID) {
         guard case let .ready(session) = state,
               session.store.generationID == generationID else { return }
+        session.attachmentMutationRecoveryLatch.invalidate()
         state = .recovery(AppDataRecoveryState(reason: .fileProtectionUnverified))
     }
 

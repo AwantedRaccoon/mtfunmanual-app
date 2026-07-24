@@ -129,11 +129,33 @@ final class AppDataRuntimeTests: XCTestCase {
             return XCTFail("A stale generation callback must not replace ready state")
         }
 
+        guard case let .ready(session) = runtime.state else {
+            return XCTFail("Expected ready session before matching Recovery")
+        }
+        let retainedAttachmentService = session.attachmentMutationService
         runtime.handleAttachmentIntegrityFailure(generationID: generationID)
         guard case let .recovery(recovery) = runtime.state else {
             return XCTFail("Expected attachment integrity failure to enter Recovery")
         }
         XCTAssertEqual(recovery.reason, .corruptionSuspected)
+        do {
+            try await retainedAttachmentService.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    text: "Recovery 后不应写入",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: []
+            )
+            XCTFail("A retained generation service must be invalid after Recovery")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .recoveryRequired
+            )
+        }
     }
 
     func testInvalidPointerMessagePromisesNoAutomaticDeletion() {

@@ -17,6 +17,17 @@ enum HistoricalAssociationState: String, Codable, Sendable {
     case resolved
     case missing
     case ambiguous
+
+    var reviewNotice: String? {
+        switch self {
+        case .resolved:
+            nil
+        case .missing:
+            "未找到可关联的当时方案，需要核对。"
+        case .ambiguous:
+            "找到多个候选方案，需要核对。"
+        }
+    }
 }
 
 @Model

@@ -501,7 +501,10 @@ extension AppReadActor {
             PersonalTimelineCapacity.maximumLabItemDefinitions + 1
         let definitions = try modelContext.fetch(descriptor)
         guard definitions.count
-                <= PersonalTimelineCapacity.maximumLabItemDefinitions else {
+                <= PersonalTimelineCapacity.maximumLabItemDefinitions,
+              definitions.allSatisfy({
+                  LabItemDefinitionKind(rawValue: $0.kindRawValue) != nil
+              }) else {
             throw AppDataFailure.corruptionSuspected
         }
         return definitions.map {

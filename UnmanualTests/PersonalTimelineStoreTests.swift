@@ -387,6 +387,64 @@ final class PersonalTimelineStoreTests: XCTestCase {
         )
     }
 
+    func testBackfillKeepsDistinctLegacyLabsWithSameNameAndTimestamp() throws {
+        let container =
+            try AppModelContainerFactory.makeInMemoryPersonalTimelineContainer()
+        let sampledAt = Date(timeIntervalSince1970: 1_700_000_050)
+        let firstID = UUID()
+        let secondID = UUID()
+        let context = ModelContext(container)
+        for (id, rawValue) in [(firstID, "100"), (secondID, "120")] {
+            context.insert(
+                LabRecord(
+                    id: id,
+                    itemName: "雌二醇",
+                    itemCode: "E2",
+                    rawValue: rawValue,
+                    numericValue: rawValue == "100" ? 100 : 120,
+                    unit: "pmol/L",
+                    sampledAt: sampledAt,
+                    createdAt: sampledAt
+                )
+            )
+        }
+        try context.save()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: "UTC"
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+
+        _ = try PersonalTimelineBackfill.run(in: container)
+
+        let verification = ModelContext(container)
+        let samples = try verification.fetch(
+            FetchDescriptor<LabSampleRecord>()
+        )
+        let results = try verification.fetch(
+            FetchDescriptor<LabResultRecord>()
+        )
+        let definitions = try verification.fetch(
+            FetchDescriptor<LabItemDefinitionRecord>()
+        )
+        XCTAssertEqual(samples.count, 2)
+        XCTAssertEqual(Set(samples.map(\.id)), Set([
+            PersonalTimelineBackfill.legacySampleID(for: firstID),
+            PersonalTimelineBackfill.legacySampleID(for: secondID)
+        ]))
+        XCTAssertEqual(Set(results.map(\.id)), Set([firstID, secondID]))
+        XCTAssertEqual(Set(results.map(\.rawValueOriginal)), Set(["100", "120"]))
+        XCTAssertEqual(definitions.count, 2)
+        XCTAssertEqual(Set(definitions.map(\.displayName)), ["雌二醇"])
+        XCTAssertNoThrow(
+            try PersonalTimelineRelationshipValidator.validate(
+                in: verification,
+                failure: .corruptionSuspected
+            )
+        )
+    }
+
     func testLaterSampleCanReuseAnExistingDefinitionWithoutUnitConversion() async throws {
         let container = try preparedContainer()
         let writer = AppWriteActor(modelContainer: container)

@@ -1,9 +1,11 @@
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 struct QuickRecordEditor: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.appDataWriter) private var appDataWriter
+    @Environment(\.attachmentMutationService) private var attachmentService
     @Environment(AppTheme.self) private var theme
 
     @State private var text = ""
@@ -12,6 +14,11 @@ struct QuickRecordEditor: View {
     @State private var temporalEditor: JourneyTemporalField?
     @State private var saveErrorMessage: String?
     @State private var isSaving = false
+    @State private var attachments: [AttachmentDraft] = []
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var photoImportState = AttachmentImportBatchState()
+    @State private var photoImportTask: Task<Void, Never>?
+    @State private var importsFiles = false
     @FocusState private var isTextFocused: Bool
 
     private let autofocus: Bool
@@ -21,7 +28,13 @@ struct QuickRecordEditor: View {
     }
 
     private var canSave: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        AttachmentImportGate.allowsSave(
+            baseConditionsMet:
+                !isSaving
+                && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            isImporting: photoImportState.isImporting,
+            hasUnresolvedFailures: photoImportState.hasUnresolvedFailures
+        )
     }
 
     var body: some View {
@@ -51,6 +64,24 @@ struct QuickRecordEditor: View {
                         editTimeAction: { presentTemporalEditor(.time) }
                     )
 
+                    AttachmentPickerSection(
+                        attachments: $attachments,
+                        photoItems: $photoItems,
+                        isImporting: photoImportState.isImporting,
+                        unresolvedFailureCount:
+                            photoImportState.unresolvedFailureCount,
+                        resolveImportFailures: {
+                            photoImportState.resolveFailures()
+                        },
+                        importFiles: { importsFiles = true }
+                    )
+                    .padding(.top, 22)
+
+                    Text("App 保存你选择的原始字节，不做 OCR、转码或 EXIF 清理。单个附件最多 20 MiB；本条最多 6 个、合计 60 MiB。")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.top, 10)
+
                     V25PrivacyFooter(text: SystemBackupDisclosure.quickRecord)
                         .accessibilityIdentifier("quickRecord.backupDisclosure")
                         .padding(.bottom, 24)
@@ -66,7 +97,7 @@ struct QuickRecordEditor: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 V25SaveBar(
                     title: "保存到旅程",
-                    isEnabled: canSave && !isSaving,
+                    isEnabled: canSave,
                     accessibilityIdentifier: "quickRecord.save",
                     action: save
                 )
@@ -75,6 +106,36 @@ struct QuickRecordEditor: View {
         }
         .tint(theme.indigo)
         .localSaveErrorAlert(message: $saveErrorMessage)
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            photoImportTask?.cancel()
+            let batchID = photoImportState.begin(
+                selectedCount: items.count
+            )
+            let existingAttachments = attachments
+            photoImportTask = Task {
+                guard let result = await importAttachmentPhotos(
+                    items,
+                    existingAttachments: existingAttachments,
+                    batchIsCurrent: {
+                        photoImportState.isCurrent(batchID)
+                    },
+                    filenamePrefix: "记录附件"
+                ) else { return }
+                guard photoImportState.isCurrent(batchID) else { return }
+                photoImportState.recordFailures(result.failureCount)
+                _ = photoImportState.finish(batchID)
+                attachments.append(contentsOf: result.drafts)
+                photoItems = []
+                if result.failureCount > 0 {
+                    saveErrorMessage =
+                        "有 \(result.failureCount) 个所选照片没有导入。记录尚未保存；请检查后重新选择。"
+                }
+            }
+        }
+        .onDisappear {
+            photoImportTask?.cancel()
+        }
         .sheet(item: $temporalEditor) { field in
             JourneyTemporalEditor(
                 field: field,
@@ -84,6 +145,14 @@ struct QuickRecordEditor: View {
             .presentationDetents(field == .date ? [.large] : [.medium])
             .presentationDragIndicator(.visible)
         }
+#if DEBUG
+        .fileImporter(
+            isPresented: $importsFiles,
+            allowedContentTypes: [.pdf, .image],
+            allowsMultipleSelection: true,
+            onCompletion: importFiles
+        )
+#endif
     }
 
     private func presentTemporalEditor(_ field: JourneyTemporalField) {
@@ -92,8 +161,8 @@ struct QuickRecordEditor: View {
     }
 
     private func save() {
-        guard !isSaving else { return }
-        guard let appDataWriter else {
+        guard canSave else { return }
+        guard let attachmentService else {
             saveErrorMessage = "本地资料尚未准备好，请稍后再试。"
             return
         }
@@ -108,13 +177,50 @@ struct QuickRecordEditor: View {
         Task {
             defer { isSaving = false }
             do {
-                try await appDataWriter.addJourneyEntry(command)
+                try await attachmentService.addJourneyEntry(
+                    command,
+                    attachmentDrafts: attachments
+                )
                 dismiss()
             } catch {
-                saveErrorMessage = "这条旅程仍在当前页面，请检查后再保存。"
+                saveErrorMessage =
+                    error as? AttachmentMutationFailure == .recoveryRequired
+                    ? "附件没有完成安全收尾。App 已暂停本地资料访问。"
+                    : "这条旅程仍在当前页面，请检查后再保存。"
             }
         }
     }
+
+#if DEBUG
+    private func importFiles(_ result: Result<[URL], Error>) {
+        guard case let .success(urls) = result else {
+            photoImportState.recordFailures(1)
+            saveErrorMessage =
+                "无法读取所选文件。记录尚未保存；请检查文件后重新选择。"
+            return
+        }
+        photoImportTask?.cancel()
+        let batchID = photoImportState.begin(selectedCount: urls.count)
+        let existingAttachments = attachments
+        photoImportTask = Task {
+            guard let result = await importAttachmentFiles(
+                urls,
+                existingAttachments: existingAttachments,
+                batchIsCurrent: {
+                    photoImportState.isCurrent(batchID)
+                }
+            ) else { return }
+            guard photoImportState.isCurrent(batchID) else { return }
+            photoImportState.recordFailures(result.failureCount)
+            _ = photoImportState.finish(batchID)
+            attachments.append(contentsOf: result.drafts)
+            if result.failureCount > 0 {
+                saveErrorMessage =
+                    "有 \(result.failureCount) 个所选文件没有导入。记录尚未保存；单个附件最多 20 MiB，本条最多 6 个、合计 60 MiB。"
+            }
+        }
+    }
+#endif
 }
 
 private struct JourneyRecordHeader: View {

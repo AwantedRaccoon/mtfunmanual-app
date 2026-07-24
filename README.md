@@ -6,11 +6,11 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 网站负责解释“这件事通常是什么”，App 负责帮助用户看见“这件事在我身上是怎样发生的”。完整知识内容仍由 [mtfbook.com](https://mtfbook.com/) 提供。
 
-> **当前状态（2026-07-23）**
+> **当前状态（2026-07-24）**
 >
 > - App 版本：`1.0`（build `1`）；`V2.5` 只是内部视觉迭代名。
-> - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2 已在 Simulator 与自动化范围内完成；Batch 3 的今日执行与本地提醒模块已实现；Batch 5 的化验、状态、附件与统一时间线仍是本地候选实现，等待最新独立审查闭环。Batch 4 尚未开始。
-> - 当前位置：Batch 5 已完成合同冻结并形成候选实现，自动化与独立审查证据以本分支最新记录为准；最新 reviewer 明确通过前不称模块完成。真机文件保护、系统备份恢复、最低设备性能与完整辅助技术人工矩阵仍保留到发布候选阶段。
+> - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2 已在 Simulator 与自动化范围内完成；Batch 3 的今日执行与本地提醒模块已实现；Batch 5 的化验、状态、附件与统一时间线是本地阶段快照候选。Batch 4 尚未开始。
+> - 当前位置：Batch 5 已完成合同冻结与本地实现；是否达到 GitHub 阶段快照门禁，以 `chi-work` 当前提交的最新独立 reviewer 结论和回归证据为准。真机文件保护、系统备份恢复、最低设备性能与完整辅助技术人工矩阵仍保留到发布候选阶段。
 > - GitHub 状态：Stage 0–3 阶段报告已经推送至 `origin/main`；它不是 GitHub Release。后续工作先提交并推送到 `chi-work`，只在维护者当次明确批准后合并到 `main`。
 > - 发布状态：尚未达到 App Store release-ready，也尚未开始发布前真机测试。
 
@@ -18,7 +18,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 目前落地的是一套可迁移、可恢复、可审计的本地数据底座，以及稳定的时间事实、方案版本、今日执行、本地提醒、化验、状态、附件与统一个人时间线。用户可以封存个人方案、查看确定性派生的当日计划、记录已使用或跳过、追加纠错、为计划开启中性内容的设备本地提醒，并在本机保存化验与状态记录。
 
-四个阶段的当前进展是：
+五个已启动阶段的当前进展是：
 
 - **Batch 0 — 合同冻结**：确认 App 1.0、iOS 17+、本地优先、无 App 主动联网、`.systemManaged` 系统备份边界，以及时间、执行、库存、化验和数据谱系的跨模块合同；
 - **Batch 1 — 数据安全底座**：实现 V1 → V2 bridge、generation copy/journal/pointer、幂等 backfill、revision/digest、Recovery Mode、读写 actor、有界查询和性能证据 harness；代码与 Simulator 自动化已完成，真机文件保护、系统备份恢复和最低设备性能仍是发布门禁；
@@ -42,7 +42,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 - **结构化化验**：`LabDefinition`、`LabSample` 与 `LabResult` 分离；保留用户原始名称、代码、数值、单位、参考范围和上下文，同时使用独立规范化值支持确定性排序与验证。旧化验按稳定映射幂等回填，不改写旧事实。
 - **状态记录**：指标定义、观察值、历史时间和附件元数据同一事务提交；新增指标与首次观察不会留下半成品。指标可以归档并释放活跃槽位，既有观察的历史快照继续可读。
-- **私有附件**：附件保存在 App 私有 Application Support 目录，文件名使用不含原始名称的 opaque 标识；导入采用先写 journal、再暂存、再原子移动、最后提交数据库的恢复协议，并拒绝符号链接逃逸。Release 不暴露 Files 导入入口。
+- **私有附件**：附件保存在 App 私有 Application Support 目录，文件名使用不含原始名称的 opaque 标识；化验、状态与普通旅程记录都通过同一 generation 级 mutation service 提交附件。导入采用先写 journal、再暂存、再原子移动、最后提交数据库的恢复协议，并拒绝符号链接逃逸；跨 `await` 的事务由全局 mutation lease 串行化。Release 不暴露 Files 导入入口。
 - **统一个人时间线**：化验、状态、执行与方案事件投影到统一条目；有明确时刻的事实按 instant 排序，无时刻的 civil-date 事实进入独立日期通道。查询按来源有界抓取、稳定游标分页，并保持同一时刻条目不丢失。
 - **入口与回看**：旅程页可以新增化验与状态、查看附件和归档指标；Today 的最近化验来自 V5 canonical sample，并可直接打开同一条时间线详情。
 - **完整性与恢复**：启动时恢复未完成附件 journal 并审计活动附件；缺失、越界或校验失败会进入 Recovery Mode，不把损坏状态伪装成正常启动。
@@ -62,12 +62,14 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 ## 最近验证
 
-2026-07-23 的最近一次 Simulator / 自动化基线（后续修复必须重新运行后才可更新）：
+2026-07-24 的最近一次 Simulator / 自动化基线：
 
 - generic iOS Simulator 无签名 Debug build 通过；
-- 单元、集成、渲染与 UI 测试合计 `299/299` 通过；
-- 当前分支的 V5 Release 合同测试通过，其中包含一轮真实五年 worker 正确性回归；
-- 当前分支的 Release-config Simulator performance preflight `1/1` 通过，完成 1 次预热与 20 个正式样本，测试体约 293 秒；该结果只验证 harness 可完整执行，`acceptance = not-evaluated`，数值阈值与跨设备冻结 fixture 仍未确定；
+- Release Simulator build 通过；
+- 单元、集成、渲染与 UI 测试合计 `327/327` 通过，其中普通测试 `308/308`、UI 测试 `19/19`；
+- 当前分支的 V5 Release 合同测试 `9/9` 通过，其中包含一轮真实五年 worker 正确性回归；
+- 当前分支的 Release-config Simulator performance preflight `1/1` 通过，完成 1 次预热与 20 个正式样本，测试体 291.580 秒、测试阶段 293.975 秒；该结果只验证 harness 可完整执行，`acceptance = not-evaluated`，数值阈值与跨设备冻结 fixture 仍未确定；
+- 隐私清单已声明 App 容器文件元数据与用户明确选择文件元数据的 Required Reason API 用途，并通过 plist 语法检查；最终 Archive privacy report 仍属于发布门禁；
 - 渲染矩阵覆盖 320×568、390×844、430×932、768×1024、844×390 横屏，以及 320×568 最大辅助字号场景；
 - 自动渲染测试只验证冻结尺寸下能生成非空、高对比的画面；完整 VoiceOver、外接键盘、键盘遮挡、安全区和减少动态效果仍需要人工设备矩阵，不能由截图测试替代。
 
@@ -184,7 +186,7 @@ docs/              产品、视觉与技术决策
 project.yml        XcodeGen 工程定义
 ```
 
-当前公开进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，工程约束见 [AGENTS.md](AGENTS.md)。
+当前公开进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，化验、状态、附件与个人时间线见 [ADR 0007](docs/architecture/0007-labs-status-attachments-and-personal-timeline.md)，工程约束见 [AGENTS.md](AGENTS.md)。
 
 ## 参与贡献
 

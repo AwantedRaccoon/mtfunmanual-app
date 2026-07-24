@@ -7,6 +7,803 @@ import XCTest
 
 @MainActor
 final class PersonalTimelineFeatureTests: XCTestCase {
+    func testJourneyEntryAtomicallyCreatesAttachmentMetadata() async throws {
+        let container = try preparedContainer()
+        let writer = AppWriteActor(modelContainer: container)
+        let reader = AppReadActor(modelContainer: container)
+        let entryID = UUID()
+        let attachmentID = UUID()
+        let attachmentOperationID = UUID()
+        let occurredAt = Date(timeIntervalSince1970: 1_735_732_860)
+
+        try await writer.addJourneyEntry(
+            AddJourneyEntryCommand(
+                recordID: entryID,
+                text: "带附件的普通记录",
+                kind: .moment,
+                occurredAt: occurredAt,
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC",
+                committedAt: occurredAt,
+                attachments: [
+                    PreparedAttachmentMetadata(
+                        operationID: attachmentOperationID,
+                        attachmentID: attachmentID,
+                        relativePath:
+                            "Attachments/\(attachmentID.uuidString.lowercased())/payload.pdf",
+                        originalFilename: "记录.pdf",
+                        typeIdentifier: UTType.pdf.identifier,
+                        byteCount: 3,
+                        sha256Hex: String(repeating: "a", count: 64)
+                    )
+                ]
+            )
+        )
+
+        let snapshot = try await reader.todaySnapshot()
+        XCTAssertEqual(snapshot.entries.map(\.id), [entryID])
+        let attachments = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertEqual(attachments.map(\.id), [attachmentID])
+        XCTAssertEqual(attachments.first?.originalFilename, "记录.pdf")
+    }
+
+    func testAttachmentMutationServiceClosesJourneyFileAndDatabaseTransaction() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Journey-Attachment-Service-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileStore = AttachmentFileStore(rootURL: root)
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: fileStore,
+            onRecoveryRequired: {}
+        )
+        let entryID = UUID()
+        let occurredAt = Date(timeIntervalSince1970: 1_735_732_860)
+
+        try await service.addJourneyEntry(
+            AddJourneyEntryCommand(
+                recordID: entryID,
+                text: "带真实文件的普通记录",
+                kind: .moment,
+                occurredAt: occurredAt,
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC",
+                committedAt: occurredAt
+            ),
+            attachmentDrafts: [
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46]),
+                    filename: "记录.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                )
+            ]
+        )
+
+        let attachments = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertEqual(attachments.count, 1)
+        XCTAssertNoThrow(try fileStore.audit(attachments))
+        XCTAssertTrue(
+            try FileManager.default.contentsOfDirectory(
+                at: root.appendingPathComponent(".staging", isDirectory: true),
+                includingPropertiesForKeys: nil
+            ).isEmpty
+        )
+    }
+
+    func testAttachmentMutationServiceSerializesAcrossActorReentrancy() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let gate = AttachmentMutationGate()
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: {
+                await gate.block()
+                return true
+            },
+            onProtectionFailure: {}
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Mutation-Lease-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: AttachmentFileStore(rootURL: root),
+            onRecoveryRequired: {}
+        )
+        let first = Task {
+            try await service.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    text: "第一笔",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: [
+                    AttachmentDraft(
+                        data: Data([0x25, 0x50, 0x44, 0x46]),
+                        filename: "第一笔.pdf",
+                        typeIdentifier: UTType.pdf.identifier
+                    )
+                ]
+            )
+        }
+        await gate.waitUntilBlocked()
+
+        do {
+            try await service.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    text: "第二笔",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_861),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: [
+                    AttachmentDraft(
+                        data: Data([0x25, 0x50, 0x44, 0x46]),
+                        filename: "第二笔.pdf",
+                        typeIdentifier: UTType.pdf.identifier
+                    )
+                ]
+            )
+            XCTFail("A reentrant mutation must not overlap the active transaction")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .mutationInProgress
+            )
+        }
+
+        await gate.release()
+        try await first.value
+    }
+
+    func testAttachmentMutationServiceRequiresRecoveryWhenDatabaseRollbackCleanupFails() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Journey-Attachment-Recovery-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileStore = AttachmentFileStore(
+            rootURL: root,
+            failureInjection: .discard
+        )
+        let recovery = AttachmentRecoveryRecorder()
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: fileStore,
+            onRecoveryRequired: {
+                await recovery.record()
+            }
+        )
+
+        do {
+            try await service.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    text: "   ",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: [
+                    AttachmentDraft(
+                        data: Data([0x25, 0x50, 0x44, 0x46]),
+                        filename: "记录.pdf",
+                        typeIdentifier: UTType.pdf.identifier
+                    )
+                ]
+            )
+            XCTFail("Cleanup failure must not return a retryable save error")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .recoveryRequired
+            )
+        }
+        let recoveryCount = await recovery.callCount()
+        XCTAssertEqual(recoveryCount, 1)
+    }
+
+    func testAttachmentMutationServiceRequiresRecoveryWhenPostCommitFinalizationFails() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Post-Commit-Recovery-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileStore = AttachmentFileStore(
+            rootURL: root,
+            failureInjection: .markMetadataCommitted
+        )
+        let recovery = AttachmentRecoveryRecorder()
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: fileStore,
+            onRecoveryRequired: {
+                await recovery.record()
+            }
+        )
+        let entryID = UUID()
+
+        do {
+            try await service.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    recordID: entryID,
+                    text: "数据库已提交但 journal 收尾失败",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: [
+                    AttachmentDraft(
+                        data: Data([0x25, 0x50, 0x44, 0x46]),
+                        filename: "报告.pdf",
+                        typeIdentifier: UTType.pdf.identifier
+                    )
+                ]
+            )
+            XCTFail("Post-commit finalization failure must require Recovery")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .recoveryRequired
+            )
+        }
+
+        let committed = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertEqual(committed.count, 1)
+        let recoveryCount = await recovery.callCount()
+        XCTAssertEqual(recoveryCount, 1)
+    }
+
+    func testAttachmentMutationServicePreviewLeaseBlocksDeletionUntilReleased() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Preview-Lease-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileStore = AttachmentFileStore(rootURL: root)
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: fileStore,
+            onRecoveryRequired: {}
+        )
+        let entryID = UUID()
+        try await service.addJourneyEntry(
+            AddJourneyEntryCommand(
+                recordID: entryID,
+                text: "预览期间不能删除",
+                kind: .moment,
+                occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC"
+            ),
+            attachmentDrafts: [
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46]),
+                    filename: "记录.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                )
+            ]
+        )
+        let savedAttachments = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        let attachment = try XCTUnwrap(savedAttachments.first)
+
+        let previewURL = try await service.beginPreview(attachment)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: previewURL.path))
+        do {
+            try await service.deleteAttachment(attachment)
+            XCTFail("An active preview lease must block deletion")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .previewInProgress
+            )
+        }
+
+        await service.endPreview(attachmentID: attachment.id)
+        try await service.deleteAttachment(attachment)
+        let remaining = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previewURL.path))
+    }
+
+    func testSequentialPreviewAdmissionReleasesBothLeasesBeforeDeletion() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Sequential-Preview-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: AttachmentFileStore(rootURL: root),
+            onRecoveryRequired: {}
+        )
+        let entryID = UUID()
+        try await service.addJourneyEntry(
+            AddJourneyEntryCommand(
+                recordID: entryID,
+                text: "两个附件依次预览",
+                kind: .moment,
+                occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC"
+            ),
+            attachmentDrafts: [
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46, 0x01]),
+                    filename: "first.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                ),
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46, 0x02]),
+                    filename: "second.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                ),
+            ]
+        )
+        let attachments = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertEqual(attachments.count, 2)
+        let first = attachments[0]
+        let second = attachments[1]
+
+        _ = try await service.beginPreview(first)
+        XCTAssertFalse(
+            AttachmentPreviewAdmission.canBegin(
+                isRequestInFlight: false,
+                presentedAttachmentID: first.id
+            )
+        )
+        await service.endPreview(attachmentID: first.id)
+
+        XCTAssertTrue(
+            AttachmentPreviewAdmission.canBegin(
+                isRequestInFlight: false,
+                presentedAttachmentID: nil
+            )
+        )
+        _ = try await service.beginPreview(second)
+        await service.endPreview(attachmentID: second.id)
+
+        try await service.deleteAttachment(first)
+        try await service.deleteAttachment(second)
+        let remaining = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testActivePreviewGloballyBlocksAnotherPreviewAndDeletionUntilReleased() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Global-Preview-Lease-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: AttachmentFileStore(rootURL: root),
+            onRecoveryRequired: {}
+        )
+        let entryID = UUID()
+        try await service.addJourneyEntry(
+            AddJourneyEntryCommand(
+                recordID: entryID,
+                text: "预览释放前全局阻塞",
+                kind: .moment,
+                occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC"
+            ),
+            attachmentDrafts: [
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46, 0x01]),
+                    filename: "first.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                ),
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46, 0x02]),
+                    filename: "second.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                ),
+            ]
+        )
+        let attachments = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertEqual(attachments.count, 2)
+        let first = attachments[0]
+        let second = attachments[1]
+
+        _ = try await service.beginPreview(first)
+
+        do {
+            _ = try await service.beginPreview(second)
+            await service.endPreview(attachmentID: second.id)
+            XCTFail("An active preview must block a different preview")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .mutationInProgress
+            )
+        }
+
+        do {
+            try await service.deleteAttachment(second)
+            XCTFail("An active preview must block deletion of another attachment")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .previewInProgress
+            )
+        }
+
+        await service.endPreview(attachmentID: first.id)
+        _ = try await service.beginPreview(second)
+        await service.endPreview(attachmentID: second.id)
+
+        try await service.deleteAttachment(first)
+        try await service.deleteAttachment(second)
+        let remaining = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testExternallyInvalidatedAttachmentServiceRejectsMutationPreviewAndDelete() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-External-Recovery-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recoveryLatch = AttachmentMutationRecoveryLatch()
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: AttachmentFileStore(rootURL: root),
+            recoveryLatch: recoveryLatch,
+            onRecoveryRequired: {}
+        )
+        let attachment = AttachmentSnapshot(
+            id: UUID(),
+            ownerType: .journeyEntry,
+            ownerID: UUID(),
+            relativePath: "Attachments/placeholder/file.pdf",
+            originalFilename: "file.pdf",
+            typeIdentifier: UTType.pdf.identifier,
+            byteCount: 1,
+            sha256Hex: String(repeating: "0", count: 64),
+            createdAt: Date()
+        )
+
+        recoveryLatch.invalidate()
+
+        do {
+            try await service.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    text: "不应写入",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: []
+            )
+            XCTFail("Mutation must be rejected after external Recovery")
+        } catch {
+            XCTAssertEqual(error as? AttachmentMutationFailure, .recoveryRequired)
+        }
+        do {
+            _ = try await service.beginPreview(attachment)
+            XCTFail("Preview must be rejected after external Recovery")
+        } catch {
+            XCTAssertEqual(error as? AttachmentMutationFailure, .recoveryRequired)
+        }
+        do {
+            try await service.deleteAttachment(attachment)
+            XCTFail("Delete must be rejected after external Recovery")
+        } catch {
+            XCTAssertEqual(error as? AttachmentMutationFailure, .recoveryRequired)
+        }
+    }
+
+    func testExternalRecoveryDuringCommittedMutationFinalizesFilesButDoesNotReturnSuccess() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let gate = AttachmentMutationGate()
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: {
+                await gate.block()
+                return true
+            },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Inflight-Recovery-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recoveryLatch = AttachmentMutationRecoveryLatch()
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: AttachmentFileStore(rootURL: root),
+            recoveryLatch: recoveryLatch,
+            onRecoveryRequired: {}
+        )
+        let entryID = UUID()
+        let mutation = Task {
+            try await service.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    recordID: entryID,
+                    text: "提交后进入 Recovery",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: [
+                    AttachmentDraft(
+                        data: Data([0x25, 0x50, 0x44, 0x46]),
+                        filename: "报告.pdf",
+                        typeIdentifier: UTType.pdf.identifier
+                    )
+                ]
+            )
+        }
+        await gate.waitUntilBlocked()
+
+        recoveryLatch.invalidate()
+        await gate.release()
+
+        do {
+            try await mutation.value
+            XCTFail("An in-flight mutation must not report success after Recovery")
+        } catch {
+            XCTAssertEqual(error as? AttachmentMutationFailure, .recoveryRequired)
+        }
+        let attachments = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertEqual(attachments.count, 1)
+        let journalDirectory = root.appendingPathComponent(
+            ".staging",
+            isDirectory: true
+        )
+        let journalEntries = try FileManager.default.contentsOfDirectory(
+            atPath: journalDirectory.path
+        )
+        XCTAssertTrue(journalEntries.isEmpty)
+    }
+
+    func testAttachmentMutationServiceRequiresRecoveryWhenDeletionRollbackFails() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Delete-Recovery-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileStore = AttachmentFileStore(
+            rootURL: root,
+            failureInjection: .rollbackDeletion
+        )
+        let recovery = AttachmentRecoveryRecorder()
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: fileStore,
+            onRecoveryRequired: {
+                await recovery.record()
+            }
+        )
+        let sampleID = UUID()
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: Date(timeIntervalSince1970: 1_735_732_860),
+            timeZoneIdentifier: "UTC",
+            precision: .minute,
+            provenance: .userEntered
+        )
+        _ = try await service.createLabSample(
+            CreateLabSampleCommand(
+                operationID: UUID(),
+                sampleID: sampleID,
+                timestamp: timestamp,
+                newDefinitions: [],
+                results: []
+            ),
+            attachmentDrafts: [
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46]),
+                    filename: "唯一报告.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                )
+            ]
+        )
+        let saved = try await reader.attachments(
+            ownerType: .labSample,
+            ownerID: sampleID
+        )
+        let attachment = try XCTUnwrap(saved.first)
+
+        do {
+            try await service.deleteAttachment(attachment)
+            XCTFail("A failed rollback must require Recovery")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .recoveryRequired
+            )
+        }
+        let recoveryCount = await recovery.callCount()
+        XCTAssertEqual(recoveryCount, 1)
+    }
+
+    func testAttachmentMutationServiceRequiresRecoveryWhenDeletionFinalizationFails() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Delete-Finalization-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileStore = AttachmentFileStore(
+            rootURL: root,
+            failureInjection: .finalizeDeletion
+        )
+        let recovery = AttachmentRecoveryRecorder()
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: fileStore,
+            onRecoveryRequired: {
+                await recovery.record()
+            }
+        )
+        let entryID = UUID()
+        try await service.addJourneyEntry(
+            AddJourneyEntryCommand(
+                recordID: entryID,
+                text: "删除收尾失败",
+                kind: .moment,
+                occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC"
+            ),
+            attachmentDrafts: [
+                AttachmentDraft(
+                    data: Data([0x25, 0x50, 0x44, 0x46]),
+                    filename: "报告.pdf",
+                    typeIdentifier: UTType.pdf.identifier
+                )
+            ]
+        )
+        let saved = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        let attachment = try XCTUnwrap(saved.first)
+
+        do {
+            try await service.deleteAttachment(attachment)
+            XCTFail("Deletion finalization failure must require Recovery")
+        } catch {
+            XCTAssertEqual(
+                error as? AttachmentMutationFailure,
+                .recoveryRequired
+            )
+        }
+        let remaining = try await reader.attachments(
+            ownerType: .journeyEntry,
+            ownerID: entryID
+        )
+        XCTAssertTrue(remaining.isEmpty)
+        let recoveryCount = await recovery.callCount()
+        XCTAssertEqual(recoveryCount, 1)
+    }
+
     func testStatusMetricsAreCappedAndObservationsUseNeutralFourLevelScale() async throws {
         let container = try preparedContainer()
         let writer = AppWriteActor(modelContainer: container)
@@ -724,13 +1521,25 @@ final class PersonalTimelineFeatureTests: XCTestCase {
         }
     }
 
-    func testAttachmentOwnerCapacityRejectsBatchBeforeCreatingStagingFiles() throws {
+    func testAttachmentOwnerCapacityRejectsBatchBeforeCreatingStagingFiles() async throws {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "Unmanual-Attachment-Owner-Limit-\(UUID().uuidString)"
             )
         defer { try? FileManager.default.removeItem(at: root) }
         let store = AttachmentFileStore(rootURL: root)
+        let service = AttachmentMutationService(
+            writer: writer,
+            fileStore: store,
+            onRecoveryRequired: {}
+        )
         let twentyMiB = Data(
             repeating: 0x01,
             count: Int(AttachmentFileStore.maximumFileBytes)
@@ -758,9 +1567,19 @@ final class PersonalTimelineFeatureTests: XCTestCase {
             )
         ]
 
-        XCTAssertThrowsError(
-            try prepareAttachmentMetadata(drafts, fileStore: store)
-        ) { error in
+        do {
+            try await service.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    text: "容量门禁",
+                    kind: .moment,
+                    occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                    regimenVersionID: nil,
+                    timeZoneIdentifier: "UTC"
+                ),
+                attachmentDrafts: drafts
+            )
+            XCTFail("Owner capacity must be checked before staging")
+        } catch {
             XCTAssertEqual(
                 error as? AttachmentFileStoreFailure,
                 .ownerLimitReached
@@ -909,6 +1728,55 @@ final class PersonalTimelineFeatureTests: XCTestCase {
                 .fileTooLarge
             )
         }
+    }
+
+    func testAttachmentImportPreservesHEICBytesAndTypeBeforeStaging() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-HEIC-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let originalBytes = Data([
+            0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+            0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
+        ])
+        let sourceURL = root.appendingPathComponent("original.heic")
+        try originalBytes.write(to: sourceURL)
+
+        let payload = try AttachmentImportFacts.loadBoundedFile(at: sourceURL)
+
+        XCTAssertEqual(payload.data, originalBytes)
+        XCTAssertEqual(payload.typeIdentifier, UTType.heic.identifier)
+    }
+
+    func testAttachmentFileImportWorkerAppliesOwnerCapacityOffMainActor() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "Unmanual-Attachment-Import-Worker-\(UUID().uuidString)"
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let first = root.appendingPathComponent("first.pdf")
+        let second = root.appendingPathComponent("second.pdf")
+        try Data([0x25, 0x50, 0x44, 0x46]).write(to: first)
+        try Data([0x25, 0x50, 0x44, 0x46, 0x01]).write(to: second)
+
+        let result = await AttachmentFileImportWorker.shared.load(
+            urls: [first, second],
+            existingByteCounts: Array(repeating: 1, count: 5)
+        )
+
+        XCTAssertEqual(result.items.count, 1)
+        XCTAssertEqual(result.items.first?.filename, "first.pdf")
+        XCTAssertEqual(result.failureCount, 1)
     }
 
     func testAttachmentProtectionAndBackupPolicyReadBackAcrossTransactionFiles() throws {
@@ -1166,6 +2034,92 @@ final class PersonalTimelineFeatureTests: XCTestCase {
             ownerID: sampleID
         )
         XCTAssertEqual(fiveAttachments.count, 5)
+    }
+
+    func testAttachmentReaderFailsClosedWhenOwnerHasMoreThanSixActiveFiles() async throws {
+        let container = try preparedContainer()
+        let writer = AppWriteActor(modelContainer: container)
+        let reader = AppReadActor(modelContainer: container)
+        let entryID = UUID()
+        try await writer.addJourneyEntry(
+            AddJourneyEntryCommand(
+                recordID: entryID,
+                text: "损坏夹具",
+                kind: .moment,
+                occurredAt: Date(timeIntervalSince1970: 1_735_732_860),
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC"
+            )
+        )
+        for index in 0..<7 {
+            let attachmentID = UUID()
+            container.mainContext.insert(
+                AttachmentRecord(
+                    id: attachmentID,
+                    ownerType: .journeyEntry,
+                    ownerID: entryID,
+                    relativePath:
+                        "Attachments/\(attachmentID.uuidString.lowercased())/payload.pdf",
+                    originalFilename: "report-\(index).pdf",
+                    typeIdentifier: UTType.pdf.identifier,
+                    byteCount: 1,
+                    sha256Hex: String(repeating: "a", count: 64),
+                    operationID: UUID(),
+                    createdAt: Date(timeIntervalSince1970: 1_735_732_860)
+                )
+            )
+        }
+        try container.mainContext.save()
+
+        do {
+            _ = try await reader.attachments(
+                ownerType: .journeyEntry,
+                ownerID: entryID
+            )
+            XCTFail("Corrupt owner capacity must fail closed")
+        } catch {
+            XCTAssertEqual(error as? AppDataFailure, .corruptionSuspected)
+        }
+
+        let extraID = UUID()
+        do {
+            _ = try await writer.addAttachmentMetadata(
+                AddAttachmentMetadataCommand(
+                    operationID: UUID(),
+                    attachmentID: extraID,
+                    ownerType: .journeyEntry,
+                    ownerID: entryID,
+                    relativePath:
+                        "Attachments/\(extraID.uuidString.lowercased())/payload.pdf",
+                    originalFilename: "extra.pdf",
+                    typeIdentifier: UTType.pdf.identifier,
+                    byteCount: 1,
+                    sha256Hex: String(repeating: "b", count: 64)
+                )
+            )
+            XCTFail("A write against corrupt owner capacity must fail closed")
+        } catch {
+            XCTAssertEqual(error as? AppDataFailure, .corruptionSuspected)
+        }
+    }
+
+    func testLabDefinitionReaderRejectsUnknownPersistedKind() async throws {
+        let container = try preparedContainer()
+        let definition = LabItemDefinitionRecord(
+            displayName: "损坏定义",
+            code: "BROKEN"
+        )
+        definition.kindRawValue = "future-unknown-kind"
+        container.mainContext.insert(definition)
+        try container.mainContext.save()
+        let reader = AppReadActor(modelContainer: container)
+
+        do {
+            _ = try await reader.labItemDefinitions()
+            XCTFail("Unknown persisted kinds must not be treated as custom")
+        } catch {
+            XCTAssertEqual(error as? AppDataFailure, .corruptionSuspected)
+        }
     }
 
     func testAttachmentOnlyLabRejectsDeletingItsLastReadyAttachment() async throws {
@@ -2203,5 +3157,40 @@ final class PersonalTimelineFeatureTests: XCTestCase {
             )
         )
         return sampleID
+    }
+}
+
+private actor AttachmentRecoveryRecorder {
+    private var count = 0
+
+    func record() {
+        count += 1
+    }
+
+    func callCount() -> Int {
+        count
+    }
+}
+
+private actor AttachmentMutationGate {
+    private var isBlocked = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func block() async {
+        isBlocked = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilBlocked() async {
+        while !isBlocked {
+            await Task.yield()
+        }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
     }
 }

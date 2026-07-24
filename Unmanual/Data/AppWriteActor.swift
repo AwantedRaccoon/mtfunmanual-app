@@ -69,6 +69,7 @@ struct AddJourneyEntryCommand: Sendable {
     let regimenVersionID: UUID?
     let timeZoneIdentifier: String
     let committedAt: Date
+    let attachments: [PreparedAttachmentMetadata]
 
     init(
         recordID: UUID = UUID(),
@@ -77,7 +78,8 @@ struct AddJourneyEntryCommand: Sendable {
         occurredAt: Date,
         regimenVersionID: UUID?,
         timeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier,
-        committedAt: Date = Date()
+        committedAt: Date = Date(),
+        attachments: [PreparedAttachmentMetadata] = []
     ) {
         self.recordID = recordID
         self.text = text
@@ -86,6 +88,7 @@ struct AddJourneyEntryCommand: Sendable {
         self.regimenVersionID = regimenVersionID
         self.timeZoneIdentifier = timeZoneIdentifier
         self.committedAt = committedAt
+        self.attachments = attachments
     }
 }
 
@@ -445,6 +448,8 @@ actor AppWriteActor {
         let cleanText = command.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let recordID = command.recordID
         guard !cleanText.isEmpty else { throw AppWriteFailure.invalidInput }
+        let attachments = try normalizedJourneyAttachments(command.attachments)
+        try validateJourneyAttachmentIDs(attachments)
         let timestamp: HistoricalTimestamp
         do {
             timestamp = try HistoricalTimestamp.captured(
@@ -467,6 +472,7 @@ actor AppWriteActor {
                 guard try modelContext.fetch(duplicateDescriptor).isEmpty else {
                     throw AppWriteFailure.staleRecord
                 }
+                try validateJourneyAttachmentIDs(attachments)
                 let association = try resolvedAssociationForWrite(timestamp: timestamp)
                 let entry = JourneyEntry(
                     id: command.recordID,
@@ -484,6 +490,52 @@ actor AppWriteActor {
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
+                for input in attachments {
+                    let attachment = AttachmentRecord(
+                        id: input.attachmentID,
+                        ownerType: .journeyEntry,
+                        ownerID: entry.id,
+                        relativePath: input.relativePath,
+                        originalFilename: input.filename,
+                        typeIdentifier: input.typeIdentifier,
+                        byteCount: input.byteCount,
+                        sha256Hex: input.sha256Hex,
+                        operationID: input.operationID,
+                        createdAt: command.committedAt
+                    )
+                    modelContext.insert(attachment)
+                    try upsertRevision(
+                        recordType: "AttachmentRecord",
+                        recordID: attachment.id,
+                        fields: try AttachmentDigestV1.record(attachment),
+                        reservation: reservation,
+                        committedAt: command.committedAt
+                    )
+                    let attachmentCommand = AddAttachmentMetadataCommand(
+                        operationID: input.operationID,
+                        attachmentID: input.attachmentID,
+                        ownerType: .journeyEntry,
+                        ownerID: entry.id,
+                        relativePath: input.relativePath,
+                        originalFilename: input.filename,
+                        typeIdentifier: input.typeIdentifier,
+                        byteCount: input.byteCount,
+                        sha256Hex: input.sha256Hex,
+                        committedAt: command.committedAt
+                    )
+                    try insertOperationReceipt(
+                        OperationReceiptRecord(
+                            operationID: input.operationID,
+                            commandDigest: try AttachmentDigestV1.command(
+                                attachmentCommand
+                            ),
+                            resultRecordType: "AttachmentRecord",
+                            resultRecordID: attachment.id,
+                            committedAt: command.committedAt
+                        ),
+                        reservation: reservation
+                    )
+                }
                 try insertHistoricalTimeForWrite(
                     sourceRecordType: "JourneyEntry",
                     sourceRecordID: entry.id,
@@ -499,6 +551,59 @@ actor AppWriteActor {
         } catch {
             modelContext.rollback()
             throw error
+        }
+    }
+
+    private func normalizedJourneyAttachments(
+        _ attachments: [PreparedAttachmentMetadata]
+    ) throws -> [NormalizedPreparedAttachment] {
+        guard attachments.count <= AttachmentFileStore.maximumOwnerFiles,
+              Set(attachments.map(\.attachmentID)).count == attachments.count,
+              Set(attachments.map(\.operationID)).count == attachments.count,
+              Set(attachments.map(\.relativePath)).count == attachments.count else {
+            throw PersonalTimelineWriteFailure.invalidInput
+        }
+        let normalized = try attachments.map(AttachmentMetadataFacts.normalize)
+        let total = normalized.reduce(Int64(0)) { partial, attachment in
+            let addition = partial.addingReportingOverflow(attachment.byteCount)
+            return addition.overflow ? Int64.max : addition.partialValue
+        }
+        guard total <= AttachmentFileStore.maximumOwnerBytes else {
+            throw PersonalTimelineWriteFailure.attachmentLimitReached
+        }
+        return normalized
+    }
+
+    private func validateJourneyAttachmentIDs(
+        _ attachments: [NormalizedPreparedAttachment]
+    ) throws {
+        for attachment in attachments {
+            let attachmentID = attachment.attachmentID
+            var idDescriptor = FetchDescriptor<AttachmentRecord>(
+                predicate: #Predicate { $0.id == attachmentID }
+            )
+            idDescriptor.fetchLimit = 1
+            guard try modelContext.fetch(idDescriptor).isEmpty else {
+                throw AppWriteFailure.staleRecord
+            }
+
+            let relativePath = attachment.relativePath
+            var pathDescriptor = FetchDescriptor<AttachmentRecord>(
+                predicate: #Predicate { $0.relativePath == relativePath }
+            )
+            pathDescriptor.fetchLimit = 1
+            guard try modelContext.fetch(pathDescriptor).isEmpty else {
+                throw AppWriteFailure.staleRecord
+            }
+
+            let operationID = attachment.operationID
+            var receiptDescriptor = FetchDescriptor<OperationReceiptRecord>(
+                predicate: #Predicate { $0.operationID == operationID }
+            )
+            receiptDescriptor.fetchLimit = 1
+            guard try modelContext.fetch(receiptDescriptor).isEmpty else {
+                throw PersonalTimelineWriteFailure.operationConflict
+            }
         }
     }
 

@@ -127,7 +127,10 @@ struct UnmanualApp: App {
                 .modelContainer(session.store.container)
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
-                .environment(\.attachmentFileStore, session.attachmentFileStore)
+                .environment(
+                    \.attachmentMutationService,
+                    session.attachmentMutationService
+                )
                 .environment(
                     \.attachmentIntegrityFailureHandler,
                     AttachmentIntegrityFailureHandler {
@@ -146,7 +149,10 @@ struct UnmanualApp: App {
             rootView
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
-                .environment(\.attachmentFileStore, session.attachmentFileStore)
+                .environment(
+                    \.attachmentMutationService,
+                    session.attachmentMutationService
+                )
                 .environment(
                     \.attachmentIntegrityFailureHandler,
                     AttachmentIntegrityFailureHandler {

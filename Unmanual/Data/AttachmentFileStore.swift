@@ -10,6 +10,7 @@ enum AttachmentFileStoreFailure: Error, Equatable, Sendable {
     case unsafePath
     case inconsistentJournal
     case integrityMismatch
+    case recoveryRequired
     case simulatedInterruption
 }
 
@@ -17,9 +18,108 @@ enum AttachmentFileStoreCommitFailpoint: Equatable, Sendable {
     case afterFinalMoveBeforeJournal
 }
 
+enum AttachmentFileStoreFailureInjection: Equatable, Sendable {
+    case discard
+    case markMetadataCommitted
+    case rollbackDeletion
+    case finalizeDeletion
+}
+
+struct AttachmentDraft: Identifiable, Sendable {
+    let id = UUID()
+    let data: Data
+    let filename: String
+    let typeIdentifier: String
+}
+
 struct BoundedAttachmentPayload: Equatable, Sendable {
     let data: Data
     let typeIdentifier: String
+}
+
+struct AttachmentFileImportItem: Sendable {
+    let data: Data
+    let filename: String
+    let typeIdentifier: String
+}
+
+struct AttachmentFileImportResult: Sendable {
+    let items: [AttachmentFileImportItem]
+    let failureCount: Int
+}
+
+final class AttachmentFileImportWorker: @unchecked Sendable {
+    static let shared = AttachmentFileImportWorker()
+
+    private let queue = DispatchQueue(
+        label: "com.mtfbook.unmanual.attachment-file-import",
+        qos: .userInitiated
+    )
+
+    private init() {}
+
+    func load(
+        urls: [URL],
+        existingByteCounts: [Int64]
+    ) async -> AttachmentFileImportResult {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(
+                    returning: Self.loadSynchronously(
+                        urls: urls,
+                        existingByteCounts: existingByteCounts
+                    )
+                )
+            }
+        }
+    }
+
+    private static func loadSynchronously(
+        urls: [URL],
+        existingByteCounts: [Int64]
+    ) -> AttachmentFileImportResult {
+        let remainingSlots = max(
+            0,
+            AttachmentFileStore.maximumOwnerFiles
+                - existingByteCounts.count
+        )
+        var failureCount = max(0, urls.count - remainingSlots)
+        var items: [AttachmentFileImportItem] = []
+        for url in urls.prefix(remainingSlots) {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            do {
+                let payload = try AttachmentImportFacts.loadBoundedFile(
+                    at: url
+                )
+                guard AttachmentOwnerCapacity.canAppend(
+                    byteCount: Int64(payload.data.count),
+                    to: existingByteCounts
+                        + items.map { Int64($0.data.count) }
+                ) else {
+                    failureCount += 1
+                    continue
+                }
+                items.append(
+                    AttachmentFileImportItem(
+                        data: payload.data,
+                        filename: url.lastPathComponent,
+                        typeIdentifier: payload.typeIdentifier
+                    )
+                )
+            } catch {
+                failureCount += 1
+            }
+        }
+        return AttachmentFileImportResult(
+            items: items,
+            failureCount: failureCount
+        )
+    }
 }
 
 enum AttachmentImportFacts {
@@ -189,6 +289,15 @@ struct AttachmentFileStore: Sendable {
     static let maximumOwnerFiles = 6
 
     let rootURL: URL
+    let failureInjection: AttachmentFileStoreFailureInjection?
+
+    init(
+        rootURL: URL,
+        failureInjection: AttachmentFileStoreFailureInjection? = nil
+    ) {
+        self.rootURL = rootURL
+        self.failureInjection = failureInjection
+    }
 
     private var stagingRoot: URL {
         rootURL.appendingPathComponent(".staging", isDirectory: true)
@@ -258,7 +367,14 @@ struct AttachmentFileStore: Sendable {
             try data.write(to: stagingURL, options: [.atomic, .completeFileProtection])
             try hardenAndValidateRegularFile(at: stagingURL)
         } catch {
-            try? removeOperationArtifacts(operationID: operationID, removeFinal: true)
+            do {
+                try removeOperationArtifacts(
+                    operationID: operationID,
+                    removeFinal: true
+                )
+            } catch {
+                throw AttachmentFileStoreFailure.recoveryRequired
+            }
             throw error
         }
         return AttachmentStagedFile(
@@ -337,6 +453,9 @@ struct AttachmentFileStore: Sendable {
     func markMetadataCommitted(
         _ metadata: PreparedAttachmentMetadata
     ) throws {
+        if failureInjection == .markMetadataCommitted {
+            throw AttachmentFileStoreFailure.simulatedInterruption
+        }
         guard let journal = try loadJournal(operationID: metadata.operationID),
               journal.action == .importFile,
               journal.phase == .finalReady,
@@ -381,6 +500,9 @@ struct AttachmentFileStore: Sendable {
     }
 
     func discard(operationID: UUID) throws {
+        if failureInjection == .discard {
+            throw AttachmentFileStoreFailure.simulatedInterruption
+        }
         guard let journal = try loadJournal(operationID: operationID) else { return }
         guard journal.action == .importFile else {
             throw AttachmentFileStoreFailure.inconsistentJournal
@@ -448,7 +570,11 @@ struct AttachmentFileStore: Sendable {
                 trashURL: trashURL
             )
         } catch {
-            try? rollbackDeletion(operationID: operationID)
+            do {
+                try rollbackDeletion(operationID: operationID)
+            } catch {
+                throw AttachmentFileStoreFailure.recoveryRequired
+            }
             throw error
         }
     }
@@ -456,6 +582,9 @@ struct AttachmentFileStore: Sendable {
     func finalizeDeletion(
         _ deletion: AttachmentStagedDeletion
     ) throws {
+        if failureInjection == .finalizeDeletion {
+            throw AttachmentFileStoreFailure.simulatedInterruption
+        }
         let operationID = deletion.operationID
         let attachment = deletion.attachment
         guard let journal = try loadJournal(operationID: operationID),
@@ -494,6 +623,9 @@ struct AttachmentFileStore: Sendable {
     }
 
     func rollbackDeletion(operationID: UUID) throws {
+        if failureInjection == .rollbackDeletion {
+            throw AttachmentFileStoreFailure.simulatedInterruption
+        }
         guard let journal = try loadJournal(operationID: operationID) else { return }
         guard journal.action == .deleteFile else {
             throw AttachmentFileStoreFailure.inconsistentJournal
@@ -1154,14 +1286,441 @@ enum AttachmentOwnerCapacity {
     }
 }
 
-private struct AttachmentFileStoreEnvironmentKey: EnvironmentKey {
-    static let defaultValue: AttachmentFileStore? = nil
+enum AttachmentMutationFailure: Error, Equatable, Sendable {
+    case mutationInProgress
+    case previewInProgress
+    case recoveryRequired
+}
+
+final class AttachmentMutationRecoveryLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var invalidated = false
+
+    var isInvalidated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return invalidated
+    }
+
+    func invalidate() {
+        lock.lock()
+        invalidated = true
+        lock.unlock()
+    }
+}
+
+actor AttachmentMutationService {
+    private let writer: AppDataWriter
+    private let fileStore: AttachmentFileStore
+    private let ioQueue: AttachmentBlockingIOQueue
+    private let recoveryLatch: AttachmentMutationRecoveryLatch
+    private let onRecoveryRequired: @Sendable () async -> Void
+    private var hasNotifiedRecovery = false
+    private var mutationLeaseHeld = false
+    private var deletingAttachmentIDs: Set<UUID> = []
+    private var previewingAttachmentIDs: Set<UUID> = []
+
+    init(
+        writer: AppDataWriter,
+        fileStore: AttachmentFileStore,
+        recoveryLatch: AttachmentMutationRecoveryLatch =
+            AttachmentMutationRecoveryLatch(),
+        onRecoveryRequired: @escaping @Sendable () async -> Void
+    ) {
+        self.writer = writer
+        self.fileStore = fileStore
+        self.ioQueue = AttachmentBlockingIOQueue()
+        self.recoveryLatch = recoveryLatch
+        self.onRecoveryRequired = onRecoveryRequired
+    }
+
+    func addJourneyEntry(
+        _ command: AddJourneyEntryCommand,
+        attachmentDrafts: [AttachmentDraft]
+    ) async throws {
+        guard command.attachments.isEmpty else {
+            throw PersonalTimelineWriteFailure.invalidInput
+        }
+        _ = try await commit(
+            attachmentDrafts: attachmentDrafts
+        ) { [writer] prepared in
+            try await writer.addJourneyEntry(
+                AddJourneyEntryCommand(
+                    recordID: command.recordID,
+                    text: command.text,
+                    kind: command.kind,
+                    occurredAt: command.occurredAt,
+                    regimenVersionID: command.regimenVersionID,
+                    timeZoneIdentifier: command.timeZoneIdentifier,
+                    committedAt: command.committedAt,
+                    attachments: prepared
+                )
+            )
+        }
+    }
+
+    func createLabSample(
+        _ command: CreateLabSampleCommand,
+        attachmentDrafts: [AttachmentDraft]
+    ) async throws -> LabSampleCommitResult {
+        guard command.attachments.isEmpty else {
+            throw PersonalTimelineWriteFailure.invalidInput
+        }
+        return try await commit(
+            attachmentDrafts: attachmentDrafts
+        ) { [writer] prepared in
+            try await writer.createLabSample(
+                CreateLabSampleCommand(
+                    operationID: command.operationID,
+                    sampleID: command.sampleID,
+                    timestamp: command.timestamp,
+                    specimenOriginal: command.specimenOriginal,
+                    contextNote: command.contextNote,
+                    newDefinitions: command.newDefinitions,
+                    results: command.results,
+                    attachments: prepared,
+                    committedAt: command.committedAt
+                )
+            )
+        }
+    }
+
+    func recordStatusObservation(
+        _ command: RecordStatusObservationCommand,
+        attachmentDrafts: [AttachmentDraft]
+    ) async throws -> StatusObservationCommitResult {
+        guard command.attachments.isEmpty else {
+            throw PersonalTimelineWriteFailure.invalidInput
+        }
+        return try await commit(
+            attachmentDrafts: attachmentDrafts
+        ) { [writer] prepared in
+            try await writer.recordStatusObservation(
+                RecordStatusObservationCommand(
+                    operationID: command.operationID,
+                    observationID: command.observationID,
+                    metricDefinitionID: command.metricDefinitionID,
+                    newMetric: command.newMetric,
+                    ordinalLevel: command.ordinalLevel,
+                    note: command.note,
+                    timestamp: command.timestamp,
+                    attachments: prepared,
+                    committedAt: command.committedAt
+                )
+            )
+        }
+    }
+
+    func beginPreview(_ attachment: AttachmentSnapshot) async throws -> URL {
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard !deletingAttachmentIDs.contains(attachment.id),
+              previewingAttachmentIDs.isEmpty else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        guard acquireMutationLease() else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        defer { releaseMutationLease() }
+        previewingAttachmentIDs.insert(attachment.id)
+        do {
+            let url = try await ioQueue.perform { [fileStore] in
+                try fileStore.auditedFileURL(for: attachment)
+            }
+            guard !recoveryLatch.isInvalidated else {
+                previewingAttachmentIDs.remove(attachment.id)
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            return url
+        } catch {
+            previewingAttachmentIDs.remove(attachment.id)
+            if error as? AttachmentMutationFailure == .recoveryRequired {
+                throw error
+            }
+            await requireRecovery()
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+    }
+
+    func endPreview(attachmentID: UUID) {
+        previewingAttachmentIDs.remove(attachmentID)
+    }
+
+    func deleteAttachment(_ attachment: AttachmentSnapshot) async throws {
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard previewingAttachmentIDs.isEmpty else {
+            throw AttachmentMutationFailure.previewInProgress
+        }
+        guard acquireMutationLease() else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        defer { releaseMutationLease() }
+        guard deletingAttachmentIDs.insert(attachment.id).inserted else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        defer {
+            deletingAttachmentIDs.remove(attachment.id)
+        }
+
+        let operationID = UUID()
+        let deletion: AttachmentStagedDeletion
+        do {
+            deletion = try await ioQueue.perform { [fileStore] in
+                try fileStore.stageDeletion(
+                    attachment: attachment,
+                    operationID: operationID
+                )
+            }
+        } catch {
+            await requireRecovery()
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        if recoveryLatch.isInvalidated {
+            do {
+                try await ioQueue.perform { [fileStore] in
+                    try fileStore.rollbackDeletion(operationID: operationID)
+                }
+            } catch {
+                await requireRecovery()
+            }
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+
+        do {
+            _ = try await writer.deleteAttachment(
+                DeleteAttachmentCommand(
+                    operationID: operationID,
+                    attachmentID: attachment.id
+                )
+            )
+        } catch {
+            let recoveryWasRequired = recoveryLatch.isInvalidated
+            do {
+                try await ioQueue.perform { [fileStore] in
+                    try fileStore.rollbackDeletion(operationID: operationID)
+                }
+            } catch {
+                await requireRecovery()
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            if recoveryWasRequired {
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            throw error
+        }
+
+        do {
+            try await ioQueue.perform { [fileStore] in
+                try fileStore.finalizeDeletion(deletion)
+            }
+        } catch {
+            await requireRecovery()
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+    }
+
+    private func commit<Output: Sendable>(
+        attachmentDrafts: [AttachmentDraft],
+        databaseWrite: @escaping @Sendable (
+            [PreparedAttachmentMetadata]
+        ) async throws -> Output
+    ) async throws -> Output {
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard acquireMutationLease() else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        defer { releaseMutationLease() }
+        let prepared: [PreparedAttachmentMetadata]
+        do {
+            prepared = try await ioQueue.perform { [fileStore] in
+                try Self.prepare(
+                    attachmentDrafts,
+                    fileStore: fileStore
+                )
+            }
+        } catch {
+            try await propagatePreparationFailure(error)
+        }
+        if recoveryLatch.isInvalidated {
+            do {
+                try await ioQueue.perform { [fileStore] in
+                    try Self.discard(
+                        prepared,
+                        fileStore: fileStore
+                    )
+                }
+            } catch {
+                await requireRecovery()
+            }
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+
+        let output: Output
+        do {
+            output = try await databaseWrite(prepared)
+        } catch {
+            let recoveryWasRequired = recoveryLatch.isInvalidated
+            do {
+                try await ioQueue.perform { [fileStore] in
+                    try Self.discard(
+                        prepared,
+                        fileStore: fileStore
+                    )
+                }
+            } catch {
+                await requireRecovery()
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            if recoveryWasRequired {
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            throw error
+        }
+
+        do {
+            try await ioQueue.perform { [fileStore] in
+                for attachment in prepared {
+                    try fileStore.markMetadataCommitted(attachment)
+                }
+            }
+        } catch {
+            await requireRecovery()
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        return output
+    }
+
+    private static func prepare(
+        _ drafts: [AttachmentDraft],
+        fileStore: AttachmentFileStore
+    ) throws -> [PreparedAttachmentMetadata] {
+        try AttachmentOwnerCapacity.validate(
+            byteCounts: drafts.map { Int64($0.data.count) }
+        )
+        var prepared: [PreparedAttachmentMetadata] = []
+        do {
+            for draft in drafts {
+                let staged = try fileStore.stage(
+                    data: draft.data,
+                    attachmentID: UUID(),
+                    originalFilename: draft.filename,
+                    typeIdentifier: draft.typeIdentifier,
+                    operationID: UUID()
+                )
+                let metadata = PreparedAttachmentMetadata(staged)
+                prepared.append(metadata)
+                _ = try fileStore.commit(staged)
+            }
+            return prepared
+        } catch {
+            do {
+                try discard(prepared, fileStore: fileStore)
+            } catch {
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            throw error
+        }
+    }
+
+    private static func discard(
+        _ attachments: [PreparedAttachmentMetadata],
+        fileStore: AttachmentFileStore
+    ) throws {
+        var firstFailure: Error?
+        for attachment in attachments {
+            do {
+                try fileStore.discard(operationID: attachment.operationID)
+            } catch {
+                if firstFailure == nil { firstFailure = error }
+            }
+        }
+        if firstFailure != nil {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+    }
+
+    private func propagatePreparationFailure(
+        _ error: Error
+    ) async throws -> Never {
+        if Self.requiresRecovery(error) {
+            await requireRecovery()
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        throw error
+    }
+
+    private static func requiresRecovery(_ error: Error) -> Bool {
+        if error as? AttachmentMutationFailure == .recoveryRequired {
+            return true
+        }
+        switch error as? AttachmentFileStoreFailure {
+        case .integrityMismatch, .inconsistentJournal, .unsafePath,
+             .recoveryRequired:
+            return true
+        case .invalidInput, .fileTooLarge, .ownerLimitReached,
+             .simulatedInterruption, .none:
+            return false
+        }
+    }
+
+    private func requireRecovery() async {
+        recoveryLatch.invalidate()
+        guard !hasNotifiedRecovery else { return }
+        hasNotifiedRecovery = true
+        await onRecoveryRequired()
+    }
+
+    private func acquireMutationLease() -> Bool {
+        guard !mutationLeaseHeld else { return false }
+        mutationLeaseHeld = true
+        return true
+    }
+
+    private func releaseMutationLease() {
+        mutationLeaseHeld = false
+    }
+}
+
+private final class AttachmentBlockingIOQueue: @unchecked Sendable {
+    private let queue = DispatchQueue(
+        label: "com.mtfbook.unmanual.attachment-io",
+        qos: .userInitiated
+    )
+
+    func perform<Output: Sendable>(
+        _ operation: @escaping @Sendable () throws -> Output
+    ) async throws -> Output {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    continuation.resume(returning: try operation())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+}
+
+private struct AttachmentMutationServiceEnvironmentKey: EnvironmentKey {
+    static let defaultValue: AttachmentMutationService? = nil
 }
 
 extension EnvironmentValues {
-    var attachmentFileStore: AttachmentFileStore? {
-        get { self[AttachmentFileStoreEnvironmentKey.self] }
-        set { self[AttachmentFileStoreEnvironmentKey.self] = newValue }
+    var attachmentMutationService: AttachmentMutationService? {
+        get { self[AttachmentMutationServiceEnvironmentKey.self] }
+        set { self[AttachmentMutationServiceEnvironmentKey.self] = newValue }
     }
 }
 

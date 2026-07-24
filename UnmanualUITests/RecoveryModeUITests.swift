@@ -177,6 +177,14 @@ final class SystemBackupDisclosureUITests: XCTestCase {
 
     func testQuickRecordDisclosureIsReachableAndNotClipped() throws {
         let app = launch(arguments: ["-unmanual-quick-record"])
+        XCTAssertTrue(
+            app.staticTexts["附件"].waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(app.buttons["从照片中选择"].exists)
+        let saveButton = element("quickRecord.save", in: app)
+        XCTAssertTrue(saveButton.exists)
+        XCTAssertFalse(saveButton.isEnabled)
+
         let disclosure = element("quickRecord.backupDisclosure", in: app)
         XCTAssertTrue(disclosure.waitForExistence(timeout: 5))
         scrollToFullyVisible(disclosure, in: app)

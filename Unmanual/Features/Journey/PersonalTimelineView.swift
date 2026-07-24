@@ -1,14 +1,113 @@
 import QuickLook
 import SwiftUI
 
+struct TimelineRequestEpochGate {
+    private(set) var currentToken = 0
+
+    mutating func beginRefresh() -> Int {
+        currentToken &+= 1
+        return currentToken
+    }
+
+    func isCurrent(_ token: Int) -> Bool {
+        token == currentToken
+    }
+}
+
+enum TimelineReadContext {
+    case firstPage
+    case olderPage
+}
+
+enum TimelineReadFailureAction: Equatable {
+    case ignore
+    case retryable(String)
+    case requireRecovery(String)
+}
+
+enum TimelineReadFailurePolicy {
+    static func action(
+        for error: Error,
+        context: TimelineReadContext,
+        requestIsCurrent: Bool
+    ) -> TimelineReadFailureAction {
+        guard requestIsCurrent else { return .ignore }
+        if error as? AppDataFailure == .corruptionSuspected {
+            return .requireRecovery(
+                "时间线没有通过本地完整性检查。App 将进入恢复模式，不会把损坏资料显示成空状态。"
+            )
+        }
+        switch context {
+        case .firstPage:
+            return .retryable("暂时无法读取时间线，原记录没有被修改。")
+        case .olderPage:
+            return .retryable("暂时无法读取更早的记录，请稍后重试。")
+        }
+    }
+}
+
+struct AttachmentPreviewRequestGate {
+    private var currentToken = 0
+    private var isActive = true
+
+    mutating func begin() -> Int {
+        currentToken &+= 1
+        return currentToken
+    }
+
+    mutating func activate() {
+        currentToken &+= 1
+        isActive = true
+    }
+
+    mutating func invalidate() {
+        currentToken &+= 1
+        isActive = false
+    }
+
+    func mayPresent(_ token: Int) -> Bool {
+        isActive && token == currentToken
+    }
+}
+
+enum AttachmentPreviewRequestResolution {
+    static func presentableURL(
+        _ auditedURL: URL,
+        attachmentID: UUID,
+        requestToken: Int,
+        gate: AttachmentPreviewRequestGate,
+        isCancelled: Bool = Task.isCancelled,
+        releaseLease: @escaping @Sendable (UUID) async -> Void
+    ) async -> URL? {
+        guard !isCancelled, gate.mayPresent(requestToken) else {
+            await releaseLease(attachmentID)
+            return nil
+        }
+        return auditedURL
+    }
+}
+
+enum AttachmentPreviewAdmission {
+    static func canBegin(
+        isRequestInFlight: Bool,
+        presentedAttachmentID: UUID?
+    ) -> Bool {
+        !isRequestInFlight && presentedAttachmentID == nil
+    }
+}
+
 @MainActor
 struct PersonalTimelineView: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.appReadActor) private var reader
+    @Environment(\.attachmentIntegrityFailureHandler)
+    private var integrityFailureHandler
     @State private var items: [PersonalTimelineItem] = []
     @State private var nextCursor: PersonalTimelineCursor?
     @State private var isLoading = false
+    @State private var requestEpoch = TimelineRequestEpochGate()
     @State private var errorMessage: String?
+    @State private var hasIntegrityFailure = false
     @State private var selectedDetail: PersonalTimelineItem?
 
     let refreshToken: Int
@@ -32,14 +131,24 @@ struct PersonalTimelineView: View {
                     register: "JOURNEY / TIMELINE",
                     title: "旅程",
                     subtitle: "化验、状态、执行与片段，按事实发生的时间放在一起。",
-                    status: items.isEmpty
-                        ? "尚无记录"
-                        : (nextCursor == nil ? "\(items.count) 条记录" : "最近 \(items.count) 条")
+                    status: hasIntegrityFailure
+                        ? "需要检查"
+                        : (
+                            items.isEmpty
+                                ? "尚无记录"
+                                : (
+                                    nextCursor == nil
+                                        ? "\(items.count) 条记录"
+                                        : "最近 \(items.count) 条"
+                                )
+                        )
                 )
-                JourneyPageRecordAction(action: recordAction)
-                    .padding(.top, 14)
+                if !hasIntegrityFailure {
+                    JourneyPageRecordAction(action: recordAction)
+                        .padding(.top, 14)
+                }
 
-                if items.isEmpty, !isLoading {
+                if items.isEmpty, !isLoading, !hasIntegrityFailure {
                     emptyState
                         .padding(.top, 18)
                 } else {
@@ -87,7 +196,7 @@ struct PersonalTimelineView: View {
             }
         }
         .task(id: refreshToken) {
-            await loadFirst()
+            await refreshFirstPage()
             openRequestedDetail()
         }
         .onChange(of: requestedItem?.id) { _, _ in
@@ -109,36 +218,81 @@ struct PersonalTimelineView: View {
         .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
     }
 
-    private func loadFirst() async {
-        guard let reader, !isLoading else { return }
+    private func refreshFirstPage() async {
+        guard let reader else { return }
+        let requestToken = requestEpoch.beginRefresh()
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if requestEpoch.isCurrent(requestToken) {
+                isLoading = false
+            }
+        }
         do {
             let page = try await reader.personalTimelinePage(limit: 50)
+            guard requestEpoch.isCurrent(requestToken) else { return }
             items = page.items
             nextCursor = page.nextCursor
             errorMessage = nil
+            hasIntegrityFailure = false
         } catch {
-            errorMessage = "暂时无法读取时间线，原记录没有被修改。"
+            applyReadFailure(
+                error,
+                context: .firstPage,
+                requestToken: requestToken
+            )
         }
     }
 
     private func loadMore() {
         guard let reader, let cursor = nextCursor, !isLoading else { return }
+        let requestToken = requestEpoch.currentToken
         isLoading = true
         Task {
-            defer { isLoading = false }
+            defer {
+                if requestEpoch.isCurrent(requestToken) {
+                    isLoading = false
+                }
+            }
             do {
                 let page = try await reader.personalTimelinePage(after: cursor, limit: 50)
+                guard requestEpoch.isCurrent(requestToken) else { return }
                 let existing = Set(items.map { "\($0.kind.rawValue):\($0.id)" })
                 items.append(contentsOf: page.items.filter {
                     !existing.contains("\($0.kind.rawValue):\($0.id)")
                 })
                 nextCursor = page.nextCursor
                 errorMessage = nil
+                hasIntegrityFailure = false
             } catch {
-                errorMessage = "暂时无法读取更早的记录，请稍后重试。"
+                applyReadFailure(
+                    error,
+                    context: .olderPage,
+                    requestToken: requestToken
+                )
             }
+        }
+    }
+
+    private func applyReadFailure(
+        _ error: Error,
+        context: TimelineReadContext,
+        requestToken: Int
+    ) {
+        switch TimelineReadFailurePolicy.action(
+            for: error,
+            context: context,
+            requestIsCurrent: requestEpoch.isCurrent(requestToken)
+        ) {
+        case .ignore:
+            return
+        case let .retryable(message):
+            errorMessage = message
+        case let .requireRecovery(message):
+            items = []
+            nextCursor = nil
+            hasIntegrityFailure = true
+            errorMessage = message
+            integrityFailureHandler?()
         }
     }
 
@@ -251,14 +405,21 @@ private struct PersonalTimelineRow: View {
 private struct PersonalTimelineDetailView: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.appReadActor) private var reader
-    @Environment(\.appDataWriter) private var writer
-    @Environment(\.attachmentFileStore) private var attachmentStore
+    @Environment(\.attachmentMutationService) private var attachmentService
     @Environment(\.attachmentIntegrityFailureHandler)
-    private var attachmentIntegrityFailureHandler
+    private var integrityFailureHandler
     @State private var lab: LabSampleSnapshot?
     @State private var status: StatusObservationSnapshot?
     @State private var attachments: [AttachmentSnapshot] = []
+    @State private var hasLoaded = false
+    @State private var detailError: String?
     @State private var previewURL: URL?
+    @State private var previewAttachmentID: UUID?
+    @State private var isPreviewRequestInFlight = false
+    @State private var previewRequestGate = AttachmentPreviewRequestGate()
+    @State private var previewRequestTask: Task<Void, Never>?
+    @State private var previewReleaseTask: Task<Void, Never>?
+    @State private var deletingAttachmentIDs: Set<UUID> = []
     @State private var attachmentError: String?
     let item: PersonalTimelineItem
 
@@ -272,7 +433,29 @@ private struct PersonalTimelineDetailView: View {
                     .foregroundStyle(theme.secondaryText)
                 Rectangle().fill(theme.indigo).frame(height: 2)
 
-                if let lab {
+                if let detailError {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(detailError)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(theme.vermilionText)
+                        Button("重新读取") {
+                            Task { await load() }
+                        }
+                        .buttonStyle(V25SecondaryButtonStyle())
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(theme.paper)
+                    .overlay {
+                        Rectangle().stroke(theme.vermilion, lineWidth: 1.5)
+                    }
+                } else if !hasLoaded {
+                    ProgressView("正在读取本地记录…")
+                        .frame(maxWidth: .infinity, minHeight: 100)
+                } else if let lab {
+                    if let notice = lab.associationState.reviewNotice {
+                        associationReviewNotice(notice)
+                    }
                     if !lab.specimenOriginal.isEmpty {
                         factRow("样本", lab.specimenOriginal)
                     }
@@ -288,10 +471,16 @@ private struct PersonalTimelineDetailView: View {
                             }
                             Text("\(result.rawValueOriginal) \(result.unitOriginal)")
                                 .font(theme.display(22, relativeTo: .title3))
-                            if let range = result.referenceRangeOriginal {
+                            if let range = result.referenceRangeOriginal,
+                               !range.trimmingCharacters(
+                                   in: .whitespacesAndNewlines
+                               ).isEmpty {
                                 factRow("报告参考区间", range)
                             }
-                            if let variant = result.assayOrVariantOriginal {
+                            if let variant = result.assayOrVariantOriginal,
+                               !variant.trimmingCharacters(
+                                   in: .whitespacesAndNewlines
+                               ).isEmpty {
                                 factRow("检测方法 / 变体", variant)
                             }
                         }
@@ -304,6 +493,9 @@ private struct PersonalTimelineDetailView: View {
                         .font(.caption)
                         .foregroundStyle(theme.secondaryText)
                 } else if let status {
+                    if let notice = status.associationState.reviewNotice {
+                        associationReviewNotice(notice)
+                    }
                     factRow("指标", status.metricNameSnapshot)
                     factRow("记录级别", status.levelDisplayText)
                     if !status.note.isEmpty { factRow("备注", status.note) }
@@ -314,25 +506,20 @@ private struct PersonalTimelineDetailView: View {
                     factRow("记录", item.detail)
                 }
 
-                if !attachments.isEmpty {
+                if detailError == nil, !attachments.isEmpty {
                     V25SectionHeader(title: "附件", detail: "\(attachments.count) 个")
                     ForEach(attachments) { attachment in
                         HStack {
                             Button {
-                                guard let attachmentStore else {
+                                guard let attachmentService else {
                                     attachmentError =
                                         "本地附件服务尚未准备好。"
                                     return
                                 }
-                                do {
-                                    previewURL = try attachmentStore
-                                        .auditedFileURL(for: attachment)
-                                    attachmentError = nil
-                                } catch {
-                                    attachmentIntegrityFailureHandler?()
-                                    attachmentError =
-                                        "附件没有通过打开前的完整性检查。App 已暂停本地资料访问。"
-                                }
+                                requestPreview(
+                                    attachment,
+                                    using: attachmentService
+                                )
                             } label: {
                                 HStack {
                                     Image(systemName: "doc")
@@ -349,6 +536,15 @@ private struct PersonalTimelineDetailView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .disabled(
+                                deletingAttachmentIDs.contains(attachment.id)
+                                    || !AttachmentPreviewAdmission.canBegin(
+                                        isRequestInFlight:
+                                            isPreviewRequestInFlight,
+                                        presentedAttachmentID:
+                                            previewAttachmentID
+                                    )
+                            )
                             Button(role: .destructive) {
                                 delete(attachment)
                             } label: {
@@ -356,6 +552,11 @@ private struct PersonalTimelineDetailView: View {
                                     .frame(width: 44, height: 44)
                             }
                             .accessibilityLabel("删除附件 \(attachment.originalFilename)")
+                            .disabled(
+                                deletingAttachmentIDs.contains(attachment.id)
+                                    || isPreviewRequestInFlight
+                                    || previewAttachmentID != nil
+                            )
                         }
                         .overlay(alignment: .bottom) {
                             Rectangle().fill(theme.indigo.opacity(0.4)).frame(height: 1)
@@ -377,7 +578,94 @@ private struct PersonalTimelineDetailView: View {
         .navigationTitle("记录详情")
         .navigationBarTitleDisplayMode(.inline)
         .quickLookPreview($previewURL)
+        .onChange(of: previewURL) { _, newValue in
+            guard newValue == nil, let attachmentService else { return }
+            releasePreviewLease(using: attachmentService)
+        }
+        .onDisappear {
+            previewRequestGate.invalidate()
+            previewRequestTask?.cancel()
+            previewRequestTask = nil
+            guard let attachmentService else {
+                isPreviewRequestInFlight = false
+                return
+            }
+            if previewAttachmentID == nil {
+                isPreviewRequestInFlight = false
+            }
+            releasePreviewLease(using: attachmentService)
+        }
+        .onAppear {
+            previewRequestGate.activate()
+        }
         .task { await load() }
+    }
+
+    private func requestPreview(
+        _ attachment: AttachmentSnapshot,
+        using attachmentService: AttachmentMutationService
+    ) {
+        guard AttachmentPreviewAdmission.canBegin(
+            isRequestInFlight: isPreviewRequestInFlight,
+            presentedAttachmentID: previewAttachmentID
+        ) else { return }
+        isPreviewRequestInFlight = true
+        let requestToken = previewRequestGate.begin()
+        previewRequestTask = Task {
+            do {
+                let auditedURL = try await attachmentService.beginPreview(
+                    attachment
+                )
+                guard let presentableURL =
+                        await AttachmentPreviewRequestResolution.presentableURL(
+                            auditedURL,
+                            attachmentID: attachment.id,
+                            requestToken: requestToken,
+                            gate: previewRequestGate,
+                            releaseLease: { attachmentID in
+                                await attachmentService.endPreview(
+                                    attachmentID: attachmentID
+                                )
+                            }
+                        ) else {
+                    return
+                }
+                previewAttachmentID = attachment.id
+                previewURL = presentableURL
+                isPreviewRequestInFlight = false
+                previewRequestTask = nil
+                attachmentError = nil
+            } catch {
+                guard previewRequestGate.mayPresent(requestToken) else {
+                    return
+                }
+                isPreviewRequestInFlight = false
+                previewRequestTask = nil
+                attachmentError =
+                    error as? AttachmentMutationFailure == .recoveryRequired
+                    ? "附件没有通过打开前的完整性检查。App 已暂停本地资料访问。"
+                    : "附件正在执行另一项操作，请稍后再试。"
+            }
+        }
+    }
+
+    private func releasePreviewLease(
+        using attachmentService: AttachmentMutationService
+    ) {
+        guard previewReleaseTask == nil,
+              let attachmentID = previewAttachmentID else {
+            return
+        }
+        isPreviewRequestInFlight = true
+        previewReleaseTask = Task {
+            await attachmentService.endPreview(
+                attachmentID: attachmentID
+            )
+            guard previewAttachmentID == attachmentID else { return }
+            previewAttachmentID = nil
+            isPreviewRequestInFlight = false
+            previewReleaseTask = nil
+        }
     }
 
     private func factRow(_ label: String, _ value: String) -> some View {
@@ -392,18 +680,46 @@ private struct PersonalTimelineDetailView: View {
         }
     }
 
+    private func associationReviewNotice(_ text: String) -> some View {
+        Label {
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+        } icon: {
+            Image(systemName: "exclamationmark.triangle")
+                .accessibilityHidden(true)
+        }
+        .foregroundStyle(theme.indigoDeep)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.mustard.opacity(0.22))
+        .overlay {
+            Rectangle().stroke(theme.mustardText, lineWidth: 1.5)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     private func load() async {
         guard let reader else { return }
+        hasLoaded = false
+        detailError = nil
         do {
             switch item.kind {
             case .labSample:
-                lab = try await reader.labSample(id: item.id)
+                guard let loaded = try await reader.labSample(id: item.id) else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+                lab = loaded
                 attachments = try await reader.attachments(
                     ownerType: .labSample,
                     ownerID: item.id
                 )
             case .statusObservation:
-                status = try await reader.statusObservation(id: item.id)
+                guard let loaded = try await reader.statusObservation(
+                    id: item.id
+                ) else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+                status = loaded
                 attachments = try await reader.attachments(
                     ownerType: .statusObservation,
                     ownerID: item.id
@@ -416,43 +732,49 @@ private struct PersonalTimelineDetailView: View {
             case .administration, .regimenVersion:
                 break
             }
+            hasLoaded = true
         } catch {
+            lab = nil
+            status = nil
             attachments = []
+            hasLoaded = true
+            if error as? AppDataFailure == .corruptionSuspected {
+                detailError =
+                    "本地记录没有通过完整性检查。App 将进入恢复模式，不会把损坏资料显示成普通空状态。"
+                integrityFailureHandler?()
+            } else {
+                detailError =
+                    "暂时无法读取这条本地记录，原资料没有被修改。"
+            }
         }
     }
 
     private func delete(_ attachment: AttachmentSnapshot) {
-        guard let writer, let attachmentStore else {
+        guard let attachmentService else {
             attachmentError = "本地附件服务尚未准备好。"
             return
         }
+        guard deletingAttachmentIDs.insert(attachment.id).inserted else {
+            return
+        }
         Task {
-            let operationID = UUID()
-            var databaseCommitted = false
+            defer {
+                deletingAttachmentIDs.remove(attachment.id)
+            }
             do {
-                let deletion = try attachmentStore.stageDeletion(
-                    attachment: attachment,
-                    operationID: operationID
-                )
-                _ = try await writer.deleteAttachment(
-                    DeleteAttachmentCommand(
-                        operationID: operationID,
-                        attachmentID: attachment.id
-                    )
-                )
-                databaseCommitted = true
-                try attachmentStore.finalizeDeletion(deletion)
+                try await attachmentService.deleteAttachment(attachment)
                 attachments.removeAll { $0.id == attachment.id }
                 attachmentError = nil
             } catch {
-                if databaseCommitted {
-                    attachmentIntegrityFailureHandler?()
+                switch error as? AttachmentMutationFailure {
+                case .recoveryRequired:
                     attachmentError =
-                        "删除记录已写入，但本地文件没有完成安全收尾。App 已暂停本地资料访问。"
-                } else {
-                    try? attachmentStore.rollbackDeletion(
-                        operationID: operationID
-                    )
+                        "附件删除没有完成安全收尾。App 已暂停本地资料访问。"
+                case .previewInProgress:
+                    attachmentError = "请先关闭附件预览，再执行删除。"
+                case .mutationInProgress:
+                    attachmentError = "附件正在执行另一项操作，请稍后再试。"
+                case .none:
                     attachmentError = (error as? PersonalTimelineWriteFailure)
                         == .lastAttachmentRequired
                         ? "这条化验只有附件而没有结果，需至少保留一个附件。"
