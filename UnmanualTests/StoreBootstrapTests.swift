@@ -196,7 +196,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "4.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "5.0.0")
         XCTAssertEqual(pointer.generationID, upgraded.generationID)
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         let sourceResourceValuesAfterUpgrade = try sourceStoreURL.resourceValues(
@@ -216,6 +216,10 @@ final class StoreBootstrapTests: XCTestCase {
         )
         XCTAssertEqual(
             try context.fetch(FetchDescriptor<TodayExecutionBackfillState>()).first?.completedAt != nil,
+            true
+        )
+        XCTAssertEqual(
+            try context.fetch(FetchDescriptor<PersonalTimelineBackfillState>()).first?.completedAt != nil,
             true
         )
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<NotificationCoverageRecord>()), 1)
@@ -276,7 +280,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "4.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "5.0.0")
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<AdministrationEventRecord>()), 0)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<ReminderPreferenceRecord>()), 0)
@@ -340,7 +344,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertEqual(opened.origin, .newInstall)
         XCTAssertEqual(pointer.generationID, opened.generationID)
-        XCTAssertEqual(pointer.schemaVersion, "4.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "5.0.0")
         XCTAssertEqual(opened.storeURL, layout.storeURL(for: opened.generationID))
         XCTAssertTrue(FileManager.default.fileExists(atPath: opened.storeURL.path))
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
@@ -431,8 +435,18 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<RegimenVersion>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1)
-        // Legacy + V3 canonical facts, plus the V4 receipt-ledger fact.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 12)
+        // Legacy + V3/V4 facts, plus one V5 definition/sample/result/time/receipt quintet.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 17)
+        XCTAssertEqual(
+            try context.fetch(
+                FetchDescriptor<OperationReceiptRecord>(
+                    predicate: #Predicate {
+                        $0.resultRecordType == "LabSampleRecord"
+                    }
+                )
+            ).count,
+            1
+        )
         for (suffix, hash) in expectedHashes {
             XCTAssertEqual(
                 try sha256(of: frozenLegacyFixtureURL(suffix: suffix)),
@@ -611,7 +625,8 @@ final class StoreBootstrapTests: XCTestCase {
         var factCount = 0
         var revisionCount = 0
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeReadOnlyTodayContainer(at: storeURL)
+            let container = try AppModelContainerFactory
+                .makeReadOnlyPersonalTimelineContainer(at: storeURL)
             let context = ModelContext(container)
             datasetID = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID
             revisionCount = try context.fetchCount(FetchDescriptor<RecordRevision>())
@@ -783,7 +798,8 @@ final class StoreBootstrapTests: XCTestCase {
         }
 
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeTodayContainer(at: storeURL)
+            let container = try AppModelContainerFactory
+                .makePersonalTimelineContainer(at: storeURL)
             let context = ModelContext(container)
             let metadata = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first)
             let validRevision = try XCTUnwrap(context.fetch(FetchDescriptor<RecordRevision>()).first)
@@ -919,7 +935,8 @@ final class StoreBootstrapTests: XCTestCase {
             try context.save()
         }
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeTodayContainer(at: storeURL)
+            let container = try AppModelContainerFactory
+                .makePersonalTimelineContainer(at: storeURL)
             let context = ModelContext(container)
             let profile = try XCTUnwrap(context.fetch(FetchDescriptor<HRTProfile>()).first)
             profile.startDate = Date(timeIntervalSince1970: 1_800_000_000)
@@ -928,6 +945,105 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertThrowsError(try bootstrapper.open()) { error in
             XCTAssertEqual(error as? AppDataFailure, .corruptionSuspected)
+        }
+    }
+
+    func testActiveV5GenerationRejectsOrphanReceiptsForEveryV5Type() throws {
+        for recordType in [
+            "LabSampleRecord",
+            "StatusMetricDefinitionRecord",
+            "StatusObservationRecord",
+            "AttachmentRecord"
+        ] {
+            let layout = try makeLayout()
+            let bootstrapper = makeTestBootstrapper(layout: layout)
+            var storeURL: URL!
+            try autoreleasepool {
+                let opened = try bootstrapper.open()
+                storeURL = opened.storeURL
+            }
+            try autoreleasepool {
+                let container = try AppModelContainerFactory
+                    .makePersonalTimelineContainer(at: storeURL)
+                let context = ModelContext(container)
+                let metadata = try XCTUnwrap(
+                    context.fetch(FetchDescriptor<DatasetMetadata>()).first
+                )
+                let ledger = try XCTUnwrap(
+                    context.fetch(
+                        FetchDescriptor<OperationReceiptLedgerRecord>()
+                    ).first
+                )
+                let committedAt = Date(
+                    timeIntervalSince1970: 1_735_732_800
+                )
+                let receipt = OperationReceiptRecord(
+                    operationID: UUID(),
+                    commandDigest: String(repeating: "a", count: 64),
+                    resultRecordType: recordType,
+                    resultRecordID: UUID(),
+                    committedAt: committedAt
+                )
+                let existingReceipts = try context.fetch(
+                    FetchDescriptor<OperationReceiptRecord>()
+                )
+                let localRevision = metadata.nextLocalRevision
+                metadata.nextLocalRevision += 1
+                context.insert(receipt)
+                context.insert(
+                    RecordRevision(
+                        recordKey: "OperationReceiptRecord:"
+                            + receipt.operationID.uuidString.lowercased(),
+                        recordType: "OperationReceiptRecord",
+                        recordID: receipt.operationID,
+                        datasetID: metadata.datasetID,
+                        localRevision: localRevision,
+                        digestVersion: RecordDigestV1.version,
+                        digestHex: try RecordDigestV1.sha256Hex(
+                            recordType: "OperationReceiptRecord",
+                            recordID: receipt.operationID,
+                            fields: try TodayExecutionDigestV1
+                                .operationReceipt(receipt)
+                        ),
+                        committedAt: committedAt
+                    )
+                )
+                let allReceipts = existingReceipts + [receipt]
+                ledger.receiptCount = allReceipts.count
+                ledger.receiptSetDigest = try TodayExecutionDigestV1
+                    .receiptSetDigest(allReceipts)
+                ledger.updatedAt = committedAt
+                let ledgerKey = "OperationReceiptLedgerRecord:"
+                    + TodayExecutionDigestV1.receiptLedgerID
+                        .uuidString.lowercased()
+                let ledgerRevision = try XCTUnwrap(
+                    context.fetch(
+                        FetchDescriptor<RecordRevision>(
+                            predicate: #Predicate {
+                                $0.recordKey == ledgerKey
+                            }
+                        )
+                    ).first
+                )
+                ledgerRevision.localRevision = localRevision
+                ledgerRevision.digestHex = try RecordDigestV1.sha256Hex(
+                    recordType: "OperationReceiptLedgerRecord",
+                    recordID: TodayExecutionDigestV1.receiptLedgerID,
+                    fields: TodayExecutionDigestV1
+                        .operationReceiptLedger(ledger)
+                )
+                ledgerRevision.committedAt = committedAt
+                try context.save()
+            }
+
+            XCTAssertThrowsError(try bootstrapper.open(), recordType) {
+                error in
+                XCTAssertEqual(
+                    error as? AppDataFailure,
+                    .corruptionSuspected,
+                    recordType
+                )
+            }
         }
     }
 
@@ -950,7 +1066,7 @@ final class StoreBootstrapTests: XCTestCase {
         let journal = try MigrationJournalStore(layout: layout).read()
 
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeTodayContainer(
+            let container = try AppModelContainerFactory.makePersonalTimelineContainer(
                 at: layout.storeURL(for: journal.targetGenerationID)
             )
             let context = ModelContext(container)

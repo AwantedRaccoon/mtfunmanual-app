@@ -106,6 +106,36 @@ final class AppDataRuntimeTests: XCTestCase {
         XCTAssertEqual(Set(revisions.map(\.localRevision)).count, 1)
     }
 
+    func testAttachmentIntegrityFailureMovesMatchingReadyGenerationToRecovery() async throws {
+        let container = try AppModelContainerFactory.makeInMemoryBridgeContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        let generationID = UUID()
+        let store = BootstrappedAppDataStore(
+            container: container,
+            generationID: generationID,
+            storeURL: URL(fileURLWithPath: "/test-only/in-memory.store"),
+            origin: .newInstall,
+            protectionReport: StoreFileProtectionReport(
+                entries: [],
+                requiresPhysicalDeviceValidation: true
+            )
+        )
+        let runtime = AppDataRuntime { store }
+        runtime.openIfNeeded()
+        await waitUntilSettled(runtime)
+
+        runtime.handleAttachmentIntegrityFailure(generationID: UUID())
+        guard case .ready = runtime.state else {
+            return XCTFail("A stale generation callback must not replace ready state")
+        }
+
+        runtime.handleAttachmentIntegrityFailure(generationID: generationID)
+        guard case let .recovery(recovery) = runtime.state else {
+            return XCTFail("Expected attachment integrity failure to enter Recovery")
+        }
+        XCTAssertEqual(recovery.reason, .corruptionSuspected)
+    }
+
     func testInvalidPointerMessagePromisesNoAutomaticDeletion() {
         let recovery = AppDataRecoveryState(reason: .invalidGenerationPointer)
 
@@ -354,7 +384,7 @@ final class ZZSystemBackupDisclosureRenderTests: XCTestCase {
                         profile: nil,
                         countdown: nil,
                         regimens: [],
-                        records: [],
+                        latestLab: nil,
                         entries: [],
                         quickRecordAction: {},
                         startDateAction: {},

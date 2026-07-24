@@ -13,17 +13,21 @@ enum AppTabBarLayout: Equatable {
 struct AppShellView: View {
     @Environment(AppTheme.self) private var theme
     @State private var selectedTab: AppTab = .today
+    @State private var pendingJourneyItem: PersonalTimelineItem?
 
     var body: some View {
         Group {
             switch selectedTab {
             case .today:
                 NavigationStack {
-                    TodayView(selectedTab: $selectedTab)
+                    TodayView(
+                        selectedTab: $selectedTab,
+                        pendingJourneyItem: $pendingJourneyItem
+                    )
                 }
             case .journey:
                 NavigationStack {
-                    JourneyView()
+                    JourneyView(requestedItem: $pendingJourneyItem)
                 }
             case .regimen:
                 NavigationStack {

@@ -946,6 +946,54 @@ struct AppDataWriter: Sendable {
         return count
     }
 
+    func createLabSample(
+        _ command: CreateLabSampleCommand
+    ) async throws -> LabSampleCommitResult {
+        let result = try await storage.createLabSample(command)
+        if result.didCreate { await revalidateProtectionAfterCommit() }
+        return result
+    }
+
+    func createStatusMetric(
+        _ command: CreateStatusMetricCommand
+    ) async throws -> StatusMetricCommitResult {
+        let result = try await storage.createStatusMetric(command)
+        if result.didCreate { await revalidateProtectionAfterCommit() }
+        return result
+    }
+
+    func recordStatusObservation(
+        _ command: RecordStatusObservationCommand
+    ) async throws -> StatusObservationCommitResult {
+        let result = try await storage.recordStatusObservation(command)
+        if result.didCreate { await revalidateProtectionAfterCommit() }
+        return result
+    }
+
+    func archiveStatusMetric(
+        _ command: ArchiveStatusMetricCommand
+    ) async throws -> StatusMetricArchiveResult {
+        let result = try await storage.archiveStatusMetric(command)
+        if result.didArchive { await revalidateProtectionAfterCommit() }
+        return result
+    }
+
+    func addAttachmentMetadata(
+        _ command: AddAttachmentMetadataCommand
+    ) async throws -> AttachmentCommitResult {
+        let result = try await storage.addAttachmentMetadata(command)
+        if result.didCreate { await revalidateProtectionAfterCommit() }
+        return result
+    }
+
+    func deleteAttachment(
+        _ command: DeleteAttachmentCommand
+    ) async throws -> AttachmentDeletionResult {
+        let result = try await storage.deleteAttachment(command)
+        if result.didDelete { await revalidateProtectionAfterCommit() }
+        return result
+    }
+
     func commitAdministration(
         _ command: CommitAdministrationCommand
     ) async throws -> AdministrationCommitResult {

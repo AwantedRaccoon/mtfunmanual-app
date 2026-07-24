@@ -10,7 +10,7 @@ struct V25TodayHome: View {
     let profile: HRTProfileSnapshot?
     let countdown: CountdownRecordSnapshot?
     let regimens: [CoreRegimenVersionSnapshot]
-    let records: [LabRecordSnapshot]
+    let latestLab: PersonalTimelineItem?
     let entries: [JourneyEntrySnapshot]
     let quickRecordAction: () -> Void
     let startDateAction: () -> Void
@@ -33,7 +33,7 @@ struct V25TodayHome: View {
         profile: HRTProfileSnapshot?,
         countdown: CountdownRecordSnapshot?,
         regimens: [CoreRegimenVersionSnapshot],
-        records: [LabRecordSnapshot],
+        latestLab: PersonalTimelineItem? = nil,
         entries: [JourneyEntrySnapshot],
         quickRecordAction: @escaping () -> Void,
         startDateAction: @escaping () -> Void,
@@ -55,7 +55,7 @@ struct V25TodayHome: View {
         self.profile = profile
         self.countdown = countdown
         self.regimens = regimens
-        self.records = records
+        self.latestLab = latestLab
         self.entries = entries
         self.quickRecordAction = quickRecordAction
         self.startDateAction = startDateAction
@@ -93,19 +93,6 @@ struct V25TodayHome: View {
 
     private var latestEntry: JourneyEntrySnapshot? {
         entries.max { $0.occurredAt < $1.occurredAt }
-    }
-
-    private var latestLabRecords: [LabRecordSnapshot] {
-        guard let latest = records.max(by: { $0.sampledAt < $1.sampledAt }),
-              let latestLocalDate = latest.recordedLocalDate() else { return [] }
-        let sameDayRecords = records.filter {
-            $0.recordedLocalDate() == latestLocalDate
-        }
-        return MetricReportFacts.orderedItemCodes(from: sameDayRecords).compactMap { itemCode in
-            sameDayRecords
-                .filter { $0.itemCode == itemCode }
-                .max { $0.sampledAt < $1.sampledAt }
-        }
     }
 
     var body: some View {
@@ -419,7 +406,7 @@ struct V25TodayHome: View {
         V25ContextItem(
             label: "最近化验",
             value: labValue,
-            detail: latestLabRecords.first?.recordedShortDateText ?? "尚无记录",
+            detail: latestLab?.localDate.iso8601 ?? "尚无记录",
             metadata: "查看完整原始记录",
             background: theme.paper,
             labelColor: theme.vermilionText,
@@ -492,8 +479,7 @@ struct V25TodayHome: View {
     }
 
     private var labValue: String {
-        guard !latestLabRecords.isEmpty else { return "未记录" }
-        return latestLabRecords.prefix(2).map { "\($0.itemCode) \($0.rawValue)" }.joined(separator: " · ")
+        latestLab?.detail ?? "未记录"
     }
 
     private var todayDayText: String {

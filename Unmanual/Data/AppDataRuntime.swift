@@ -39,6 +39,7 @@ struct AppDataSession {
     let store: BootstrappedAppDataStore
     let writer: AppDataWriter
     let reader: AppReadActor
+    let attachmentFileStore: AttachmentFileStore
 
     init(
         store: BootstrappedAppDataStore,
@@ -64,6 +65,7 @@ struct AppDataSession {
             }
         )
         self.reader = AppReadActor(modelContainer: store.container)
+        self.attachmentFileStore = AttachmentFileStore(rootURL: store.attachmentRootURL)
     }
 }
 
@@ -116,6 +118,14 @@ final class AppDataRuntime {
         open()
     }
 
+    func handleAttachmentIntegrityFailure(generationID: UUID) {
+        guard case let .ready(session) = state,
+              session.store.generationID == generationID else { return }
+        state = .recovery(
+            AppDataRecoveryState(reason: .corruptionSuspected)
+        )
+    }
+
     private func open() {
         openSequence += 1
         let sequence = openSequence
@@ -154,6 +164,7 @@ final class AppDataRuntime {
               session.store.generationID == generationID else { return }
         state = .recovery(AppDataRecoveryState(reason: .fileProtectionUnverified))
     }
+
 }
 
 private actor AppStoreFileProtectionWorker {
@@ -186,13 +197,14 @@ private actor AppDataBootstrapWorker {
             break
         }
         if ProcessInfo.processInfo.arguments.contains("-unmanual-empty-store") {
-            let container = try AppModelContainerFactory.makeInMemoryTodayContainer()
+            let container = try AppModelContainerFactory.makeInMemoryPersonalTimelineContainer()
             _ = try LegacyV1Backfill.run(in: container)
             _ = try CoreTimeRegimenBackfill.run(
                 in: container,
                 assumedTimeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
             )
             _ = try TodayExecutionBackfill.run(in: container)
+            _ = try PersonalTimelineBackfill.run(in: container)
             return BootstrappedAppDataStore(
                 container: container,
                 generationID: UUID(),
@@ -201,7 +213,9 @@ private actor AppDataBootstrapWorker {
                 protectionReport: StoreFileProtectionReport(
                     entries: [],
                     requiresPhysicalDeviceValidation: true
-                )
+                ),
+                attachmentRootURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("Unmanual-DebugAttachments", isDirectory: true)
             )
         }
 #endif

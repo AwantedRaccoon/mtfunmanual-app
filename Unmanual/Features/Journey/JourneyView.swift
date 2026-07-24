@@ -2,21 +2,38 @@ import SwiftUI
 
 @MainActor
 struct JourneyView: View {
+    @Binding private var requestedItem: PersonalTimelineItem?
     @State private var presentedSheet: JourneySheet?
     @State private var refreshToken = 0
 
+    init(
+        requestedItem: Binding<PersonalTimelineItem?> = .constant(nil)
+    ) {
+        _requestedItem = requestedItem
+    }
+
     var body: some View {
-        JourneyRouteBookView(refreshToken: refreshToken, recordAction: presentRecordEditor)
+        PersonalTimelineView(
+            refreshToken: refreshToken,
+            requestedItem: $requestedItem,
+            recordAction: presentRecordEditor
+        )
             .sheet(item: $presentedSheet, onDismiss: refreshAfterDismiss) { destination in
                 switch destination {
+                case .recordMenu:
+                    JourneyRecordMenu(select: { presentedSheet = $0 })
                 case .quickRecord:
                     QuickRecordEditor()
+                case .lab:
+                    LabSampleEditor()
+                case .status:
+                    StatusObservationEditor()
                 }
             }
     }
 
     private func presentRecordEditor() {
-        presentedSheet = .quickRecord
+        presentedSheet = .recordMenu
     }
 
     private func refreshAfterDismiss() {
@@ -24,10 +41,105 @@ struct JourneyView: View {
     }
 }
 
-private enum JourneySheet: String, Identifiable {
+enum JourneySheet: String, Identifiable {
+    case recordMenu
     case quickRecord
+    case lab
+    case status
 
     var id: String { rawValue }
+}
+
+private struct JourneyRecordMenu: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppTheme.self) private var theme
+    let select: (JourneySheet) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("ADD / 添加记录")
+                    .font(theme.utility(10))
+                    .tracking(0.8)
+                    .foregroundStyle(theme.vermilionText)
+                Text("这次想留下什么？")
+                    .font(theme.display(30, relativeTo: .title))
+                    .padding(.top, 8)
+                Text("只选当前需要的一种；稍后仍可继续添加。")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.top, 6)
+
+                VStack(spacing: 0) {
+                    menuRow(
+                        title: "化验",
+                        detail: "保存一组结果、原报告信息或附件",
+                        systemImage: "cross.case",
+                        destination: .lab
+                    )
+                    menuRow(
+                        title: "状态",
+                        detail: "用固定四级记录一个自定义指标",
+                        systemImage: "waveform.path.ecg",
+                        destination: .status
+                    )
+                    menuRow(
+                        title: "普通记录",
+                        detail: "留下一段感受或片段",
+                        systemImage: "square.and.pencil",
+                        destination: .quickRecord
+                    )
+                }
+                .padding(.top, 24)
+
+                V25PrivacyFooter(text: SystemBackupDisclosure.quickRecord)
+                    .padding(.top, 24)
+                Spacer(minLength: 20)
+            }
+            .padding(V25Theme.pagePadding)
+            .background(theme.rice.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func menuRow(
+        title: String,
+        detail: String,
+        systemImage: String,
+        destination: JourneySheet
+    ) -> some View {
+        Button {
+            select(destination)
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.bold))
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(theme.paper)
+                    .background(theme.indigo)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.headline.weight(.black))
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+            }
+            .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(theme.indigo).frame(height: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+    }
 }
 
 struct JourneyPageRecordAction: View {

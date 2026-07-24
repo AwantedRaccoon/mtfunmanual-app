@@ -154,7 +154,7 @@ struct Batch1FixtureCounts: Codable, Equatable, Sendable {
         journeyEntries: 7_300,
         labRecords: 1_200,
         migrationIssues: 0,
-        revisions: 17_113
+        revisions: 23_113
     )
 
     let profiles: Int
@@ -178,7 +178,7 @@ struct Batch1V3CompanionCounts: Codable, Equatable, Sendable {
         regimenVersions: 24,
         regimenItems: 0,
         scheduleRules: 0,
-        historicalTimes: 8_500
+        historicalTimes: 9_700
     )
 
     let preferences: Int
@@ -195,9 +195,38 @@ struct Batch1V3CompanionCounts: Codable, Equatable, Sendable {
     }
 }
 
-enum Batch1V4FoundationContract {
+struct Batch1V5PersonalTimelineCounts: Codable, Equatable, Sendable {
+    static let expected = Batch1V5PersonalTimelineCounts(
+        labDefinitions: 1_200,
+        labSamples: 1_200,
+        labResults: 1_200,
+        statusMetrics: 0,
+        statusObservations: 0,
+        attachments: 0,
+        labSampleReceipts: 1_200,
+        backfillStates: 1
+    )
+
+    let labDefinitions: Int
+    let labSamples: Int
+    let labResults: Int
+    let statusMetrics: Int
+    let statusObservations: Int
+    let attachments: Int
+    let labSampleReceipts: Int
+    let backfillStates: Int
+
+    var canonicalFacts: Int {
+        labDefinitions + labSamples + labResults
+            + statusMetrics + statusObservations + attachments
+            + labSampleReceipts
+    }
+}
+
+enum Batch1V5FoundationContract {
     static let activatedFactCount = Batch1FixtureCounts.expected.legacyFacts
-        + Batch1V3CompanionCounts.expected.facts + 1
+        + Batch1V3CompanionCounts.expected.facts
+        + Batch1V5PersonalTimelineCounts.expected.canonicalFacts + 1
     static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions
     static let nextLocalRevision = Int64(activatedRevisionCount + 1)
     static let quickWriteAddedFactCount = 2

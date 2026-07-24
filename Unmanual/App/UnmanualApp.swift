@@ -127,6 +127,15 @@ struct UnmanualApp: App {
                 .modelContainer(session.store.container)
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
+                .environment(\.attachmentFileStore, session.attachmentFileStore)
+                .environment(
+                    \.attachmentIntegrityFailureHandler,
+                    AttachmentIntegrityFailureHandler {
+                        dataRuntime.handleAttachmentIntegrityFailure(
+                            generationID: session.store.generationID
+                        )
+                    }
+                )
                 .environment(\.localReminderRuntime, reminderRuntime)
                 .task {
                     await reminderRuntime.resumeAfterRecovery()
@@ -137,6 +146,15 @@ struct UnmanualApp: App {
             rootView
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
+                .environment(\.attachmentFileStore, session.attachmentFileStore)
+                .environment(
+                    \.attachmentIntegrityFailureHandler,
+                    AttachmentIntegrityFailureHandler {
+                        dataRuntime.handleAttachmentIntegrityFailure(
+                            generationID: session.store.generationID
+                        )
+                    }
+                )
                 .environment(\.localReminderRuntime, reminderRuntime)
                 .task {
                     await reminderRuntime.resumeAfterRecovery()

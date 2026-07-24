@@ -8,6 +8,7 @@ struct TodayView: View {
     @Environment(\.localReminderRuntime) private var reminderRuntime
 
     @Binding var selectedTab: AppTab
+    @Binding var pendingJourneyItem: PersonalTimelineItem?
     @State private var presentedSheet: TodaySheet?
     @State private var snapshot = TodaySnapshot.empty
     @State private var coreRegimenOverview = CoreRegimenOverviewSnapshot.empty
@@ -20,6 +21,15 @@ struct TodayView: View {
     @State private var actionGate = TodayExecutionActionGate()
     @State private var contentRefreshGate = TodayLatestRequestGate()
     @State private var executionRefreshGate = TodayLatestRequestGate()
+    @State private var latestLabItem: PersonalTimelineItem?
+
+    init(
+        selectedTab: Binding<AppTab>,
+        pendingJourneyItem: Binding<PersonalTimelineItem?> = .constant(nil)
+    ) {
+        _selectedTab = selectedTab
+        _pendingJourneyItem = pendingJourneyItem
+    }
 
     var body: some View {
         V25Page {
@@ -27,13 +37,16 @@ struct TodayView: View {
                 profile: snapshot.profile,
                 countdown: snapshot.countdown,
                 regimens: coreRegimenOverview.current.map { [$0] } ?? [],
-                records: snapshot.labRecords,
+                latestLab: latestLabItem,
                 entries: snapshot.entries,
                 quickRecordAction: { presentedSheet = .quickRecord },
                 startDateAction: { presentedSheet = .startDate },
                 countdownAction: { presentedSheet = .countdown },
                 regimenAction: { selectedTab = .regimen },
-                metricsAction: { selectedTab = .journey },
+                metricsAction: {
+                    pendingJourneyItem = latestLabItem
+                    selectedTab = .journey
+                },
                 journeyAction: { selectedTab = .journey },
                 executionSnapshot: executionSnapshot,
                 executionIsLoading: executionIsLoading,
@@ -114,6 +127,10 @@ struct TodayView: View {
         if let updated = try? await appReadActor.todaySnapshot() {
             guard contentRefreshGate.isCurrent(request) else { return }
             snapshot = updated
+        }
+        if let updated = try? await appReadActor.latestLabTimelineItem() {
+            guard contentRefreshGate.isCurrent(request) else { return }
+            latestLabItem = updated
         }
         if let today = try? HistoricalTimestamp.captured(
             instant: now,

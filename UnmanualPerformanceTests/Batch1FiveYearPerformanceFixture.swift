@@ -242,7 +242,9 @@ actor Batch1PerformanceWorker {
             expectedPrimary: Batch1FixtureCounts,
             observedPrimary: Batch1FixtureCounts,
             expectedCompanions: Batch1V3CompanionCounts,
-            observedCompanions: Batch1V3CompanionCounts
+            observedCompanions: Batch1V3CompanionCounts,
+            expectedPersonalTimeline: Batch1V5PersonalTimelineCounts,
+            observedPersonalTimeline: Batch1V5PersonalTimelineCounts
         )
         case unexpectedOrigin
         case invalidTodaySnapshot
@@ -387,28 +389,61 @@ actor Batch1PerformanceWorker {
             scheduleRules: try context.fetchCount(FetchDescriptor<ScheduleRuleRecord>()),
             historicalTimes: try context.fetchCount(FetchDescriptor<HistoricalTimeRecord>())
         )
-        guard counts == .expected, companions == .expected else {
+        let personalTimeline = Batch1V5PersonalTimelineCounts(
+            labDefinitions: try context.fetchCount(
+                FetchDescriptor<LabItemDefinitionRecord>()
+            ),
+            labSamples: try context.fetchCount(FetchDescriptor<LabSampleRecord>()),
+            labResults: try context.fetchCount(FetchDescriptor<LabResultRecord>()),
+            statusMetrics: try context.fetchCount(
+                FetchDescriptor<StatusMetricDefinitionRecord>()
+            ),
+            statusObservations: try context.fetchCount(
+                FetchDescriptor<StatusObservationRecord>()
+            ),
+            attachments: try context.fetchCount(FetchDescriptor<AttachmentRecord>()),
+            labSampleReceipts: try context.fetch(
+                FetchDescriptor<OperationReceiptRecord>(
+                    predicate: #Predicate {
+                        $0.resultRecordType == "LabSampleRecord"
+                    }
+                )
+            ).count,
+            backfillStates: try context.fetchCount(
+                FetchDescriptor<PersonalTimelineBackfillState>()
+            )
+        )
+        guard counts == .expected,
+              companions == .expected,
+              personalTimeline == .expected else {
             throw WorkerError.unexpectedCounts(
                 expectedPrimary: .expected,
                 observedPrimary: counts,
                 expectedCompanions: .expected,
-                observedCompanions: companions
+                observedCompanions: companions,
+                expectedPersonalTimeline: .expected,
+                observedPersonalTimeline: personalTimeline
             )
         }
         let metadata = try context.fetch(FetchDescriptor<DatasetMetadata>())
         let states = try context.fetch(FetchDescriptor<MigrationBackfillState>())
         let coreStates = try context.fetch(FetchDescriptor<CoreTimeRegimenBackfillState>())
+        let personalTimelineStates = try context.fetch(
+            FetchDescriptor<PersonalTimelineBackfillState>()
+        )
         let pointer = try GenerationPointerStore(layout: layout).read()
         guard metadata.count == 1,
               states.count == 1,
               states.first?.phase == .complete,
               coreStates.count == 1,
               coreStates.first?.completedAt != nil,
-              metadata.first?.nextLocalRevision == Batch1V4FoundationContract.nextLocalRevision,
+              personalTimelineStates.count == 1,
+              personalTimelineStates.first?.completedAt != nil,
+              metadata.first?.nextLocalRevision == Batch1V5FoundationContract.nextLocalRevision,
               pointer.origin == .legacyAdoption,
-              pointer.schemaVersion == "4.0.0",
-              pointer.minimumFactCount == Batch1V4FoundationContract.activatedFactCount,
-              pointer.minimumRevisionCount == Batch1V4FoundationContract.activatedRevisionCount,
+              pointer.schemaVersion == "5.0.0",
+              pointer.minimumFactCount == Batch1V5FoundationContract.activatedFactCount,
+              pointer.minimumRevisionCount == Batch1V5FoundationContract.activatedRevisionCount,
               pointer.datasetID == metadata.first?.datasetID else {
             throw WorkerError.invalidFoundationMetadata
         }
@@ -452,11 +487,11 @@ actor Batch1PerformanceWorker {
         let metadata = try context.fetch(FetchDescriptor<DatasetMetadata>()).first
         guard journey?.text == "Batch 1 快速记录",
               try context.fetchCount(FetchDescriptor<JourneyEntry>()) == 7_301,
-              try context.fetchCount(FetchDescriptor<HistoricalTimeRecord>()) == 8_501,
+              try context.fetchCount(FetchDescriptor<HistoricalTimeRecord>()) == 9_701,
               try context.fetchCount(FetchDescriptor<RecordRevision>())
-                  == Batch1V4FoundationContract.postQuickWriteRevisionCount,
+                  == Batch1V5FoundationContract.postQuickWriteRevisionCount,
               revision?.recordKey == "JourneyEntry:" + recordID.uuidString.lowercased(),
-              revision?.localRevision == Batch1V4FoundationContract.nextLocalRevision,
+              revision?.localRevision == Batch1V5FoundationContract.nextLocalRevision,
               revision?.datasetID == metadata?.datasetID,
               revision?.digestVersion == RecordDigestV1.version,
               revision?.digestHex.isEmpty == false,
@@ -464,14 +499,14 @@ actor Batch1PerformanceWorker {
               historical?.recordKey == "JourneyEntry:" + recordID.uuidString.lowercased(),
               historical?.instant == committedAt,
               historical?.associationStateRawValue == HistoricalAssociationState.resolved.rawValue,
-              historicalRevision?.localRevision == Batch1V4FoundationContract.nextLocalRevision,
+              historicalRevision?.localRevision == Batch1V5FoundationContract.nextLocalRevision,
               historicalRevision?.datasetID == metadata?.datasetID,
               historicalRevision?.digestVersion == RecordDigestV1.version,
               historicalRevision?.digestHex.isEmpty == false,
               historicalRevision?.committedAt == committedAt,
               metadata?.lastCommittedAt == committedAt,
               metadata?.nextLocalRevision
-                  == Batch1V4FoundationContract.postQuickWriteNextLocalRevision else {
+                  == Batch1V5FoundationContract.postQuickWriteNextLocalRevision else {
             throw WorkerError.quickWriteNotReadable
         }
     }

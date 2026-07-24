@@ -20,7 +20,8 @@ enum AppDataIndex {
 enum TodayExecutionRelationshipValidator {
     static func validate(
         in context: ModelContext,
-        failure: AppDataFailure
+        failure: AppDataFailure,
+        additionalReceiptResultTypes: Set<String> = []
     ) throws {
         let states = try context.fetch(FetchDescriptor<TodayExecutionBackfillState>())
         guard states.count == 1,
@@ -193,7 +194,7 @@ enum TodayExecutionRelationshipValidator {
                   case "ReminderPreferenceRecord":
                       return preferences.contains { $0.id == receipt.resultRecordID }
                   default:
-                      return false
+                      return additionalReceiptResultTypes.contains(receipt.resultRecordType)
                   }
               }) else {
             throw failure
