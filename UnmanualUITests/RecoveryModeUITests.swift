@@ -290,9 +290,171 @@ final class SystemBackupDisclosureUITests: XCTestCase {
         scrollToFullyVisible(disclosure, in: app)
         XCTAssertTrue(disclosure.isHittable)
         assertFullyVisible(disclosure, in: app)
-        try auditVisibleText(in: app)
+        try app.performAccessibilityAudit(for: [
+            .hitRegion,
+            .sufficientElementDescription,
+            .textClipped,
+            .trait
+        ])
 
         attachScreenshot(named: "SystemBackup-Countdown-Accessibility5")
+    }
+
+    func testCountdownCreateCancelArchiveDeleteAndReenterFlow() throws {
+        let app = launch()
+        XCTAssertTrue(app.buttons["旅程"].waitForExistence(timeout: 5))
+        app.buttons["旅程"].tap()
+
+        let record = element("journey.record", in: app)
+        XCTAssertTrue(record.waitForExistence(timeout: 5))
+        record.tap()
+        let countdownMenu = app.buttons.containing(
+            .staticText,
+            identifier: "倒计时"
+        ).firstMatch
+        XCTAssertTrue(countdownMenu.waitForExistence(timeout: 5))
+        countdownMenu.tap()
+
+        let create = element("countdown.ledger.create", in: app)
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        create.tap()
+        let title = element("countdown.title", in: app)
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap()
+        title.typeText("取消项")
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        XCTAssertFalse(
+            element("countdown.ledger.current", in: app).exists
+        )
+
+        create.tap()
+        let savedTitle = element("countdown.title", in: app)
+        XCTAssertTrue(savedTitle.waitForExistence(timeout: 5))
+        savedTitle.tap()
+        savedTitle.typeText("阶段目标")
+        let save = element("countdown.save", in: app)
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+
+        let current = element("countdown.ledger.current", in: app)
+        XCTAssertTrue(current.waitForExistence(timeout: 8))
+        XCTAssertTrue(current.label.contains("阶段目标"))
+        current.tap()
+        let archive = app.buttons["未完成，收进旅程"].firstMatch
+        scrollToVisible(archive, in: app)
+        XCTAssertTrue(archive.isHittable)
+        archive.tap()
+        let archiveConfirmation = app.sheets.buttons["收进旅程"]
+        XCTAssertTrue(archiveConfirmation.waitForExistence(timeout: 3))
+        archiveConfirmation.tap()
+
+        XCTAssertTrue(create.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["阶段目标"].waitForExistence(timeout: 5))
+
+        create.tap()
+        let deleteTitle = element("countdown.title", in: app)
+        XCTAssertTrue(deleteTitle.waitForExistence(timeout: 5))
+        deleteTitle.tap()
+        deleteTitle.typeText("临时目标")
+        element("countdown.save", in: app).tap()
+        XCTAssertTrue(current.waitForExistence(timeout: 8))
+        current.tap()
+        let replace = app.buttons[
+            "删除并建立新的目标日"
+        ].firstMatch
+        scrollToVisible(replace, in: app)
+        XCTAssertTrue(replace.isHittable)
+        replace.tap()
+        let replaceConfirmation =
+            app.sheets.buttons["开始建立新目标"]
+        XCTAssertTrue(replaceConfirmation.waitForExistence(timeout: 3))
+        replaceConfirmation.tap()
+        let replacementTitle = element("countdown.title", in: app)
+        XCTAssertTrue(replacementTitle.waitForExistence(timeout: 5))
+        XCTAssertNotEqual(replacementTitle.value as? String, "临时目标")
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(current.waitForExistence(timeout: 8))
+        current.tap()
+        let delete = app.buttons["删除当前倒计时"].firstMatch
+        scrollToVisible(delete, in: app)
+        XCTAssertTrue(delete.isHittable)
+        delete.tap()
+        let deleteConfirmation =
+            app.sheets.buttons["删除当前倒计时"]
+        XCTAssertTrue(deleteConfirmation.waitForExistence(timeout: 3))
+        deleteConfirmation.tap()
+
+        XCTAssertTrue(create.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["阶段目标"].exists)
+        XCTAssertFalse(app.staticTexts["临时目标"].exists)
+        attachScreenshot(named: "Countdown-Lifecycle-Archive-Delete")
+    }
+
+    func testDueCountdownCanContinueThenCompleteIntoHistory() throws {
+        let app = launch(arguments: ["-unmanual-countdown-due"])
+        XCTAssertTrue(app.buttons["旅程"].waitForExistence(timeout: 5))
+        app.buttons["旅程"].tap()
+        let record = element("journey.record", in: app)
+        XCTAssertTrue(record.waitForExistence(timeout: 5))
+        record.tap()
+        let countdownMenu = app.buttons.containing(
+            .staticText,
+            identifier: "倒计时"
+        ).firstMatch
+        XCTAssertTrue(countdownMenu.waitForExistence(timeout: 5))
+        countdownMenu.tap()
+
+        let current = element("countdown.ledger.current", in: app)
+        XCTAssertTrue(current.waitForExistence(timeout: 8))
+        XCTAssertTrue(current.label.contains("到期测试"))
+        current.tap()
+        let continueButton = element("countdown.continue", in: app)
+        XCTAssertTrue(continueButton.waitForExistence(timeout: 5))
+        continueButton.tap()
+
+        XCTAssertTrue(current.waitForExistence(timeout: 8))
+        current.tap()
+        let completeButton = element("countdown.complete", in: app)
+        XCTAssertTrue(completeButton.waitForExistence(timeout: 5))
+        completeButton.tap()
+
+        let create = element("countdown.ledger.create", in: app)
+        XCTAssertTrue(create.waitForExistence(timeout: 8))
+        XCTAssertFalse(current.exists)
+        XCTAssertTrue(app.staticTexts["到期测试"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.staticTexts["已经完成，已收进旅程"].exists
+        )
+        attachScreenshot(named: "Countdown-Lifecycle-Continue-Complete")
+    }
+
+    func testCountdownSaveFailureStaysOnPageAndPreventsDuplicateSubmission()
+        throws
+    {
+        let app = launch(arguments: ["-unmanual-countdown"])
+        let title = element("countdown.title", in: app)
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        title.tap()
+        title.typeText(String(repeating: "a", count: 121))
+        let save = element("countdown.save", in: app)
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        if save.isHittable {
+            save.tap()
+        }
+
+        let alert = app.alerts["没有保存"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.alerts.count, 1)
+        XCTAssertTrue(
+            alert.staticTexts[
+                "倒计时仍在当前页面。请检查日期和提醒时间后再保存。"
+            ].exists
+        )
+        alert.buttons["返回检查"].tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 3))
+        XCTAssertEqual(title.value as? String, String(repeating: "a", count: 121))
     }
 
     private func launch(

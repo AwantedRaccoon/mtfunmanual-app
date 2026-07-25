@@ -35,8 +35,25 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 7_300)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1_200)
         // Each legacy lab adds definition/sample/result/time plus a sample receipt.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 23_113)
+        // V6 also adds state/event/reminder/receipt revisions for each legacy countdown.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 23_353)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabSampleRecord>()), 1_200)
+        XCTAssertEqual(
+            try context.fetchCount(FetchDescriptor<CountdownStateRecord>()),
+            60
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<CountdownLifecycleEventRecord>()
+            ),
+            60
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<CountdownReminderRuleRecord>()
+            ),
+            60
+        )
         let sampleReceiptCount = try context.fetch(
             FetchDescriptor<OperationReceiptRecord>(
                 predicate: #Predicate {
@@ -45,12 +62,20 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
             )
         ).count
         XCTAssertEqual(sampleReceiptCount, 1_200)
+        let countdownReceiptCount = try context.fetch(
+            FetchDescriptor<OperationReceiptRecord>(
+                predicate: #Predicate {
+                    $0.resultRecordType == "CountdownLifecycleEventRecord"
+                }
+            )
+        ).count
+        XCTAssertEqual(countdownReceiptCount, 60)
         let ledger = try XCTUnwrap(
             try context.fetch(
                 FetchDescriptor<OperationReceiptLedgerRecord>()
             ).first
         )
-        XCTAssertEqual(ledger.receiptCount, 1_200)
+        XCTAssertEqual(ledger.receiptCount, 1_260)
 
         let reader = AppReadActor(modelContainer: store.container)
         let firstPage = try await reader.journeyPage(after: nil, limit: 100)

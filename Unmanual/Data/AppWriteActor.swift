@@ -993,13 +993,15 @@ struct AppDataWriter: Sendable {
     private let storage: AppWriteActor
     private let verifyStoreProtection: @Sendable () async -> Bool
     private let onProtectionFailure: @Sendable () async -> Void
-    private let onReminderInputsChanged: @Sendable (Bool) async -> Void
+    private let onReminderInputsChanged:
+        @Sendable (ReminderCoverageInvalidationResult) async -> Void
 
     init(
         storage: AppWriteActor,
         verifyStoreProtection: @escaping @Sendable () async -> Bool,
         onProtectionFailure: @escaping @Sendable () async -> Void,
-        onReminderInputsChanged: @escaping @Sendable (Bool) async -> Void = { _ in }
+        onReminderInputsChanged:
+            @escaping @Sendable (ReminderCoverageInvalidationResult) async -> Void = { _ in }
     ) {
         self.storage = storage
         self.verifyStoreProtection = verifyStoreProtection
@@ -1015,6 +1017,113 @@ struct AppDataWriter: Sendable {
     func saveCountdown(_ command: SaveCountdownCommand) async throws {
         try await storage.saveCountdown(command)
         await revalidateProtectionAfterCommit()
+    }
+
+    func createCountdown(
+        _ command: CreateCountdownCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.createCountdown(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID: result.countdownID
+            )
+        }
+        return result
+    }
+
+    func updateCountdown(
+        _ command: UpdateCountdownCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.updateCountdown(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID: result.countdownID
+            )
+        }
+        return result
+    }
+
+    func resolveCountdownReview(
+        _ command: ResolveCountdownReviewCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.resolveCountdownReview(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID:
+                    command.resolution == .keepAsCurrent
+                        ? result.countdownID
+                        : nil
+            )
+        }
+        return result
+    }
+
+    func continueCountdown(
+        _ command: ContinueCountdownCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.continueCountdown(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID: result.countdownID
+            )
+        }
+        return result
+    }
+
+    func completeCountdown(
+        _ command: CompleteCountdownCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.completeCountdown(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID: nil
+            )
+        }
+        return result
+    }
+
+    func archiveCountdown(
+        _ command: ArchiveCountdownCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.archiveCountdown(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID: nil
+            )
+        }
+        return result
+    }
+
+    func deleteCountdown(
+        _ command: DeleteCountdownCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.deleteCountdown(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID: nil
+            )
+        }
+        return result
+    }
+
+    func replaceCountdown(
+        _ command: ReplaceCountdownCommand
+    ) async throws -> CountdownMutationResult {
+        let result = try await storage.replaceCountdown(command)
+        if result.didApply {
+            await countdownReminderInputsDidChange(
+                at: command.committedAt,
+                countdownID: result.countdownID
+            )
+        }
+        return result
     }
 
     func addJourneyEntry(_ command: AddJourneyEntryCommand) async throws {
@@ -1041,7 +1150,9 @@ struct AppDataWriter: Sendable {
     func sealRegimenDraft(_ command: SealRegimenDraftCommand) async throws {
         try await storage.sealRegimenDraft(command)
         let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-        await onReminderInputsChanged(didInvalidateCoverage)
+        await onReminderInputsChanged(
+            .schedule(coverageWasInvalidated: didInvalidateCoverage)
+        )
         await revalidateProtectionAfterCommit()
     }
 
@@ -1105,7 +1216,9 @@ struct AppDataWriter: Sendable {
         let result = try await storage.commitAdministration(command)
         if result.didCreate {
             let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-            await onReminderInputsChanged(didInvalidateCoverage)
+            await onReminderInputsChanged(
+                .schedule(coverageWasInvalidated: didInvalidateCoverage)
+            )
             await revalidateProtectionAfterCommit()
         }
         return result
@@ -1117,7 +1230,9 @@ struct AppDataWriter: Sendable {
         let result = try await storage.setReminderPreference(command)
         if result.didApply {
             let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-            await onReminderInputsChanged(didInvalidateCoverage)
+            await onReminderInputsChanged(
+                .schedule(coverageWasInvalidated: didInvalidateCoverage)
+            )
             await revalidateProtectionAfterCommit()
         }
         return result
@@ -1129,7 +1244,9 @@ struct AppDataWriter: Sendable {
         let result = try await storage.applyReminderOverride(command)
         if result.didCreate {
             let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-            await onReminderInputsChanged(didInvalidateCoverage)
+            await onReminderInputsChanged(
+                .schedule(coverageWasInvalidated: didInvalidateCoverage)
+            )
             await revalidateProtectionAfterCommit()
         }
         return result
@@ -1139,6 +1256,13 @@ struct AppDataWriter: Sendable {
         _ observation: LocalReminderReconciliationObservation
     ) async throws {
         try await storage.updateNotificationCoverage(observation)
+        await revalidateProtectionAfterCommit()
+    }
+
+    func updateUnifiedNotificationCoverage(
+        _ observation: LocalReminderReconciliationObservation
+    ) async throws {
+        try await storage.updateUnifiedNotificationCoverage(observation)
         await revalidateProtectionAfterCommit()
     }
 
@@ -1159,6 +1283,43 @@ struct AppDataWriter: Sendable {
                     confirmedPendingCount: 0,
                     lastErrorCode: nil,
                     observedAt: observedAt
+                )
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func countdownReminderInputsDidChange(
+        at observedAt: Date,
+        countdownID: UUID?
+    ) async {
+        let didInvalidateCoverage = await invalidateCountdownReminderCoverage(
+            at: observedAt,
+            countdownID: countdownID
+        )
+        await onReminderInputsChanged(
+            .countdown(coverageWasInvalidated: didInvalidateCoverage)
+        )
+        await revalidateProtectionAfterCommit()
+    }
+
+    private func invalidateCountdownReminderCoverage(
+        at observedAt: Date,
+        countdownID: UUID?
+    ) async -> Bool {
+        do {
+            try await storage.updateCountdownNotificationCoverage(
+                LocalReminderReconciliationObservation(
+                    status: .disabledByUser,
+                    scheduledThrough: nil,
+                    desiredCount: 0,
+                    confirmedPendingCount: 0,
+                    lastErrorCode: nil,
+                    observedAt: observedAt,
+                    countdownStatus: .reconciliationPending,
+                    countdownID: countdownID
                 )
             )
             return true

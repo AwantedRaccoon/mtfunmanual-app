@@ -67,13 +67,26 @@ enum AppSchemaV5PersonalTimeline: VersionedSchema {
     ]
 }
 
+enum AppSchemaV6CountdownLifecycle: VersionedSchema {
+    static let versionIdentifier = Schema.Version(6, 0, 0)
+
+    static let models: [any PersistentModel.Type] = AppSchemaV5PersonalTimeline.models + [
+        CountdownStateRecord.self,
+        CountdownLifecycleEventRecord.self,
+        CountdownReminderRuleRecord.self,
+        CountdownNotificationCoverageRecord.self,
+        CountdownLifecycleBackfillState.self
+    ]
+}
+
 enum AppSchemaMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         AppSchemaV1.self,
         AppSchemaV2Bridge.self,
         AppSchemaV3Core.self,
         AppSchemaV4TodayExecution.self,
-        AppSchemaV5PersonalTimeline.self
+        AppSchemaV5PersonalTimeline.self,
+        AppSchemaV6CountdownLifecycle.self
     ]
 
     static let stages: [MigrationStage] = [
@@ -83,6 +96,10 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
         .lightweight(
             fromVersion: AppSchemaV4TodayExecution.self,
             toVersion: AppSchemaV5PersonalTimeline.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV5PersonalTimeline.self,
+            toVersion: AppSchemaV6CountdownLifecycle.self
         )
     ]
 }
@@ -102,6 +119,10 @@ enum AppModelContainerFactory {
 
     static var personalTimelineSchema: Schema {
         Schema(versionedSchema: AppSchemaV5PersonalTimeline.self)
+    }
+
+    static var countdownLifecycleSchema: Schema {
+        Schema(versionedSchema: AppSchemaV6CountdownLifecycle.self)
     }
 
     static func makeV1Container(at storeURL: URL) throws -> ModelContainer {
@@ -283,6 +304,52 @@ enum AppModelContainerFactory {
         let schema = personalTimelineSchema
         let configuration = ModelConfiguration(
             "UnmanualPersonalTimelineTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            allowsSave: true,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeCountdownLifecycleContainer(at storeURL: URL) throws -> ModelContainer {
+        try makeCountdownLifecycleContainer(at: storeURL, allowsSave: true)
+    }
+
+    static func makeReadOnlyCountdownLifecycleContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeCountdownLifecycleContainer(at: storeURL, allowsSave: false)
+    }
+
+    private static func makeCountdownLifecycleContainer(
+        at storeURL: URL,
+        allowsSave: Bool
+    ) throws -> ModelContainer {
+        let schema = countdownLifecycleSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeInMemoryCountdownLifecycleContainer() throws -> ModelContainer {
+        let schema = countdownLifecycleSchema
+        let configuration = ModelConfiguration(
+            "UnmanualCountdownLifecycleTests",
             schema: schema,
             isStoredInMemoryOnly: true,
             allowsSave: true,

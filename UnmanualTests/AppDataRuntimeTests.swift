@@ -421,6 +421,43 @@ final class ZZSystemBackupDisclosureRenderTests: XCTestCase {
                 )
             ),
             (
+                "TodayCountdown",
+                AnyView(
+                    V25TodayHome(
+                        profile: nil,
+                        countdown: CountdownTodaySnapshot(
+                            id: UUID(),
+                            displayTitle: "私人日期",
+                            targetDate: try! CivilDateFact(
+                                year: 2026,
+                                month: 8,
+                                day: 1
+                            ),
+                            displayTargetDate: Date(
+                                timeIntervalSince1970: 1_775_000_000
+                            ),
+                            dayState: .remaining(days: 8)
+                        ),
+                        regimens: [],
+                        latestLab: nil,
+                        entries: [],
+                        quickRecordAction: {},
+                        startDateAction: {},
+                        countdownAction: {},
+                        regimenAction: {},
+                        metricsAction: {},
+                        journeyAction: {}
+                    )
+                    .environment(theme)
+                    .environment(\.dynamicTypeSize, dynamicTypeSize)
+                    .frame(
+                        width: size.width,
+                        height: size.height,
+                        alignment: .top
+                    )
+                )
+            ),
+            (
                 "Archive",
                 AnyView(
                     ArchiveView()
@@ -445,6 +482,21 @@ final class ZZSystemBackupDisclosureRenderTests: XCTestCase {
                         .environment(theme)
                         .environment(\.dynamicTypeSize, dynamicTypeSize)
                         .frame(width: size.width, height: size.height)
+                )
+            ),
+            (
+                "CountdownLedger",
+                AnyView(
+                    CountdownLedgerView()
+                        .environment(theme)
+                        .environment(
+                            \.dynamicTypeSize,
+                            dynamicTypeSize
+                        )
+                        .frame(
+                            width: size.width,
+                            height: size.height
+                        )
                 )
             ),
             (

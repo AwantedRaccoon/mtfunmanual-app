@@ -104,7 +104,8 @@ final class AppWriteActorTests: XCTestCase {
     }
 
     func testSetStartDateWritesCanonicalCivilFactsInSameRevision() async throws {
-        let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
         _ = try LegacyV1Backfill.run(in: container)
         _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
         let writer = AppWriteActor(modelContainer: container)

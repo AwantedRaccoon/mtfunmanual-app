@@ -613,8 +613,8 @@ final class TodayExecutionStoreTests: XCTestCase {
             storage: AppWriteActor(modelContainer: fixture.container),
             verifyStoreProtection: { true },
             onProtectionFailure: {},
-            onReminderInputsChanged: { didInvalidate in
-                await recorder.record(didInvalidate: didInvalidate)
+            onReminderInputsChanged: { result in
+                await recorder.record(result)
             }
         )
         try await writer.updateNotificationCoverage(
@@ -661,7 +661,10 @@ final class TodayExecutionStoreTests: XCTestCase {
         let changeCount = await recorder.value()
         XCTAssertEqual(changeCount, 1)
         let invalidationResults = await recorder.invalidationResults()
-        XCTAssertEqual(invalidationResults, [true])
+        XCTAssertEqual(
+            invalidationResults,
+            [.schedule(coverageWasInvalidated: true)]
+        )
     }
 
     func testCoverageInvalidationFailureIsReportedWithoutRollingBackBusinessFact() async throws {
@@ -676,8 +679,8 @@ final class TodayExecutionStoreTests: XCTestCase {
             storage: AppWriteActor(modelContainer: fixture.container),
             verifyStoreProtection: { true },
             onProtectionFailure: {},
-            onReminderInputsChanged: { didInvalidate in
-                await recorder.record(didInvalidate: didInvalidate)
+            onReminderInputsChanged: { result in
+                await recorder.record(result)
             }
         )
         let actual = try HistoricalTimestamp.captured(
@@ -706,7 +709,10 @@ final class TodayExecutionStoreTests: XCTestCase {
             1
         )
         let invalidationResults = await recorder.invalidationResults()
-        XCTAssertEqual(invalidationResults, [false])
+        XCTAssertEqual(
+            invalidationResults,
+            [.schedule(coverageWasInvalidated: false)]
+        )
     }
 
     func testAdministrationCommitIsAppendOnlyIdempotentAndRejectsOperationConflict() async throws {
@@ -1541,14 +1547,16 @@ final class TodayExecutionStoreTests: XCTestCase {
 
     private actor ReminderChangeRecorder {
         private var count = 0
-        private var results: [Bool] = []
+        private var results: [ReminderCoverageInvalidationResult] = []
 
-        func record(didInvalidate: Bool) {
+        func record(_ result: ReminderCoverageInvalidationResult) {
             count += 1
-            results.append(didInvalidate)
+            results.append(result)
         }
         func value() -> Int { count }
-        func invalidationResults() -> [Bool] { results }
+        func invalidationResults() -> [ReminderCoverageInvalidationResult] {
+            results
+        }
     }
 
     private func makeFixture() throws -> Fixture {

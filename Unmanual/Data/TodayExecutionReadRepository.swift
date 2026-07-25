@@ -51,6 +51,26 @@ struct TodayExecutionSnapshot: Equatable, Sendable {
 struct ReminderPlanningSnapshot: Equatable, Sendable {
     let candidates: [LocalReminderCandidate]
     let hasEnabledIntent: Bool
+    let countdownCandidates: [CountdownReminderCandidate]
+    let countdownHasEnabledIntent: Bool
+    let countdownID: UUID?
+    let countdownResolutionFailed: Bool
+
+    init(
+        candidates: [LocalReminderCandidate],
+        hasEnabledIntent: Bool,
+        countdownCandidates: [CountdownReminderCandidate] = [],
+        countdownHasEnabledIntent: Bool = false,
+        countdownID: UUID? = nil,
+        countdownResolutionFailed: Bool = false
+    ) {
+        self.candidates = candidates
+        self.hasEnabledIntent = hasEnabledIntent
+        self.countdownCandidates = countdownCandidates
+        self.countdownHasEnabledIntent = countdownHasEnabledIntent
+        self.countdownID = countdownID
+        self.countdownResolutionFailed = countdownResolutionFailed
+    }
 }
 
 private struct TodayExecutionProjection {
@@ -134,10 +154,83 @@ extension AppReadActor {
                 snoozedUntil: item.snoozedUntil
             )
         }
+        let countdownPlanning = try countdownReminderPlanning(
+            now: now,
+            displayTimeZoneIdentifier: displayTimeZoneIdentifier
+        )
         return ReminderPlanningSnapshot(
             candidates: candidates,
-            hasEnabledIntent: projection.hasEnabledIntent
+            hasEnabledIntent: projection.hasEnabledIntent,
+            countdownCandidates: countdownPlanning.candidates,
+            countdownHasEnabledIntent:
+                countdownPlanning.hasEnabledIntent,
+            countdownID: countdownPlanning.countdownID,
+            countdownResolutionFailed:
+                countdownPlanning.resolutionFailed
         )
+    }
+
+    private func countdownReminderPlanning(
+        now: Date,
+        displayTimeZoneIdentifier: String
+    ) throws -> (
+        candidates: [CountdownReminderCandidate],
+        hasEnabledIntent: Bool,
+        countdownID: UUID?,
+        resolutionFailed: Bool
+    ) {
+        let activeValue = CountdownLifecycle.active.rawValue
+        var stateDescriptor = FetchDescriptor<CountdownStateRecord>(
+            predicate: #Predicate {
+                $0.lifecycleRawValue == activeValue && !$0.requiresReview
+            }
+        )
+        stateDescriptor.fetchLimit = 2
+        let active = try modelContext.fetch(stateDescriptor)
+        guard active.count <= 1 else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        guard let state = active.first,
+              let targetDate = state.targetDate,
+              let lifecycle = state.lifecycle else {
+            return ([], false, nil, false)
+        }
+        let countdownID = state.id
+        var reminderDescriptor = FetchDescriptor<CountdownReminderRuleRecord>(
+            predicate: #Predicate { $0.countdownID == countdownID }
+        )
+        reminderDescriptor.fetchLimit = 2
+        let matching = try modelContext.fetch(reminderDescriptor)
+        guard matching.count == 1,
+              let reminder = matching.first,
+              reminder.timeZoneBehavior == .floatingLocalV1 else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let hasEnabledIntent = reminder.isEnabled
+        do {
+            let candidate = try CountdownReminderResolver.resolve(
+                countdownID: state.id,
+                targetDate: targetDate,
+                lifecycle: lifecycle,
+                requiresReview: state.requiresReview,
+                isEnabled: reminder.isEnabled,
+                leadDays: reminder.leadDays,
+                localHour: reminder.localHour,
+                localMinute: reminder.localMinute,
+                semanticRevision: reminder.lastOperationID,
+                contentVersion: reminder.contentVersion,
+                now: now,
+                timeZoneIdentifier: displayTimeZoneIdentifier
+            )
+            return (
+                candidate.map { [$0] } ?? [],
+                hasEnabledIntent,
+                state.id,
+                false
+            )
+        } catch is CountdownReminderResolutionError {
+            return ([], hasEnabledIntent, state.id, hasEnabledIntent)
+        }
     }
 
     private func executionProjection(

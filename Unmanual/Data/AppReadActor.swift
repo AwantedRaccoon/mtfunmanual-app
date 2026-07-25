@@ -123,7 +123,7 @@ struct TodaySnapshot: Equatable, Sendable {
     )
 
     let profile: HRTProfileSnapshot?
-    let countdown: CountdownRecordSnapshot?
+    let countdown: CountdownTodaySnapshot?
     let regimens: [RegimenVersionSnapshot]
     let labRecords: [LabRecordSnapshot]
     let entries: [JourneyEntrySnapshot]
@@ -331,15 +331,23 @@ enum HistoricalDisplayDateResolver {
 actor AppReadActor {
     func todaySnapshot() throws -> TodaySnapshot {
         let profiles = try modelContext.fetch(AppReadDescriptors.profiles(limit: 1))
-        let countdowns = try modelContext.fetch(AppReadDescriptors.activeCountdowns(limit: 1))
         let regimens = try modelContext.fetch(AppReadDescriptors.regimens(limit: 32))
         let labRecords = try modelContext.fetch(AppReadDescriptors.labRecords(limit: 32))
         let entries = try modelContext.fetch(AppReadDescriptors.journeyEntries(limit: 8))
 
+        let displayTimeZoneIdentifier =
+            TimeZone.autoupdatingCurrent.identifier
+        let today = try HistoricalTimestamp.captured(
+            instant: Date(),
+            timeZoneIdentifier: displayTimeZoneIdentifier
+        ).localDate
         return TodaySnapshot(
             profile: try canonicalProfileSnapshot(legacyProfile: profiles.first)
                 ?? profiles.first.map(profileSnapshot),
-            countdown: countdowns.first.map(countdownSnapshot),
+            countdown: try countdownTodaySnapshot(
+                today: today,
+                displayTimeZoneIdentifier: displayTimeZoneIdentifier
+            ),
             regimens: regimens.map(regimenSnapshot),
             labRecords: try labRecords.map {
                 let historical = try canonicalHistoricalFacts(

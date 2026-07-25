@@ -335,7 +335,8 @@ extension AppWriteActor {
         var descriptor = FetchDescriptor<NotificationCoverageRecord>()
         descriptor.fetchLimit = 2
         let records = try modelContext.fetch(descriptor)
-        guard records.count == 1, let record = records.first else {
+        guard records.count == 1,
+              let record = records.first else {
             throw AppDataFailure.corruptionSuspected
         }
         try modelContext.transaction {
@@ -345,6 +346,104 @@ extension AppWriteActor {
             record.confirmedPendingCount = observation.confirmedPendingCount
             record.lastErrorCode = observation.lastErrorCode
             record.observedAt = observation.observedAt
+            try modelContext.save()
+        }
+    }
+
+    func updateCountdownNotificationCoverage(
+        _ observation: LocalReminderReconciliationObservation
+    ) throws {
+        guard observation.countdownDesiredCount >= 0,
+              observation.countdownConfirmedPendingCount >= 0,
+              observation.countdownConfirmedPendingCount
+                <= observation.countdownDesiredCount,
+              observation.observedAt.timeIntervalSince1970.isFinite,
+              observation.countdownScheduledFireAt?
+                .timeIntervalSince1970.isFinite != false,
+              Self.countdownCoverageObservationIsConsistent(observation) else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        var descriptor =
+            FetchDescriptor<CountdownNotificationCoverageRecord>()
+        descriptor.fetchLimit = 2
+        let records = try modelContext.fetch(descriptor)
+        guard records.count == 1, let countdownRecord = records.first else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        try modelContext.transaction {
+            countdownRecord.countdownID = observation.countdownID
+            countdownRecord.statusRawValue =
+                observation.countdownStatus.rawValue
+            countdownRecord.scheduledFireAt =
+                observation.countdownScheduledFireAt
+            countdownRecord.desiredCount =
+                observation.countdownDesiredCount
+            countdownRecord.confirmedPendingCount =
+                observation.countdownConfirmedPendingCount
+            countdownRecord.lastErrorCode =
+                observation.countdownStatus == .schedulingFailed
+                    ? observation.countdownLastErrorCode
+                    : nil
+            countdownRecord.observedAt = observation.observedAt
+            try modelContext.save()
+        }
+    }
+
+    func updateUnifiedNotificationCoverage(
+        _ observation: LocalReminderReconciliationObservation
+    ) throws {
+        guard observation.desiredCount >= 0,
+              observation.confirmedPendingCount >= 0,
+              observation.confirmedPendingCount <= observation.desiredCount,
+              observation.countdownDesiredCount >= 0,
+              observation.countdownConfirmedPendingCount >= 0,
+              observation.countdownConfirmedPendingCount
+                <= observation.countdownDesiredCount,
+              observation.observedAt.timeIntervalSince1970.isFinite,
+              observation.scheduledThrough?
+                .timeIntervalSince1970.isFinite != false,
+              observation.countdownScheduledFireAt?
+                .timeIntervalSince1970.isFinite != false,
+              Self.coverageObservationIsConsistent(observation),
+              Self.countdownCoverageObservationIsConsistent(observation) else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        var scheduleDescriptor = FetchDescriptor<NotificationCoverageRecord>()
+        scheduleDescriptor.fetchLimit = 2
+        var countdownDescriptor =
+            FetchDescriptor<CountdownNotificationCoverageRecord>()
+        countdownDescriptor.fetchLimit = 2
+        let scheduleRecords = try modelContext.fetch(scheduleDescriptor)
+        let countdownRecords = try modelContext.fetch(countdownDescriptor)
+        guard scheduleRecords.count == 1,
+              let scheduleRecord = scheduleRecords.first,
+              countdownRecords.count == 1,
+              let countdownRecord = countdownRecords.first else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        try modelContext.transaction {
+            scheduleRecord.statusRawValue = observation.status.rawValue
+            scheduleRecord.scheduledThrough = observation.scheduledThrough
+            scheduleRecord.desiredCount = observation.desiredCount
+            scheduleRecord.confirmedPendingCount =
+                observation.confirmedPendingCount
+            scheduleRecord.lastErrorCode = observation.lastErrorCode
+            scheduleRecord.observedAt = observation.observedAt
+
+            countdownRecord.countdownID = observation.countdownID
+            countdownRecord.statusRawValue =
+                observation.countdownStatus.rawValue
+            countdownRecord.scheduledFireAt =
+                observation.countdownScheduledFireAt
+            countdownRecord.desiredCount =
+                observation.countdownDesiredCount
+            countdownRecord.confirmedPendingCount =
+                observation.countdownConfirmedPendingCount
+            countdownRecord.lastErrorCode =
+                observation.countdownStatus == .schedulingFailed
+                    ? observation.countdownLastErrorCode
+                    : nil
+            countdownRecord.observedAt = observation.observedAt
             try modelContext.save()
         }
     }
@@ -370,6 +469,34 @@ extension AppWriteActor {
         case .schedulingFailed:
             return observation.scheduledThrough == nil
                 && observation.lastErrorCode?.isEmpty == false
+        }
+    }
+
+    private static func countdownCoverageObservationIsConsistent(
+        _ observation: LocalReminderReconciliationObservation
+    ) -> Bool {
+        switch observation.countdownStatus {
+        case .disabledByUser, .notDetermined, .blockedByPermission,
+             .limitedBySystemSettings, .reconciliationPending,
+             .staleObservation:
+            return observation.countdownDesiredCount == 0
+                && observation.countdownConfirmedPendingCount == 0
+                && observation.countdownScheduledFireAt == nil
+        case .scheduledForWindow:
+            return observation.countdownConfirmedPendingCount
+                    == observation.countdownDesiredCount
+                && (
+                    observation.countdownDesiredCount == 0
+                        || observation.countdownScheduledFireAt != nil
+                )
+        case .limitedByBudget:
+            return observation.countdownConfirmedPendingCount
+                    == observation.countdownDesiredCount
+                && observation.countdownDesiredCount == 0
+                && observation.countdownScheduledFireAt == nil
+        case .schedulingFailed:
+            return observation.countdownScheduledFireAt == nil
+                && observation.countdownLastErrorCode?.isEmpty == false
         }
     }
 }

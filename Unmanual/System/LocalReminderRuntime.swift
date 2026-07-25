@@ -8,6 +8,7 @@ final class LocalReminderRuntime {
     private(set) var isReconciling = false
     private(set) var isSuspendedForRecovery = false
     private(set) var lastErrorCode: String?
+    private(set) var countdownLastErrorCode: String?
     private var pendingWork: RuntimeWork?
     private var reconciliationEpoch = 0
     private var nextRequestSequence = 0
@@ -104,13 +105,19 @@ final class LocalReminderRuntime {
             let pending = await client.pendingRequests()
             guard isCurrent(current) else { return }
             let foreignPendingCount = pending.count {
-                !$0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+                !LocalReminderPlanner.isOwnedIdentifier($0.identifier)
             }
             let plan = LocalReminderPlanner.plan(
                 candidates: planning.candidates,
+                countdownCandidates: planning.countdownCandidates,
                 settings: settings,
                 now: current.now,
                 hasEnabledIntent: planning.hasEnabledIntent,
+                countdownHasEnabledIntent:
+                    planning.countdownHasEnabledIntent,
+                countdownID: planning.countdownID,
+                countdownResolutionFailed:
+                    planning.countdownResolutionFailed,
                 foreignPendingCount: foreignPendingCount
             )
             let observation = await LocalReminderReconciler(client: client).reconcile(
@@ -122,9 +129,13 @@ final class LocalReminderRuntime {
                 _ = await clearOwnedPending(maxAttempts: 3)
                 return
             }
-            try await current.writer.updateNotificationCoverage(observation)
+            try await current.writer.updateUnifiedNotificationCoverage(
+                observation
+            )
             if isCurrent(current) {
                 lastErrorCode = observation.lastErrorCode
+                countdownLastErrorCode =
+                    observation.countdownLastErrorCode
             }
         } catch {
             if isCurrent(current) {
@@ -141,9 +152,18 @@ final class LocalReminderRuntime {
         }
     }
 
-    func noteReminderInputsChanged(coverageWasInvalidated: Bool) {
-        if !coverageWasInvalidated {
-            lastErrorCode = "coverage-invalidation-failed"
+    func noteReminderInputsChanged(
+        _ result: ReminderCoverageInvalidationResult
+    ) {
+        switch result {
+        case let .schedule(coverageWasInvalidated):
+            lastErrorCode = coverageWasInvalidated
+                ? nil
+                : "coverage-invalidation-failed"
+        case let .countdown(coverageWasInvalidated):
+            countdownLastErrorCode = coverageWasInvalidated
+                ? nil
+                : "countdown-coverage-invalidation-failed"
         }
     }
 
@@ -176,6 +196,8 @@ final class LocalReminderRuntime {
         lastRecoveryCleanupSucceeded = didClear
         if !didClear {
             lastErrorCode = "recovery-owned-removal-unverified"
+            countdownLastErrorCode =
+                "recovery-owned-removal-unverified"
         }
         return didClear
     }
@@ -260,20 +282,24 @@ final class LocalReminderRuntime {
             ? request.errorCode
             : request.errorCode + "-owned-removal-unverified"
         lastErrorCode = finalErrorCode
+        countdownLastErrorCode = finalErrorCode
         guard isCurrent(request) else { return }
         do {
-            try await request.writer.updateNotificationCoverage(
+            try await request.writer.updateUnifiedNotificationCoverage(
                 LocalReminderReconciliationObservation(
                     status: .schedulingFailed,
                     scheduledThrough: nil,
                     desiredCount: 0,
                     confirmedPendingCount: 0,
                     lastErrorCode: finalErrorCode,
-                    observedAt: request.observedAt
+                    observedAt: request.observedAt,
+                    countdownStatus: .schedulingFailed,
+                    countdownLastErrorCode: finalErrorCode
                 )
             )
         } catch {
             lastErrorCode = finalErrorCode
+            countdownLastErrorCode = finalErrorCode
         }
     }
 
@@ -309,7 +335,7 @@ final class LocalReminderRuntime {
         for _ in 0..<max(1, maxAttempts) {
             let pending = await client.pendingRequests()
             let ownedIDs = pending.compactMap { request in
-                request.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+                LocalReminderPlanner.isOwnedIdentifier(request.identifier)
                     ? request.identifier
                     : nil
             }
@@ -317,7 +343,7 @@ final class LocalReminderRuntime {
             await client.removePendingRequests(withIdentifiers: ownedIDs)
             let remaining = await client.pendingRequests()
             if !remaining.contains(where: {
-                $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+                LocalReminderPlanner.isOwnedIdentifier($0.identifier)
             }) {
                 return true
             }

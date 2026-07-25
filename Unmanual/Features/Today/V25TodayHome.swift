@@ -8,7 +8,7 @@ struct V25TodayHome: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let profile: HRTProfileSnapshot?
-    let countdown: CountdownRecordSnapshot?
+    let countdown: CountdownTodaySnapshot?
     let regimens: [CoreRegimenVersionSnapshot]
     let latestLab: PersonalTimelineItem?
     let entries: [JourneyEntrySnapshot]
@@ -31,7 +31,7 @@ struct V25TodayHome: View {
 
     init(
         profile: HRTProfileSnapshot?,
-        countdown: CountdownRecordSnapshot?,
+        countdown: CountdownTodaySnapshot?,
         regimens: [CoreRegimenVersionSnapshot],
         latestLab: PersonalTimelineItem? = nil,
         entries: [JourneyEntrySnapshot],
@@ -359,14 +359,18 @@ struct V25TodayHome: View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(spacing: 0) {
-                    countdownContext
+                    if countdown != nil {
+                        countdownContext
+                    }
                     regimenContext
                     labContext
                 }
             } else {
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
-                        countdownContext
+                        if countdown != nil {
+                            countdownContext
+                        }
                         regimenContext
                     }
                     labContext
@@ -380,8 +384,8 @@ struct V25TodayHome: View {
         V25ContextItem(
             label: "下一件事",
             value: countdownValue,
-            detail: countdown?.title ?? "添加目标日",
-            metadata: countdown?.targetDate.unmanualShortDateText ?? "尚未设置",
+            detail: countdown?.displayTitle ?? "私人日期",
+            metadata: countdown?.displayTargetDate.unmanualShortDateText ?? "",
             background: theme.blue.opacity(0.28),
             labelColor: theme.indigoDeep,
             accessibilityIdentifier: "today.v25.countdown",
@@ -472,10 +476,14 @@ struct V25TodayHome: View {
 
     private var countdownValue: String {
         guard let countdown else { return "未设置" }
-        let days = DateFacts.countdownDays(targetDate: countdown.targetDate)
-        if days > 0 { return "\(days) 天" }
-        if days == 0 { return "今天" }
-        return "\(abs(days)) 天前"
+        switch countdown.dayState {
+        case let .remaining(days):
+            return "还有 \(days) 天"
+        case .targetDay, .overdueAwaitingDecision:
+            return "目标日到了"
+        case let .countingUp(days):
+            return "已经过 \(days) 天"
+        }
     }
 
     private var labValue: String {

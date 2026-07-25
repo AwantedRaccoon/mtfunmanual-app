@@ -2303,6 +2303,120 @@ final class PersonalTimelineFeatureTests: XCTestCase {
         XCTAssertEqual(Set(first.items.map(\.id) + second.items.map(\.id)).count, 3)
     }
 
+    func testUnifiedTimelineProjectsOnlyTerminalCountdownsWithStablePagination()
+        async throws
+    {
+        let container = try preparedContainer()
+        let writer = AppWriteActor(modelContainer: container)
+        let reader = AppReadActor(modelContainer: container)
+        let target = try CivilDateFact(year: 2026, month: 7, day: 24)
+        let base = Date(timeIntervalSince1970: 1_774_521_600)
+
+        let completedID = UUID()
+        let completedCreateEventID = UUID()
+        let completedTimestamp = try HistoricalTimestamp.captured(
+            instant: base,
+            timeZoneIdentifier: "UTC",
+            provenance: .userEntered
+        )
+        _ = try await writer.createCountdown(
+            CreateCountdownCommand(
+                operationID: UUID(),
+                eventID: completedCreateEventID,
+                countdownID: completedID,
+                title: "完成路标",
+                gentleTitle: nil,
+                targetDate: target,
+                showInToday: true,
+                reminder: .disabled,
+                timestamp: completedTimestamp
+            )
+        )
+        _ = try await writer.completeCountdown(
+            CompleteCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                countdownID: completedID,
+                expectedLatestEventID: completedCreateEventID,
+                today: target,
+                timestamp: try HistoricalTimestamp.captured(
+                    instant: base.addingTimeInterval(60),
+                    timeZoneIdentifier: "UTC",
+                    provenance: .userEntered
+                )
+            )
+        )
+
+        let archivedID = UUID()
+        let archivedCreateEventID = UUID()
+        _ = try await writer.createCountdown(
+            CreateCountdownCommand(
+                operationID: UUID(),
+                eventID: archivedCreateEventID,
+                countdownID: archivedID,
+                title: "归档路标",
+                gentleTitle: nil,
+                targetDate: target,
+                showInToday: true,
+                reminder: .disabled,
+                timestamp: try HistoricalTimestamp.captured(
+                    instant: base.addingTimeInterval(120),
+                    timeZoneIdentifier: "UTC",
+                    provenance: .userEntered
+                )
+            )
+        )
+        _ = try await writer.archiveCountdown(
+            ArchiveCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                countdownID: archivedID,
+                expectedLatestEventID: archivedCreateEventID,
+                timestamp: try HistoricalTimestamp.captured(
+                    instant: base.addingTimeInterval(180),
+                    timeZoneIdentifier: "UTC",
+                    provenance: .userEntered
+                )
+            )
+        )
+
+        let activeID = UUID()
+        _ = try await writer.createCountdown(
+            CreateCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                countdownID: activeID,
+                title: "仍在进行",
+                gentleTitle: nil,
+                targetDate: target,
+                showInToday: false,
+                reminder: .disabled,
+                timestamp: try HistoricalTimestamp.captured(
+                    instant: base.addingTimeInterval(240),
+                    timeZoneIdentifier: "UTC",
+                    provenance: .userEntered
+                )
+            )
+        )
+
+        let first = try await reader.personalTimelinePage(limit: 1)
+        XCTAssertEqual(first.items.map(\.id), [archivedID])
+        XCTAssertEqual(first.items.map(\.kind), [.countdown])
+        XCTAssertEqual(first.items.map(\.detail), ["未完成，已收进旅程"])
+        XCTAssertNotNil(first.nextCursor)
+
+        let second = try await reader.personalTimelinePage(
+            after: first.nextCursor,
+            limit: 1
+        )
+        XCTAssertEqual(second.items.map(\.id), [completedID])
+        XCTAssertEqual(second.items.map(\.detail), ["已经完成，已收进旅程"])
+        XCTAssertNil(second.nextCursor)
+        XCTAssertFalse(
+            (first.items + second.items).contains { $0.id == activeID }
+        )
+    }
+
     func testUnifiedTimelinePaginatesSameInstantWithoutDuplicatesOrGaps() async throws {
         let container = try preparedContainer()
         let writer = AppWriteActor(modelContainer: container)
@@ -3118,11 +3232,13 @@ final class PersonalTimelineFeatureTests: XCTestCase {
     }
 
     private func preparedContainer() throws -> ModelContainer {
-        let container = try AppModelContainerFactory.makeInMemoryPersonalTimelineContainer()
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
         _ = try LegacyV1Backfill.run(in: container)
         _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
         _ = try TodayExecutionBackfill.run(in: container)
         _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
         return container
     }
 

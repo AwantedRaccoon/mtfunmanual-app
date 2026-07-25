@@ -154,7 +154,7 @@ struct Batch1FixtureCounts: Codable, Equatable, Sendable {
         journeyEntries: 7_300,
         labRecords: 1_200,
         migrationIssues: 0,
-        revisions: 23_113
+        revisions: 23_353
     )
 
     let profiles: Int
@@ -223,12 +223,35 @@ struct Batch1V5PersonalTimelineCounts: Codable, Equatable, Sendable {
     }
 }
 
-enum Batch1V5FoundationContract {
+struct Batch1V6CountdownCounts: Codable, Equatable, Sendable {
+    static let expected = Batch1V6CountdownCounts(
+        states: 60,
+        lifecycleEvents: 60,
+        reminderRules: 60,
+        lifecycleReceipts: 60,
+        backfillStates: 1
+    )
+
+    let states: Int
+    let lifecycleEvents: Int
+    let reminderRules: Int
+    let lifecycleReceipts: Int
+    let backfillStates: Int
+
+    var canonicalFacts: Int {
+        states + lifecycleEvents + reminderRules + lifecycleReceipts
+    }
+}
+
+enum Batch1V6FoundationContract {
     static let activatedFactCount = Batch1FixtureCounts.expected.legacyFacts
         + Batch1V3CompanionCounts.expected.facts
-        + Batch1V5PersonalTimelineCounts.expected.canonicalFacts + 1
+        + Batch1V5PersonalTimelineCounts.expected.canonicalFacts
+        + Batch1V6CountdownCounts.expected.canonicalFacts + 1
     static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions
-    static let nextLocalRevision = Int64(activatedRevisionCount + 1)
+    // Updating the existing receipt-ledger revision consumes one additional
+    // local-revision sequence value without increasing the revision count.
+    static let nextLocalRevision = Int64(activatedRevisionCount + 2)
     static let quickWriteAddedFactCount = 2
     static let postQuickWriteRevisionCount = activatedRevisionCount + quickWriteAddedFactCount
     static let postQuickWriteNextLocalRevision = nextLocalRevision + 1

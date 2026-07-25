@@ -10,7 +10,10 @@
 		00B14C7A316720BB6DAD420C /* StartDateEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BBEFE58403449D2C6618EE5 /* StartDateEditor.swift */; };
 		00D85C40CF1510780C734426 /* AppReadActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1983F5748964E5A3AB5E124 /* AppReadActorTests.swift */; };
 		0292BC75C0667DC4456E91BB /* GenerateLegacyFixture.swift.txt in Resources */ = {isa = PBXBuildFile; fileRef = C38CD05B2A1488E5AF2A5D02 /* GenerateLegacyFixture.swift.txt */; };
+		046E810E5008732BD9D727FE /* CountdownLifecycleRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3F55F6A24D7B292E6F156DA /* CountdownLifecycleRepository.swift */; };
+		049FAFC0EC7FD580FE584847 /* CountdownLifecycleReadRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CB9FC520378BF5B852C9ED7 /* CountdownLifecycleReadRepository.swift */; };
 		04CEE0657111E33FA2327EFD /* AppWriteActorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC190CA6B4BA6D0B279E4A8 /* AppWriteActorTests.swift */; };
+		0A416D248B042EBEE7B4EBD1 /* CountdownLifecycleDomainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF185305382E8B50E588A6C /* CountdownLifecycleDomainTests.swift */; };
 		0BFB99809508B679D65CE4A2 /* UnmanualApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B319CE4DCBE433B2B35521A /* UnmanualApp.swift */; };
 		0D66382966DA08D15D328581 /* AttachmentFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DAFDFA56479366AF571A39E /* AttachmentFileStore.swift */; };
 		0D8D6CC5371B061E614202CE /* RecordDigestV1Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF74948DEAE0B538AFE8760C /* RecordDigestV1Tests.swift */; };
@@ -22,9 +25,11 @@
 		12FE1AA6C91A2F1B5ACCCCDD /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF7A40127E0E91D99470B650 /* Models.swift */; };
 		132984F4CCEFF554743C6B06 /* UserNotificationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C6CE7879EA22ED20289C82 /* UserNotificationClient.swift */; };
 		1549049FAAB7D4126EED482F /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BB4DF9DD3100B9E4E34E6E59 /* PrivacyInfo.xcprivacy */; };
+		16301428AB62801DA6BCEB0F /* CountdownLifecycleBackfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = F347873E380FB4B620CB7498 /* CountdownLifecycleBackfill.swift */; };
 		1718F0ADB73AB9D8F1D917FE /* QuickRecordEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3FC6D8F48D770BC7CE5D430 /* QuickRecordEditor.swift */; };
 		18F314215379D28C7C10218C /* StoreFileProtection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFE134BD4AA748B49B16A994 /* StoreFileProtection.swift */; };
 		1AC2CAC2495851FC0837DF67 /* TodayExecutionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A3F3975DEF5934319FFBA67 /* TodayExecutionLedger.swift */; };
+		1B7A4ED1CEAB28928DB28DEA /* CountdownLifecycleStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8058BD087C43AC05ACC8B8 /* CountdownLifecycleStoreTests.swift */; };
 		216D5F370D26C861C8900027 /* V25Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE00C7F984E6832F2BC3EAE5 /* V25Components.swift */; };
 		25600DB4B6842A84088483E0 /* TodayExecutionSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = E70E63CC6BA321DE7E649AE7 /* TodayExecutionSheets.swift */; };
 		279F249F1F9F8A5C4855BF1F /* JourneyRouteBookView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE87BD594DCA28F2CA9301F0 /* JourneyRouteBookView.swift */; };
@@ -32,6 +37,7 @@
 		2E82A56957473BC2B9034B10 /* V25TodayHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC04E187EC8359D90E9A6663 /* V25TodayHome.swift */; };
 		2ED00BE568D0F1BC23198F1D /* TodayExecutionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D345F589B889354B7F34A9EB /* TodayExecutionStoreTests.swift */; };
 		31EFCB6A27B02B2107BA0B77 /* SupersessionChainValidatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFB2F689DDD3DEFB91FC6482 /* SupersessionChainValidatorTests.swift */; };
+		37078E1F04369CF14A66FE2B /* CountdownLifecycleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9812CE2D424B74CFBB4A76E7 /* CountdownLifecycleModels.swift */; };
 		3A18A6BBD076D0322F15D83B /* AppNotificationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CF4D72C9D337B503A3243C2 /* AppNotificationDelegate.swift */; };
 		3A3642676E0567B9F96AE29C /* PROVENANCE.md in Resources */ = {isa = PBXBuildFile; fileRef = 9F929A0E9B1D8EDB948C1E00 /* PROVENANCE.md */; };
 		3DBF8A17E22DA867826BC14E /* ReminderRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ABC760C04E46C440720947A /* ReminderRepository.swift */; };
@@ -42,6 +48,7 @@
 		44EC42AA6F89644F2755B9DD /* PersonalTimelineModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A63722210F0C9E0A12B2A35 /* PersonalTimelineModels.swift */; };
 		4A742160E640D650B9262369 /* Batch1PerformanceEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C1676ABA9520E195381AD6E /* Batch1PerformanceEvidence.swift */; };
 		4C07341E5357EA0C2AC3DF81 /* DateFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C327EAF39AF961F7F1B9B96D /* DateFacts.swift */; };
+		5009EE7182D8C4F8D4863741 /* CountdownLifecycleReadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AEF87804100567E0897866 /* CountdownLifecycleReadTests.swift */; };
 		50A836547B498619829AAD59 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39AD2B90E25CDD4AFCDB79BA /* TodayView.swift */; };
 		50F97699F8C67BCCBDFF1230 /* LocalReminderSchedulingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24421BBEE31183D82716E3F7 /* LocalReminderSchedulingTests.swift */; };
 		52041B340CAF5F66547A38A1 /* FoundationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2030FC6985CA525EE2B0548 /* FoundationModels.swift */; };
@@ -51,6 +58,7 @@
 		57EBFBB5E879461E6F83B413 /* LegacyUnversionedStoreFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 047930871A693261793476B0 /* LegacyUnversionedStoreFactory.swift */; };
 		59102A5A200B8391D641A366 /* LocalReminderScheduling.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC6B64CB8D2020EC40183902 /* LocalReminderScheduling.swift */; };
 		5A6D6A544D38363FE6256B19 /* CoreRegimenRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75D9BBE6775D4D21F9C31A2 /* CoreRegimenRepository.swift */; };
+		5C73AAAB406F8166BFFB1609 /* CountdownLedgerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 422E8E56737EF7F133BE2EC5 /* CountdownLedgerView.swift */; };
 		5DC1E70186A569109520EDB0 /* Batch1FiveYearPerformanceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03C6142F2430D265855B7DEA /* Batch1FiveYearPerformanceFixture.swift */; };
 		5E1964A89B181A9044D85FE1 /* RegimenTimeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62488A6530ACC086F85EF70D /* RegimenTimeline.swift */; };
 		61812E6D7446FAE1DF99FB0D /* LabImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BBE26E4B1538CF54428199 /* LabImport.swift */; };
@@ -69,6 +77,7 @@
 		83D7A454E62F6EC0B38EB60C /* TodayExecutionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C369456A18227EEA485AB73 /* TodayExecutionRepository.swift */; };
 		87781D10DF09218C23CEEB25 /* RegimenLabComparisonBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D1A9999425D478B6D6FCE6 /* RegimenLabComparisonBoard.swift */; };
 		8A7CF1CE2F900A5E1D525CC8 /* PersonalTimelineFactsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2AF0F2AC22DFB921C027EF3 /* PersonalTimelineFactsTests.swift */; };
+		8BB93549162042BF4D9E05FC /* CountdownLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7944DAF4600697938C410693 /* CountdownLifecycle.swift */; };
 		8DA3379EED8552D9159D0A42 /* LabImportEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6B97177E8031519DF40A04C /* LabImportEditor.swift */; };
 		90E2DABDC5E78853832F6DBA /* RegimenVersionEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09FB125E67D3308E140F67BA /* RegimenVersionEditor.swift */; };
 		940A8157A61036007E0F34EE /* RegimenUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA00410F9A3E71E99417CF15 /* RegimenUITests.swift */; };
@@ -100,6 +109,7 @@
 		D46723F1E6759964DD35C10E /* RecoveryModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B68DC6DA282445C17F0B78FC /* RecoveryModeView.swift */; };
 		DAB1F572A829448BEEC3E0D1 /* LabImportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94AD9E71B3A52A49948C1CE5 /* LabImportServiceTests.swift */; };
 		DEA515A360617C4519CAEC29 /* SupersessionChainValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7957BD93D86B6B0C68A2466D /* SupersessionChainValidator.swift */; };
+		DF6F37118320178157821AD0 /* CountdownLifecycleRelationshipValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43A6982BC9133D586FC1E19 /* CountdownLifecycleRelationshipValidator.swift */; };
 		E08B6FE6069233A7070CC5A7 /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 749CFF7C645A89151C9FCD16 /* ArchiveView.swift */; };
 		E0D2C8A5CFCD94164E17D54E /* StructuredRecordEditors.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1770A274319D712DB85B0B3 /* StructuredRecordEditors.swift */; };
 		E0DEA059E5636FC57B7573BD /* LegacyV1Backfill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A316FF617E691C6FE97AD2 /* LegacyV1Backfill.swift */; };
@@ -176,6 +186,7 @@
 		39AD2B90E25CDD4AFCDB79BA /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		3DAFDFA56479366AF571A39E /* AttachmentFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentFileStore.swift; sourceTree = "<group>"; };
 		407A507C3422298BDD4AF9E6 /* AppDataRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataRuntimeTests.swift; sourceTree = "<group>"; };
+		422E8E56737EF7F133BE2EC5 /* CountdownLedgerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLedgerView.swift; sourceTree = "<group>"; };
 		4A3F3975DEF5934319FFBA67 /* TodayExecutionLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayExecutionLedger.swift; sourceTree = "<group>"; };
 		4C7010894E0E58CBB55E754D /* DataFoundationMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataFoundationMigrationTests.swift; sourceTree = "<group>"; };
 		4C7746A27BF97EDCDAAD45AF /* AppDataRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDataRuntime.swift; sourceTree = "<group>"; };
@@ -193,6 +204,7 @@
 		62488A6530ACC086F85EF70D /* RegimenTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegimenTimeline.swift; sourceTree = "<group>"; };
 		62CCF4AAF0F6501631F3190F /* RegimenScheduleEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegimenScheduleEditor.swift; sourceTree = "<group>"; };
 		646AAEA9C002290028F25435 /* AppSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSchema.swift; sourceTree = "<group>"; };
+		6EF185305382E8B50E588A6C /* CountdownLifecycleDomainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleDomainTests.swift; sourceTree = "<group>"; };
 		6F799CD24D06A2E189CF829D /* PersonalTimelineProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalTimelineProjection.swift; sourceTree = "<group>"; };
 		7207F238994D3679B625A526 /* TodayExecutionRelationshipValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayExecutionRelationshipValidator.swift; sourceTree = "<group>"; };
 		749CFF7C645A89151C9FCD16 /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
@@ -200,6 +212,7 @@
 		783F2A79E14EEB823F0AC5CB /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		78C87056260BFDC0B7F285F4 /* AppWriteActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppWriteActor.swift; sourceTree = "<group>"; };
 		791A89F7EFC342132B842EDC /* JourneyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyView.swift; sourceTree = "<group>"; };
+		7944DAF4600697938C410693 /* CountdownLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycle.swift; sourceTree = "<group>"; };
 		7957BD93D86B6B0C68A2466D /* SupersessionChainValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersessionChainValidator.swift; sourceTree = "<group>"; };
 		7E24BEF62EFECE8E48981801 /* Batch1PerformanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Batch1PerformanceSupport.swift; sourceTree = "<group>"; };
 		80D09FCBDF15AF327110FC89 /* MedicationCatalogPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationCatalogPicker.swift; sourceTree = "<group>"; };
@@ -207,8 +220,10 @@
 		8B657BCEC15668BDAF7C6AD9 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		8BBEFE58403449D2C6618EE5 /* StartDateEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartDateEditor.swift; sourceTree = "<group>"; };
 		8C1676ABA9520E195381AD6E /* Batch1PerformanceEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Batch1PerformanceEvidence.swift; sourceTree = "<group>"; };
+		8CB9FC520378BF5B852C9ED7 /* CountdownLifecycleReadRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleReadRepository.swift; sourceTree = "<group>"; };
 		94AD9E71B3A52A49948C1CE5 /* LabImportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabImportServiceTests.swift; sourceTree = "<group>"; };
 		97BBE26E4B1538CF54428199 /* LabImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabImport.swift; sourceTree = "<group>"; };
+		9812CE2D424B74CFBB4A76E7 /* CountdownLifecycleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleModels.swift; sourceTree = "<group>"; };
 		9D143DBCBC62F507E7AF8E68 /* PersonalTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalTimelineView.swift; sourceTree = "<group>"; };
 		9DB4E40219E0EDDBBFC9DA8B /* StoreBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreBootstrapTests.swift; sourceTree = "<group>"; };
 		9F929A0E9B1D8EDB948C1E00 /* PROVENANCE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = PROVENANCE.md; sourceTree = "<group>"; };
@@ -216,14 +231,17 @@
 		A738B076CBF5A84F761F3949 /* TodayExecutionBackfill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayExecutionBackfill.swift; sourceTree = "<group>"; };
 		AC6B64CB8D2020EC40183902 /* LocalReminderScheduling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalReminderScheduling.swift; sourceTree = "<group>"; };
 		AE00AA40AC31701522B7DE56 /* HistoricalTimeFactsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoricalTimeFactsTests.swift; sourceTree = "<group>"; };
+		AE8058BD087C43AC05ACC8B8 /* CountdownLifecycleStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleStoreTests.swift; sourceTree = "<group>"; };
 		AF8D73EA3196A9F77E7F2FF8 /* RecordDigestV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordDigestV1.swift; sourceTree = "<group>"; };
 		AFCB79F5F8A853502D0D7C9A /* UnmanualUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = UnmanualUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AFE134BD4AA748B49B16A994 /* StoreFileProtection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreFileProtection.swift; sourceTree = "<group>"; };
 		B183304F99CC8F4ABE306BDA /* CountdownEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownEditor.swift; sourceTree = "<group>"; };
 		B1983F5748964E5A3AB5E124 /* AppReadActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppReadActorTests.swift; sourceTree = "<group>"; };
 		B2030FC6985CA525EE2B0548 /* FoundationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModels.swift; sourceTree = "<group>"; };
+		B43A6982BC9133D586FC1E19 /* CountdownLifecycleRelationshipValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleRelationshipValidator.swift; sourceTree = "<group>"; };
 		B57ED02CD27F6DC71428B4AE /* UnmanualTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = UnmanualTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B68DC6DA282445C17F0B78FC /* RecoveryModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryModeView.swift; sourceTree = "<group>"; };
+		B6AEF87804100567E0897866 /* CountdownLifecycleReadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleReadTests.swift; sourceTree = "<group>"; };
 		B9C6CE7879EA22ED20289C82 /* UserNotificationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserNotificationClient.swift; sourceTree = "<group>"; };
 		BAA452753E73EE468DD8F1E2 /* CoreTimeRegimenBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreTimeRegimenBackfillTests.swift; sourceTree = "<group>"; };
 		BB4DF9DD3100B9E4E34E6E59 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -234,6 +252,7 @@
 		C233E7C60947C119F4D72258 /* Unmanual.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Unmanual.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C327EAF39AF961F7F1B9B96D /* DateFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateFacts.swift; sourceTree = "<group>"; };
 		C38CD05B2A1488E5AF2A5D02 /* GenerateLegacyFixture.swift.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = GenerateLegacyFixture.swift.txt; sourceTree = "<group>"; };
+		C3F55F6A24D7B292E6F156DA /* CountdownLifecycleRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleRepository.swift; sourceTree = "<group>"; };
 		C6B97177E8031519DF40A04C /* LabImportEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabImportEditor.swift; sourceTree = "<group>"; };
 		C75D9BBE6775D4D21F9C31A2 /* CoreRegimenRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreRegimenRepository.swift; sourceTree = "<group>"; };
 		C886317E4C0D79D667452027 /* StoreBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreBootstrap.swift; sourceTree = "<group>"; };
@@ -260,6 +279,7 @@
 		F0AEB0894907FE8CEB3DC542 /* StatusRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusRepository.swift; sourceTree = "<group>"; };
 		F19ADEA7D87E13ACDB8B3C78 /* V25Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = V25Theme.swift; sourceTree = "<group>"; };
 		F2556A86CAA0BC5DB16599A2 /* MetricReportFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricReportFacts.swift; sourceTree = "<group>"; };
+		F347873E380FB4B620CB7498 /* CountdownLifecycleBackfill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownLifecycleBackfill.swift; sourceTree = "<group>"; };
 		F976BABDB2D2DEB9E9F1D81D /* MedicationCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationCatalogTests.swift; sourceTree = "<group>"; };
 		FA00410F9A3E71E99417CF15 /* RegimenUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegimenUITests.swift; sourceTree = "<group>"; };
 		FEFF984231741F1366BD9FDA /* legacy-unversioned.sqlite */ = {isa = PBXFileReference; lastKnownFileType = file; path = "legacy-unversioned.sqlite"; sourceTree = "<group>"; };
@@ -284,6 +304,7 @@
 		17F5EF74857AD00485FDFB56 /* Journey */ = {
 			isa = PBXGroup;
 			children = (
+				422E8E56737EF7F133BE2EC5 /* CountdownLedgerView.swift */,
 				EE87BD594DCA28F2CA9301F0 /* JourneyRouteBookView.swift */,
 				791A89F7EFC342132B842EDC /* JourneyView.swift */,
 				9D143DBCBC62F507E7AF8E68 /* PersonalTimelineView.swift */,
@@ -296,6 +317,7 @@
 			isa = PBXGroup;
 			children = (
 				E0808AC34F3871FD3A5856DB /* AppDataBackup.swift */,
+				7944DAF4600697938C410693 /* CountdownLifecycle.swift */,
 				C327EAF39AF961F7F1B9B96D /* DateFacts.swift */,
 				25EDD17D8BB6B33835372CC3 /* HistoricalTimeFacts.swift */,
 				97BBE26E4B1538CF54428199 /* LabImport.swift */,
@@ -389,6 +411,9 @@
 				4CC190CA6B4BA6D0B279E4A8 /* AppWriteActorTests.swift */,
 				5BAB1A6EFDE2D724970C9078 /* Batch1FiveYearFixtureTests.swift */,
 				BAA452753E73EE468DD8F1E2 /* CoreTimeRegimenBackfillTests.swift */,
+				6EF185305382E8B50E588A6C /* CountdownLifecycleDomainTests.swift */,
+				B6AEF87804100567E0897866 /* CountdownLifecycleReadTests.swift */,
+				AE8058BD087C43AC05ACC8B8 /* CountdownLifecycleStoreTests.swift */,
 				4C7010894E0E58CBB55E754D /* DataFoundationMigrationTests.swift */,
 				032D6FBC8FC0C55DD22D8105 /* DateFactsTests.swift */,
 				AE00AA40AC31701522B7DE56 /* HistoricalTimeFactsTests.swift */,
@@ -425,6 +450,11 @@
 				C75D9BBE6775D4D21F9C31A2 /* CoreRegimenRepository.swift */,
 				29FAFADD61AA73AEB2856323 /* CoreTimeRegimenBackfill.swift */,
 				20EAC11E5C2D2C7BEF78926E /* CoreTimeRegimenModels.swift */,
+				F347873E380FB4B620CB7498 /* CountdownLifecycleBackfill.swift */,
+				9812CE2D424B74CFBB4A76E7 /* CountdownLifecycleModels.swift */,
+				8CB9FC520378BF5B852C9ED7 /* CountdownLifecycleReadRepository.swift */,
+				B43A6982BC9133D586FC1E19 /* CountdownLifecycleRelationshipValidator.swift */,
+				C3F55F6A24D7B292E6F156DA /* CountdownLifecycleRepository.swift */,
 				B2030FC6985CA525EE2B0548 /* FoundationModels.swift */,
 				16A316FF617E691C6FE97AD2 /* LegacyV1Backfill.swift */,
 				BF7A40127E0E91D99470B650 /* Models.swift */,
@@ -706,6 +736,13 @@
 				AF26DF98BD070179F6CFC11F /* CoreTimeRegimenBackfill.swift in Sources */,
 				7664B1C758CC44BC1C121340 /* CoreTimeRegimenModels.swift in Sources */,
 				7C616D79FD7FFC0E5B456BED /* CountdownEditor.swift in Sources */,
+				5C73AAAB406F8166BFFB1609 /* CountdownLedgerView.swift in Sources */,
+				8BB93549162042BF4D9E05FC /* CountdownLifecycle.swift in Sources */,
+				16301428AB62801DA6BCEB0F /* CountdownLifecycleBackfill.swift in Sources */,
+				37078E1F04369CF14A66FE2B /* CountdownLifecycleModels.swift in Sources */,
+				049FAFC0EC7FD580FE584847 /* CountdownLifecycleReadRepository.swift in Sources */,
+				DF6F37118320178157821AD0 /* CountdownLifecycleRelationshipValidator.swift in Sources */,
+				046E810E5008732BD9D727FE /* CountdownLifecycleRepository.swift in Sources */,
 				4C07341E5357EA0C2AC3DF81 /* DateFacts.swift in Sources */,
 				A3AF945B1E4861A71DB38151 /* DemoDataSeeder.swift in Sources */,
 				52041B340CAF5F66547A38A1 /* FoundationModels.swift in Sources */,
@@ -771,6 +808,9 @@
 				04CEE0657111E33FA2327EFD /* AppWriteActorTests.swift in Sources */,
 				415C41867BE6897E9396D037 /* Batch1FiveYearFixtureTests.swift in Sources */,
 				BBAF8819DA1EBD0DDA26CA4E /* CoreTimeRegimenBackfillTests.swift in Sources */,
+				0A416D248B042EBEE7B4EBD1 /* CountdownLifecycleDomainTests.swift in Sources */,
+				5009EE7182D8C4F8D4863741 /* CountdownLifecycleReadTests.swift in Sources */,
+				1B7A4ED1CEAB28928DB28DEA /* CountdownLifecycleStoreTests.swift in Sources */,
 				29CD682945507579816BE448 /* DataFoundationMigrationTests.swift in Sources */,
 				76FF5F50B6CD6D683EADFC76 /* DateFactsTests.swift in Sources */,
 				F3DAA6CA93376CB4A9298314 /* HistoricalTimeFactsTests.swift in Sources */,

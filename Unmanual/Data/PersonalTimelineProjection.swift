@@ -6,6 +6,7 @@ enum PersonalTimelineItemKind: String, Codable, Equatable, Sendable {
     case statusObservation
     case journeyEntry
     case administration
+    case countdown
     case regimenVersion
 
     var rank: Int {
@@ -13,8 +14,9 @@ enum PersonalTimelineItemKind: String, Codable, Equatable, Sendable {
         case .labSample: 0
         case .statusObservation: 1
         case .administration: 2
-        case .journeyEntry: 3
-        case .regimenVersion: 4
+        case .countdown: 3
+        case .journeyEntry: 4
+        case .regimenVersion: 5
         }
     }
 }
@@ -291,6 +293,11 @@ extension AppReadActor {
             )
         }
 
+        items += try countdownTerminalTimelineItems(
+            after: cursor,
+            pageLimit: limit
+        )
+
         let versions = try regimenDateCandidates(after: cursor, pageLimit: limit)
         for version in versions
         where version.editState == .sealed
@@ -312,6 +319,23 @@ extension AppReadActor {
             )
         }
 
+        if let cursorMicroseconds = cursor?.instantMicroseconds {
+            var cursorTieCount = 0
+            for item in items {
+                if let timestamp = item.timestamp,
+                   try RecordDigestV1.timestampMicroseconds(
+                       timestamp.instant
+                   ) == cursorMicroseconds {
+                    cursorTieCount += 1
+                }
+            }
+            guard cursorTieCount
+                    <= PersonalTimelineCapacity.maximumSameInstantCursorTieCount
+            else {
+                throw AppDataFailure.corruptionSuspected
+            }
+        }
+
         items.sort(by: Self.isEarlierInTimeline)
         if let cursor {
             items = items.filter { Self.isAfterCursor($0, cursor: cursor) }
@@ -321,6 +345,186 @@ extension AppReadActor {
             ? pageItems.last.map(Self.cursor)
             : nil
         return PersonalTimelinePage(items: pageItems, nextCursor: nextCursor)
+    }
+
+    private func countdownTerminalTimelineItems(
+        after cursor: PersonalTimelineCursor?,
+        pageLimit: Int
+    ) throws -> [PersonalTimelineItem] {
+        guard cursor?.sortDomainRank != 1 else { return [] }
+        let completed = CountdownLifecycle.completed.rawValue
+        let archived = CountdownLifecycle.archived.rawValue
+        let cursorTieCount: Int
+        var stateDescriptor: FetchDescriptor<CountdownStateRecord>
+        if let cursorMicroseconds = cursor?.instantMicroseconds {
+            let cutoff = Date(
+                timeIntervalSince1970:
+                    Double(cursorMicroseconds) / 1_000_000
+            )
+            cursorTieCount = try modelContext.fetchCount(
+                FetchDescriptor<CountdownStateRecord>(
+                    predicate: #Predicate {
+                        (
+                            $0.lifecycleRawValue == completed
+                                || $0.lifecycleRawValue == archived
+                        )
+                            && !$0.requiresReview
+                            && $0.archivedAt == cutoff
+                    }
+                )
+            )
+            stateDescriptor = FetchDescriptor<CountdownStateRecord>(
+                predicate: #Predicate {
+                    (
+                        $0.lifecycleRawValue == completed
+                            || $0.lifecycleRawValue == archived
+                        )
+                        && !$0.requiresReview
+                        && $0.archivedAt != nil
+                        && ($0.archivedAt ?? cutoff) <= cutoff
+                },
+                sortBy: [
+                    SortDescriptor(\.archivedAt, order: .reverse),
+                    SortDescriptor(\.id)
+                ]
+            )
+        } else {
+            cursorTieCount = 0
+            stateDescriptor = FetchDescriptor<CountdownStateRecord>(
+                predicate: #Predicate {
+                    (
+                        $0.lifecycleRawValue == completed
+                            || $0.lifecycleRawValue == archived
+                    )
+                        && !$0.requiresReview
+                },
+                sortBy: [
+                    SortDescriptor(\.archivedAt, order: .reverse),
+                    SortDescriptor(\.id)
+                ]
+            )
+        }
+        guard cursorTieCount
+                <= PersonalTimelineCapacity.maximumSameInstantCursorTieCount
+        else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let (limitWithTies, firstOverflow) =
+            pageLimit.addingReportingOverflow(cursorTieCount)
+        let (fetchLimit, secondOverflow) =
+            limitWithTies.addingReportingOverflow(1)
+        guard !firstOverflow, !secondOverflow else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        stateDescriptor.fetchLimit = fetchLimit
+        let states = try modelContext.fetch(stateDescriptor)
+        guard states.allSatisfy({
+            !$0.title.isEmpty && $0.targetDate != nil
+        }) else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        guard !states.isEmpty else { return [] }
+
+        let eventIDs = states.map(\.latestEventID)
+        var eventDescriptor = FetchDescriptor<CountdownLifecycleEventRecord>(
+            predicate: #Predicate { eventIDs.contains($0.id) }
+        )
+        eventDescriptor.fetchLimit = eventIDs.count + 1
+        let events = try modelContext.fetch(eventDescriptor)
+        guard events.count == eventIDs.count else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let eventByID = try AppDataIndex.checkedUniqueMap(
+            events,
+            keyedBy: \.id,
+            failure: .corruptionSuspected
+        )
+        let reviewPredecessorIDs = events.compactMap { event -> UUID? in
+            event.kind == .reviewResolved ? event.previousEventID : nil
+        }
+        var predecessorByID: [UUID: CountdownLifecycleEventRecord] = [:]
+        if !reviewPredecessorIDs.isEmpty {
+            var predecessorDescriptor =
+                FetchDescriptor<CountdownLifecycleEventRecord>(
+                    predicate: #Predicate {
+                        reviewPredecessorIDs.contains($0.id)
+                    }
+                )
+            predecessorDescriptor.fetchLimit =
+                reviewPredecessorIDs.count + 1
+            let predecessors = try modelContext.fetch(
+                predecessorDescriptor
+            )
+            guard predecessors.count == reviewPredecessorIDs.count else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            predecessorByID = try AppDataIndex.checkedUniqueMap(
+                predecessors,
+                keyedBy: \.id,
+                failure: .corruptionSuspected
+            )
+        }
+
+        var preferenceDescriptor = FetchDescriptor<UserPreferencesRecord>()
+        preferenceDescriptor.fetchLimit = 2
+        let preferences = try modelContext.fetch(preferenceDescriptor)
+        guard preferences.count == 1 else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let gentleModeEnabled = preferences[0].gentleModeEnabled
+
+        return try states.map { state in
+            guard let lifecycle = state.lifecycle,
+                  let latestEvent = eventByID[state.latestEventID],
+                  latestEvent.countdownID == state.id,
+                  let latestEventKind = latestEvent.kind else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let event: CountdownLifecycleEventRecord
+            if latestEventKind == .reviewResolved {
+                guard lifecycle == .archived,
+                      let previousID = latestEvent.previousEventID,
+                      let previous = predecessorByID[previousID],
+                      previous.countdownID == state.id else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+                event = previous
+            } else {
+                event = latestEvent
+            }
+            guard let eventKind = event.kind,
+                  (
+                      lifecycle == .completed && eventKind == .completed
+                  ) || (
+                      lifecycle == .archived
+                          && (
+                              eventKind == .archived
+                                  || eventKind == .migratedSnapshot
+                          )
+                  ),
+                  let timestamp = event.historicalTimestamp else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let displayTitle: String
+            if gentleModeEnabled {
+                displayTitle = state.gentleTitle?.isEmpty == false
+                    ? state.gentleTitle!
+                    : "私人日期"
+            } else {
+                displayTitle = state.title
+            }
+            return PersonalTimelineItem(
+                id: state.id,
+                kind: .countdown,
+                title: displayTitle,
+                detail: lifecycle == .completed
+                    ? "已经完成，已收进旅程"
+                    : "未完成，已收进旅程",
+                timestamp: timestamp,
+                dateOnly: nil,
+                localDate: timestamp.localDate
+            )
+        }
     }
 
     private func timedCandidates(

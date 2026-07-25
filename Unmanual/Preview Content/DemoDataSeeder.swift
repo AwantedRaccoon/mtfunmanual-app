@@ -12,6 +12,9 @@ enum DemoDataSeeder {
         if arguments.contains("-unmanual-today-execution") {
             try? await seedTodayExecution(container: container)
         }
+        if arguments.contains("-unmanual-countdown-due") {
+            try? await seedDueCountdown(container: container)
+        }
     }
 
     private static func seedLegacyHome(
@@ -141,6 +144,35 @@ enum DemoDataSeeder {
                 expectedNextLocalRevision: preview.expectedNextLocalRevision,
                 draftDigest: preview.draftDigest,
                 committedAt: now
+            )
+        )
+    }
+
+    private static func seedDueCountdown(
+        container: ModelContainer
+    ) async throws {
+        let context = container.mainContext
+        guard try context.fetchCount(
+            FetchDescriptor<CountdownStateRecord>()
+        ) == 0 else { return }
+        let now = Date()
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: now,
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+            provenance: .captured
+        )
+        _ = try await AppWriteActor(
+            modelContainer: container
+        ).createCountdown(
+            CreateCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                title: "到期测试",
+                gentleTitle: nil,
+                targetDate: timestamp.localDate,
+                showInToday: true,
+                reminder: .disabled,
+                timestamp: timestamp
             )
         )
     }

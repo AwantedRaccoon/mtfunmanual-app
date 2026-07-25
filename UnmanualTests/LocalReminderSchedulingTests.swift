@@ -40,21 +40,36 @@ final class LocalReminderSchedulingTests: XCTestCase {
     }
 
     @MainActor
-    func testReminderInputInvalidationFailureImmediatelyOverridesStaleCoverage() {
+    func testReminderInputInvalidationFailuresStayInTheirOwningDomain() {
         let runtime = LocalReminderRuntime(client: FakeLocalNotificationClient(pending: []))
 
-        runtime.noteReminderInputsChanged(coverageWasInvalidated: false)
+        runtime.noteReminderInputsChanged(.schedule(coverageWasInvalidated: false))
 
         XCTAssertEqual(runtime.lastErrorCode, "coverage-invalidation-failed")
+        XCTAssertNil(runtime.countdownLastErrorCode)
+
+        runtime.noteReminderInputsChanged(.countdown(coverageWasInvalidated: false))
+
+        XCTAssertEqual(runtime.lastErrorCode, "coverage-invalidation-failed")
+        XCTAssertEqual(
+            runtime.countdownLastErrorCode,
+            "countdown-coverage-invalidation-failed"
+        )
     }
 
     @MainActor
     func testRecoveryCleanupRemovesOwnedPendingAndPreservesForeignRequests() async {
         let ownedID = LocalReminderPlanner.requestPrefix + "owned"
+        let countdownOwnedID =
+            LocalReminderPlanner.countdownRequestPrefix + "owned"
         let foreignID = "foreign.calendar.reminder"
         let client = FakeLocalNotificationClient(
             pending: [
                 LocalPendingNotificationRequest(identifier: ownedID, fireAt: referenceDate),
+                LocalPendingNotificationRequest(
+                    identifier: countdownOwnedID,
+                    fireAt: referenceDate
+                ),
                 LocalPendingNotificationRequest(identifier: foreignID, fireAt: referenceDate)
             ]
         )
@@ -64,6 +79,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         XCTAssertTrue(didClear)
         let pending = await client.pendingRequests()
         XCTAssertFalse(pending.contains { $0.identifier == ownedID })
+        XCTAssertFalse(pending.contains { $0.identifier == countdownOwnedID })
         XCTAssertTrue(pending.contains { $0.identifier == foreignID })
     }
 
@@ -147,10 +163,13 @@ final class LocalReminderSchedulingTests: XCTestCase {
 
     @MainActor
     func testPlanningFailurePersistsFailureAndRemovesOnlyOwnedPending() async throws {
-        let container = try AppModelContainerFactory.makeInMemoryTodayContainer()
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
         _ = try LegacyV1Backfill.run(in: container)
         _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
         _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
         let storage = AppWriteActor(modelContainer: container)
         let writer = AppDataWriter(
             storage: storage,
@@ -194,6 +213,85 @@ final class LocalReminderSchedulingTests: XCTestCase {
         let pending = await client.pendingRequests()
         XCTAssertFalse(pending.contains { $0.identifier == ownedID })
         XCTAssertTrue(pending.contains { $0.identifier == foreignID })
+    }
+
+    @MainActor
+    func testRuntimeSchedulesCountdownAndPersistsSeparateCoverage() async throws {
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: "UTC"
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
+        let storage = AppWriteActor(modelContainer: container)
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: referenceDate,
+            timeZoneIdentifier: "UTC",
+            provenance: .userEntered
+        )
+        _ = try await storage.createCountdown(
+            CreateCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                title: "不会进入通知正文",
+                gentleTitle: "也不会进入通知正文",
+                targetDate: CivilDateFact(
+                    year: 2026,
+                    month: 10,
+                    day: 1
+                ),
+                showInToday: true,
+                reminder: CountdownReminderInput(
+                    isEnabled: true,
+                    leadDays: 0,
+                    localHour: 9,
+                    localMinute: 0
+                ),
+                timestamp: timestamp
+            )
+        )
+        let writer = AppDataWriter(
+            storage: storage,
+            verifyStoreProtection: { true },
+            onProtectionFailure: {}
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let client = FakeLocalNotificationClient(pending: [])
+        let planning = try await reader.reminderPlanningSnapshot(
+            now: referenceDate,
+            displayTimeZoneIdentifier: "UTC"
+        )
+        XCTAssertTrue(planning.countdownHasEnabledIntent)
+        XCTAssertEqual(planning.countdownCandidates.count, 1)
+
+        await LocalReminderRuntime(client: client).reconcile(
+            reader: reader,
+            writer: writer,
+            now: referenceDate,
+            displayTimeZoneIdentifier: "UTC"
+        )
+
+        let pending = await client.pendingRequests()
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertTrue(
+            try XCTUnwrap(pending.first).identifier.hasPrefix(
+                LocalReminderPlanner.countdownRequestPrefix
+            )
+        )
+        let context = ModelContext(container)
+        let coverage = try XCTUnwrap(
+            context.fetch(
+                FetchDescriptor<CountdownNotificationCoverageRecord>()
+            ).first
+        )
+        XCTAssertEqual(coverage.status, .scheduledForWindow)
+        XCTAssertEqual(coverage.desiredCount, 1)
+        XCTAssertEqual(coverage.confirmedPendingCount, 1)
+        XCTAssertNotNil(coverage.scheduledFireAt)
     }
 
     @MainActor
@@ -463,6 +561,304 @@ final class LocalReminderSchedulingTests: XCTestCase {
             ).status,
             .limitedBySystemSettings
         )
+    }
+
+    func testCountdownReminderResolverFailsClosedForGapAndUsesFirstOverlap() throws {
+        let countdownID = UUID()
+        let semanticRevision = UUID()
+        XCTAssertThrowsError(
+            try CountdownReminderResolver.resolve(
+                countdownID: countdownID,
+                targetDate: CivilDateFact(
+                    year: 2026,
+                    month: 3,
+                    day: 8
+                ),
+                lifecycle: .active,
+                requiresReview: false,
+                isEnabled: true,
+                leadDays: 0,
+                localHour: 2,
+                localMinute: 30,
+                semanticRevision: semanticRevision,
+                contentVersion: "neutralV1",
+                now: try XCTUnwrap(
+                    ISO8601DateFormatter().date(
+                        from: "2026-03-07T00:00:00Z"
+                    )
+                ),
+                timeZoneIdentifier: "America/Chicago"
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? CountdownReminderResolutionError,
+                .nonexistentLocalTime
+            )
+        }
+
+        let overlap = try CountdownReminderResolver.resolve(
+            countdownID: countdownID,
+            targetDate: CivilDateFact(year: 2026, month: 11, day: 1),
+            lifecycle: .active,
+            requiresReview: false,
+            isEnabled: true,
+            leadDays: 0,
+            localHour: 1,
+            localMinute: 30,
+            semanticRevision: semanticRevision,
+            contentVersion: "neutralV1",
+            now: try XCTUnwrap(
+                ISO8601DateFormatter().date(from: "2026-10-31T00:00:00Z")
+            ),
+            timeZoneIdentifier: "America/Chicago"
+        )
+        XCTAssertEqual(
+            overlap?.fireAt,
+            try XCTUnwrap(
+                ISO8601DateFormatter().date(from: "2026-11-01T06:30:00Z")
+            )
+        )
+    }
+
+    func testUnifiedPlannerUsesBothOwnedNamespacesAndNeutralCountdownPayload() throws {
+        let schedule = try makeCandidate(ruleIndex: 0, occurrenceIndex: 1)
+        let countdown = CountdownReminderCandidate(
+            countdownID: UUID(),
+            semanticRevision: UUID(),
+            fireAt: referenceDate.addingTimeInterval(3_600),
+            timeZoneIdentifier: "UTC",
+            contentVersion: "neutralV1"
+        )
+
+        let plan = LocalReminderPlanner.plan(
+            candidates: [schedule],
+            countdownCandidates: [countdown],
+            settings: .init(
+                authorization: .authorized,
+                alertsEnabled: true
+            ),
+            now: referenceDate,
+            hasEnabledIntent: true,
+            countdownHasEnabledIntent: true,
+            foreignPendingCount: 58
+        )
+
+        XCTAssertEqual(plan.requests.count, 2)
+        XCTAssertEqual(plan.countdownStatus, .scheduledForWindow)
+        XCTAssertEqual(plan.countdownDesiredCount, 1)
+        let countdownRequest = try XCTUnwrap(
+            plan.requests.first {
+                $0.identifier.hasPrefix(
+                    LocalReminderPlanner.countdownRequestPrefix
+                )
+            }
+        )
+        XCTAssertEqual(countdownRequest.title, "给自己留一点时间")
+        XCTAssertEqual(countdownRequest.body, "打开 App 查看下一件事。")
+        XCTAssertTrue(countdownRequest.userInfo.isEmpty)
+        XCTAssertFalse(countdownRequest.includesSound)
+        XCTAssertFalse(countdownRequest.includesBadge)
+        XCTAssertTrue(
+            LocalReminderPlanner.isOwnedIdentifier(
+                countdownRequest.identifier
+            )
+        )
+        XCTAssertTrue(
+            LocalReminderPlanner.isOwnedIdentifier(
+                LocalReminderPlanner.requestPrefix + "existing"
+            )
+        )
+        XCTAssertFalse(
+            LocalReminderPlanner.isOwnedIdentifier("foreign.reminder")
+        )
+    }
+
+    func testUnifiedPlannerSeparatesCoverageAtForeignCountsZeroFiftyNineSixtyAndSixtyOne()
+        throws
+    {
+        let schedule = try makeCandidate(
+            ruleIndex: 0,
+            occurrenceIndex: 2
+        )
+        let countdownID = UUID()
+        let countdown = CountdownReminderCandidate(
+            countdownID: countdownID,
+            semanticRevision: UUID(),
+            fireAt: referenceDate.addingTimeInterval(1_800),
+            timeZoneIdentifier: "UTC",
+            contentVersion: "neutralV1"
+        )
+        let settings = LocalNotificationSettingsSnapshot(
+            authorization: .authorized,
+            alertsEnabled: true
+        )
+
+        let zero = LocalReminderPlanner.plan(
+            candidates: [schedule],
+            countdownCandidates: [countdown],
+            settings: settings,
+            now: referenceDate,
+            hasEnabledIntent: true,
+            countdownHasEnabledIntent: true,
+            countdownID: countdownID,
+            foreignPendingCount: 0
+        )
+        XCTAssertEqual(zero.requests.count, 2)
+        XCTAssertEqual(zero.status, .scheduledForWindow)
+        XCTAssertEqual(zero.countdownStatus, .scheduledForWindow)
+
+        let fiftyNine = LocalReminderPlanner.plan(
+            candidates: [schedule],
+            countdownCandidates: [countdown],
+            settings: settings,
+            now: referenceDate,
+            hasEnabledIntent: true,
+            countdownHasEnabledIntent: true,
+            countdownID: countdownID,
+            foreignPendingCount: 59
+        )
+        XCTAssertEqual(fiftyNine.requests.count, 1)
+        XCTAssertEqual(fiftyNine.status, .limitedByBudget)
+        XCTAssertEqual(fiftyNine.countdownStatus, .scheduledForWindow)
+        XCTAssertEqual(fiftyNine.countdownDesiredCount, 1)
+
+        for foreignCount in [60, 61] {
+            let plan = LocalReminderPlanner.plan(
+                candidates: [schedule],
+                countdownCandidates: [countdown],
+                settings: settings,
+                now: referenceDate,
+                hasEnabledIntent: true,
+                countdownHasEnabledIntent: true,
+                countdownID: countdownID,
+                foreignPendingCount: foreignCount
+            )
+            XCTAssertTrue(plan.requests.isEmpty)
+            XCTAssertEqual(plan.status, .limitedByBudget)
+            XCTAssertEqual(plan.countdownStatus, .limitedByBudget)
+            XCTAssertEqual(plan.countdownID, countdownID)
+        }
+    }
+
+    func testCountdownPlanningFailureAndPastFireKeepIntentIdentityVisible()
+        async throws
+    {
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: "America/Chicago"
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
+        let storage = AppWriteActor(modelContainer: container)
+        let countdownID = UUID()
+        let now = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-03-07T00:00:00Z")
+        )
+        _ = try await storage.createCountdown(
+            CreateCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                countdownID: countdownID,
+                title: "DST 缺口",
+                gentleTitle: nil,
+                targetDate: CivilDateFact(
+                    year: 2026,
+                    month: 3,
+                    day: 8
+                ),
+                showInToday: true,
+                reminder: CountdownReminderInput(
+                    isEnabled: true,
+                    leadDays: 0,
+                    localHour: 2,
+                    localMinute: 30
+                ),
+                timestamp: try HistoricalTimestamp.captured(
+                    instant: now,
+                    timeZoneIdentifier: "America/Chicago",
+                    provenance: .userEntered
+                )
+            )
+        )
+
+        let planning = try await AppReadActor(
+            modelContainer: container
+        ).reminderPlanningSnapshot(
+            now: now,
+            displayTimeZoneIdentifier: "America/Chicago"
+        )
+        XCTAssertTrue(planning.countdownHasEnabledIntent)
+        XCTAssertEqual(planning.countdownID, countdownID)
+        XCTAssertTrue(planning.countdownResolutionFailed)
+        XCTAssertTrue(planning.countdownCandidates.isEmpty)
+
+        let failedPlan = LocalReminderPlanner.plan(
+            candidates: planning.candidates,
+            countdownCandidates: planning.countdownCandidates,
+            settings: .init(
+                authorization: .authorized,
+                alertsEnabled: true
+            ),
+            now: now,
+            hasEnabledIntent: planning.hasEnabledIntent,
+            countdownHasEnabledIntent:
+                planning.countdownHasEnabledIntent,
+            countdownID: planning.countdownID,
+            countdownResolutionFailed:
+                planning.countdownResolutionFailed
+        )
+        XCTAssertEqual(failedPlan.status, .disabledByUser)
+        XCTAssertEqual(failedPlan.countdownStatus, .schedulingFailed)
+        XCTAssertEqual(failedPlan.countdownID, countdownID)
+        let failedObservation = await LocalReminderReconciler(
+            client: FakeLocalNotificationClient(pending: [])
+        ).reconcile(
+            plan: failedPlan,
+            observedAt: now
+        )
+        XCTAssertEqual(failedObservation.status, .disabledByUser)
+        XCTAssertNil(failedObservation.lastErrorCode)
+        XCTAssertEqual(
+            failedObservation.countdownStatus,
+            .schedulingFailed
+        )
+        XCTAssertEqual(
+            failedObservation.countdownLastErrorCode,
+            "countdown-local-time-invalid"
+        )
+        try await storage.updateUnifiedNotificationCoverage(
+            failedObservation
+        )
+        let coverage = try XCTUnwrap(
+            ModelContext(container).fetch(
+                FetchDescriptor<CountdownNotificationCoverageRecord>()
+            ).first
+        )
+        XCTAssertEqual(coverage.status, .schedulingFailed)
+        XCTAssertEqual(
+            coverage.lastErrorCode,
+            "countdown-local-time-invalid"
+        )
+
+        let pastPlan = LocalReminderPlanner.plan(
+            candidates: [],
+            countdownCandidates: [],
+            settings: .init(
+                authorization: .authorized,
+                alertsEnabled: true
+            ),
+            now: now,
+            hasEnabledIntent: false,
+            countdownHasEnabledIntent: true,
+            countdownID: countdownID
+        )
+        XCTAssertEqual(pastPlan.countdownStatus, .scheduledForWindow)
+        XCTAssertEqual(pastPlan.countdownDesiredCount, 0)
+        XCTAssertEqual(pastPlan.countdownID, countdownID)
     }
 
     func testPlannerUsesFairFirstPassThenStableOrderWithinSixtyRequestBudget() throws {
@@ -845,10 +1241,13 @@ final class LocalReminderSchedulingTests: XCTestCase {
         reader: AppReadActor,
         writer: AppDataWriter
     ) {
-        let container = try AppModelContainerFactory.makeInMemoryTodayContainer()
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
         _ = try LegacyV1Backfill.run(in: container)
         _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
         _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
         return (
             AppReadActor(modelContainer: container),
             AppDataWriter(
@@ -864,10 +1263,13 @@ final class LocalReminderSchedulingTests: XCTestCase {
         reader: AppReadActor,
         writer: AppDataWriter
     ) {
-        let container = try AppModelContainerFactory.makeInMemoryTodayContainer()
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
         _ = try LegacyV1Backfill.run(in: container)
         _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
         _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
         let context = ModelContext(container)
         let regimen = RegimenPlanVersionRecord(
             code: "R-RUNTIME",

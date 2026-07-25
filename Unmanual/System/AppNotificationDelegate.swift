@@ -26,7 +26,9 @@ final class AppNotificationDelegate: NSObject, UIApplicationDelegate,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        guard notification.request.identifier.hasPrefix(LocalReminderPlanner.requestPrefix) else {
+        guard LocalReminderPlanner.isOwnedIdentifier(
+            notification.request.identifier
+        ) else {
             completionHandler([.banner, .list])
             return
         }
@@ -38,7 +40,9 @@ final class AppNotificationDelegate: NSObject, UIApplicationDelegate,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.notification.request.identifier.hasPrefix(LocalReminderPlanner.requestPrefix) {
+        if LocalReminderPlanner.isOwnedIdentifier(
+            response.notification.request.identifier
+        ) {
             NotificationCenter.default.post(name: .unmanualOpenToday, object: nil)
         }
         completionHandler()

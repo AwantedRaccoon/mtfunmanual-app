@@ -6,6 +6,7 @@ struct TodayView: View {
     @Environment(\.appReadActor) private var appReadActor
     @Environment(\.appDataWriter) private var appDataWriter
     @Environment(\.localReminderRuntime) private var reminderRuntime
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @Binding var selectedTab: AppTab
     @Binding var pendingJourneyItem: PersonalTimelineItem?
@@ -94,7 +95,11 @@ struct TodayView: View {
                 cancel: { reminderPromptItem = nil },
                 confirm: { enableReminder(for: item) }
             )
-            .presentationDetents([.medium, .large])
+            .presentationDetents(
+                dynamicTypeSize.isAccessibilitySize
+                    ? [.large]
+                    : [.medium, .large]
+            )
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $correctionItem) { item in

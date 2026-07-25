@@ -77,12 +77,19 @@ final class AppReadActorTests: XCTestCase {
     }
 
     func testTodaySnapshotReturnsImmutableBoundedScreenData() async throws {
-        let container = try AppModelContainerFactory.makeInMemoryBridgeContainer()
-        _ = try LegacyV1Backfill.run(in: container)
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
         let context = ModelContext(container)
         let base = Date(timeIntervalSince1970: 1_700_000_000)
         context.insert(HRTProfile(startDate: base))
-        context.insert(CountdownRecord(title: "较早", targetDate: base, createdAt: base))
+        context.insert(
+            CountdownRecord(
+                title: "较早",
+                targetDate: base,
+                createdAt: base,
+                archivedAt: base
+            )
+        )
         context.insert(
             CountdownRecord(
                 title: "当前",
@@ -106,12 +113,23 @@ final class AppReadActorTests: XCTestCase {
             )
         }
         try context.save()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: "UTC"
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
 
         let snapshot = try await AppReadActor(modelContainer: container).todaySnapshot()
         assertSendable(snapshot)
 
-        XCTAssertEqual(snapshot.profile?.startDate, base)
-        XCTAssertEqual(snapshot.countdown?.title, "当前")
+        XCTAssertEqual(
+            snapshot.profile?.startDate.unmanualShortDateText,
+            base.unmanualShortDateText
+        )
+        XCTAssertEqual(snapshot.countdown?.displayTitle, "当前")
         XCTAssertEqual(snapshot.regimens.count, 32)
         XCTAssertEqual(snapshot.entries.count, 8)
         XCTAssertEqual(snapshot.labRecords.count, 32)
@@ -188,7 +206,8 @@ final class AppReadActorTests: XCTestCase {
     }
 
     func testHistoricalSnapshotsKeepCanonicalLocalDateAcrossFallbackTimeZones() async throws {
-        let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
         _ = try LegacyV1Backfill.run(in: container)
         _ = try CoreTimeRegimenBackfill.run(in: container, assumedTimeZoneIdentifier: "UTC")
         let context = ModelContext(container)

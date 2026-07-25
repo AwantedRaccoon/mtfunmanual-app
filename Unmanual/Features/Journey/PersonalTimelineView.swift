@@ -376,6 +376,7 @@ private struct PersonalTimelineRow: View {
         case .statusObservation: "STATUS / 状态"
         case .journeyEntry: "NOTE / 片段"
         case .administration: "ACTION / 执行"
+        case .countdown: "DATE / 倒计时"
         case .regimenVersion: "REGIMEN / 方案"
         }
     }
@@ -386,6 +387,7 @@ private struct PersonalTimelineRow: View {
         case .statusObservation: theme.moss
         case .journeyEntry: theme.vermilion
         case .administration: theme.mustard
+        case .countdown: theme.rose
         case .regimenVersion: theme.indigo
         }
     }
@@ -396,6 +398,7 @@ private struct PersonalTimelineRow: View {
         case .statusObservation: theme.mossText
         case .journeyEntry: theme.vermilionText
         case .administration: theme.mustardText
+        case .countdown: theme.vermilionText
         case .regimenVersion: theme.indigo
         }
     }
@@ -729,7 +732,7 @@ private struct PersonalTimelineDetailView: View {
                     ownerType: .journeyEntry,
                     ownerID: item.id
                 )
-            case .administration, .regimenVersion:
+            case .administration, .countdown, .regimenVersion:
                 break
             }
             hasLoaded = true

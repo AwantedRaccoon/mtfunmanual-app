@@ -28,6 +28,8 @@ struct JourneyView: View {
                     LabSampleEditor()
                 case .status:
                     StatusObservationEditor()
+                case .countdown:
+                    CountdownLedgerView()
                 }
             }
     }
@@ -46,6 +48,7 @@ enum JourneySheet: String, Identifiable {
     case quickRecord
     case lab
     case status
+    case countdown
 
     var id: String { rawValue }
 }
@@ -88,6 +91,12 @@ private struct JourneyRecordMenu: View {
                         detail: "留下一段感受或片段",
                         systemImage: "square.and.pencil",
                         destination: .quickRecord
+                    )
+                    menuRow(
+                        title: "倒计时",
+                        detail: "管理当前目标日并回看完成或归档的日期",
+                        systemImage: "calendar.badge.clock",
+                        destination: .countdown
                     )
                 }
                 .padding(.top, 24)

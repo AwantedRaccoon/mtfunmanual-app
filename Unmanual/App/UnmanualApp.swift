@@ -25,9 +25,10 @@ struct UnmanualApp: App {
                 .onReceive(
                     NotificationCenter.default.publisher(for: .unmanualReminderInputsChanged)
                 ) { notification in
-                    reminderRuntime.noteReminderInputsChanged(
-                        coverageWasInvalidated: notification.object as? Bool ?? true
-                    )
+                    if let result = notification.object
+                        as? ReminderCoverageInvalidationResult {
+                        reminderRuntime.noteReminderInputsChanged(result)
+                    }
                     reconcileWhenReady()
                 }
                 .onReceive(
@@ -59,9 +60,10 @@ struct UnmanualApp: App {
                 .onReceive(
                     NotificationCenter.default.publisher(for: .unmanualReminderInputsChanged)
                 ) { notification in
-                    reminderRuntime.noteReminderInputsChanged(
-                        coverageWasInvalidated: notification.object as? Bool ?? true
-                    )
+                    if let result = notification.object
+                        as? ReminderCoverageInvalidationResult {
+                        reminderRuntime.noteReminderInputsChanged(result)
+                    }
                     reconcileWhenReady()
                 }
                 .onReceive(

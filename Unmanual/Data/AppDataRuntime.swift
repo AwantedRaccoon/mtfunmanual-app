@@ -57,11 +57,11 @@ struct AppDataSession {
                 return await verifyStoreProtection(plan)
             },
             onProtectionFailure: onProtectionFailure,
-            onReminderInputsChanged: { didInvalidateCoverage in
+            onReminderInputsChanged: { result in
                 await MainActor.run {
                     NotificationCenter.default.post(
                         name: .unmanualReminderInputsChanged,
-                        object: didInvalidateCoverage
+                        object: result
                     )
                 }
             }
@@ -215,7 +215,8 @@ private actor AppDataBootstrapWorker {
             break
         }
         if ProcessInfo.processInfo.arguments.contains("-unmanual-empty-store") {
-            let container = try AppModelContainerFactory.makeInMemoryPersonalTimelineContainer()
+            let container = try AppModelContainerFactory
+                .makeInMemoryCountdownLifecycleContainer()
             _ = try LegacyV1Backfill.run(in: container)
             _ = try CoreTimeRegimenBackfill.run(
                 in: container,
@@ -223,6 +224,7 @@ private actor AppDataBootstrapWorker {
             )
             _ = try TodayExecutionBackfill.run(in: container)
             _ = try PersonalTimelineBackfill.run(in: container)
+            _ = try CountdownLifecycleBackfill.run(in: container)
             return BootstrappedAppDataStore(
                 container: container,
                 generationID: UUID(),
