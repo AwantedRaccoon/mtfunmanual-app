@@ -1,5 +1,108 @@
 import SwiftUI
 
+enum CountdownLedgerStatusText {
+    static func make(
+        hasError: Bool,
+        isLoading: Bool,
+        reviewCount: Int,
+        reviewHasMore: Bool,
+        hasCurrent: Bool,
+        historyCount: Int,
+        historyHasMore: Bool
+    ) -> String {
+        if hasError { return "需要检查" }
+        if isLoading { return "读取中" }
+        if reviewCount > 0 {
+            return (reviewHasMore ? "至少 " : "")
+                + "\(reviewCount) 项待核对"
+        }
+        if hasCurrent { return "1 项进行中" }
+        if historyCount == 0 { return "尚无日期" }
+        return (historyHasMore ? "至少 " : "")
+            + "\(historyCount) 项历史"
+    }
+}
+
+enum CountdownDetailLoadState {
+    case loading
+    case loaded
+    case failed
+}
+
+enum CountdownDetailTerminalText {
+    static func make(
+        timestamp: HistoricalTimestamp?,
+        loadState: CountdownDetailLoadState
+    ) -> String {
+        switch loadState {
+        case .loading:
+            return "读取中"
+        case .loaded:
+            return timestamp?.recordedCivilMinuteLabel ?? "未记录"
+        case .failed:
+            return "未能核对"
+        }
+    }
+}
+
+enum CountdownDetailPresentation {
+    static func verifiedDetail(
+        _ detail: CountdownDetailSnapshot?,
+        loadState: CountdownDetailLoadState
+    ) -> CountdownDetailSnapshot? {
+        guard case .loaded = loadState else { return nil }
+        return detail
+    }
+
+    static func terminalTimestamp(
+        in detail: CountdownDetailSnapshot
+    ) -> HistoricalTimestamp? {
+        let current = detail.current
+        guard let latest = detail.events.first(where: {
+            $0.id == current.latestEventID
+        }) else {
+            return nil
+        }
+        let terminalEvent: CountdownEventSnapshot
+        let terminalInstant: Date
+        switch current.lifecycle {
+        case .completed:
+            guard latest.kind == .completed,
+                  let completedAt = current.completedAt else {
+                return nil
+            }
+            terminalEvent = latest
+            terminalInstant = completedAt
+        case .archived:
+            guard let archivedAt = current.archivedAt else {
+                return nil
+            }
+            if latest.kind == .reviewResolved {
+                guard let previousEventID = latest.previousEventID,
+                      let predecessor = detail.events.first(where: {
+                          $0.id == previousEventID
+                      }) else {
+                    return nil
+                }
+                terminalEvent = predecessor
+            } else {
+                terminalEvent = latest
+            }
+            guard terminalEvent.kind == .archived
+                    || terminalEvent.kind == .migratedSnapshot else {
+                return nil
+            }
+            terminalInstant = archivedAt
+        case .active, .deleted:
+            return nil
+        }
+        guard terminalEvent.timestamp.instant == terminalInstant else {
+            return nil
+        }
+        return terminalEvent.timestamp
+    }
+}
+
 @MainActor
 struct CountdownLedgerView: View {
     @Environment(\.dismiss) private var dismiss
@@ -10,10 +113,11 @@ struct CountdownLedgerView: View {
     @State private var history: [CountdownCurrentSnapshot] = []
     @State private var reviewItems: [CountdownCurrentSnapshot] = []
     @State private var activeReviewCount = 0
-    @State private var historyNextOffset: Int?
-    @State private var reviewNextOffset: Int?
+    @State private var historyNextCursor: CountdownLedgerCursor?
+    @State private var reviewNextCursor: CountdownLedgerCursor?
     @State private var isLoading = true
     @State private var isLoadingMore = false
+    @State private var loadGeneration = 0
     @State private var reviewMutationID: UUID?
     @State private var errorMessage: String?
     @State private var presentsEditor = false
@@ -68,11 +172,15 @@ struct CountdownLedgerView: View {
     }
 
     private var statusText: String {
-        if errorMessage != nil { return "需要检查" }
-        if isLoading { return "读取中" }
-        if !reviewItems.isEmpty { return "\(reviewItems.count) 项待核对" }
-        if current != nil { return "1 项进行中" }
-        return history.isEmpty ? "尚无日期" : "\(history.count) 项历史"
+        CountdownLedgerStatusText.make(
+            hasError: errorMessage != nil,
+            isLoading: isLoading,
+            reviewCount: reviewItems.count,
+            reviewHasMore: reviewNextCursor != nil,
+            hasCurrent: current != nil,
+            historyCount: history.count,
+            historyHasMore: historyNextCursor != nil
+        )
     }
 
     @ViewBuilder
@@ -89,7 +197,7 @@ struct CountdownLedgerView: View {
                 ForEach(reviewItems) { entry in
                     reviewRow(entry)
                 }
-                if reviewNextOffset != nil {
+                if reviewNextCursor != nil {
                     Button(isLoadingMore ? "正在读取…" : "加载更多待核对项目") {
                         loadMoreReview()
                     }
@@ -190,7 +298,7 @@ struct CountdownLedgerView: View {
             } else {
                 ForEach(history) { entry in
                     NavigationLink {
-                        CountdownLedgerDetailView(entry: entry)
+                        CountdownLedgerDetailView(countdownID: entry.id)
                     } label: {
                         ledgerRow(
                             title: entry.displayTitle,
@@ -205,7 +313,7 @@ struct CountdownLedgerView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                if historyNextOffset != nil {
+                if historyNextCursor != nil {
                     Button(isLoadingMore ? "正在读取…" : "加载更早的目标日") {
                         loadMoreHistory()
                     }
@@ -343,76 +451,102 @@ struct CountdownLedgerView: View {
     }
 
     private func load() async {
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
+        isLoadingMore = false
         errorMessage = nil
-        defer { isLoading = false }
+        defer {
+            if generation == loadGeneration {
+                isLoading = false
+            }
+        }
         guard let reader else {
-            errorMessage = "本地资料尚未准备好，请稍后重试。"
+            if generation == loadGeneration {
+                errorMessage = "本地资料尚未准备好，请稍后重试。"
+            }
             return
         }
         do {
             async let loadedCurrent = reader.countdownCurrentSnapshot()
             async let loadedHistory = reader.countdownHistoryPage(
-                offset: 0,
+                after: nil,
                 limit: 20
             )
             async let loadedReview = reader.countdownReviewPage(
-                offset: 0,
+                after: nil,
                 limit: 20
             )
-            current = try await loadedCurrent
+            let newCurrent = try await loadedCurrent
             let historyPage = try await loadedHistory
             let reviewPage = try await loadedReview
+            guard generation == loadGeneration else { return }
+            current = newCurrent
             history = historyPage.items
-            historyNextOffset = historyPage.nextOffset
+            historyNextCursor = historyPage.nextCursor
             reviewItems = reviewPage.items
-            reviewNextOffset = reviewPage.nextOffset
+            reviewNextCursor = reviewPage.nextCursor
             activeReviewCount = reviewPage.activeReviewCount
         } catch {
+            guard generation == loadGeneration else { return }
             current = nil
             history = []
             reviewItems = []
             activeReviewCount = 0
-            historyNextOffset = nil
-            reviewNextOffset = nil
+            historyNextCursor = nil
+            reviewNextCursor = nil
             errorMessage = "倒计时资料没有通过完整性检查，原记录没有被修改。"
         }
     }
 
     private func loadMoreHistory() {
-        guard let offset = historyNextOffset, !isLoadingMore,
+        guard let cursor = historyNextCursor, !isLoadingMore,
               let reader else { return }
+        let generation = loadGeneration
         isLoadingMore = true
         Task {
-            defer { isLoadingMore = false }
+            defer {
+                if generation == loadGeneration {
+                    isLoadingMore = false
+                }
+            }
             do {
                 let page = try await reader.countdownHistoryPage(
-                    offset: offset,
-                    limit: 20
+                    after: cursor,
+                    limit: 20,
                 )
+                guard generation == loadGeneration else { return }
                 history.append(contentsOf: page.items)
-                historyNextOffset = page.nextOffset
+                historyNextCursor = page.nextCursor
             } catch {
+                guard generation == loadGeneration else { return }
                 errorMessage = "更早的倒计时没有通过完整性检查。"
             }
         }
     }
 
     private func loadMoreReview() {
-        guard let offset = reviewNextOffset, !isLoadingMore,
+        guard let cursor = reviewNextCursor, !isLoadingMore,
               let reader else { return }
+        let generation = loadGeneration
         isLoadingMore = true
         Task {
-            defer { isLoadingMore = false }
+            defer {
+                if generation == loadGeneration {
+                    isLoadingMore = false
+                }
+            }
             do {
                 let page = try await reader.countdownReviewPage(
-                    offset: offset,
-                    limit: 20
+                    after: cursor,
+                    limit: 20,
                 )
+                guard generation == loadGeneration else { return }
                 reviewItems.append(contentsOf: page.items)
-                reviewNextOffset = page.nextOffset
+                reviewNextCursor = page.nextCursor
                 activeReviewCount = page.activeReviewCount
             } catch {
+                guard generation == loadGeneration else { return }
                 errorMessage = "更多待核对项目没有通过完整性检查。"
             }
         }
@@ -460,58 +594,84 @@ private struct CountdownLedgerDetailView: View {
     @Environment(AppTheme.self) private var theme
     @State private var detail: CountdownDetailSnapshot?
     @State private var errorMessage: String?
-    let entry: CountdownCurrentSnapshot
+    @State private var loadState: CountdownDetailLoadState = .loading
+    let countdownID: UUID
 
     var body: some View {
+        let verifiedDetail = CountdownDetailPresentation.verifiedDetail(
+            detail,
+            loadState: loadState
+        )
         V25Page {
             VStack(alignment: .leading, spacing: 0) {
                 V25PageHeader(
                     register: "COUNTDOWN / HISTORY",
-                    title: entry.displayTitle,
-                    subtitle: entry.lifecycle == .completed
-                        ? "已经完成，已收进旅程。"
-                        : "未完成，已收进旅程。",
-                    status: entry.lifecycle == .completed ? "已完成" : "已归档"
+                    title: verifiedDetail?.current.displayTitle
+                        ?? "倒计时详情",
+                    subtitle: headerSubtitle(for: verifiedDetail),
+                    status: headerStatus(for: verifiedDetail)
                 )
 
-                factRow(
-                    "目标日",
-                    entry.displayTargetDate.formatted(
-                        .dateTime.year().month(.twoDigits).day(.twoDigits)
-                    )
-                )
-                .padding(.top, 18)
-                factRow(
-                    entry.lifecycle == .completed ? "完成时间" : "归档时间",
-                    (entry.completedAt ?? entry.archivedAt)?.formatted(
-                        .dateTime.year().month().day().hour().minute()
-                    ) ?? "未记录"
-                )
-                if let reminder = entry.terminalReminder {
+                if let verifiedDetail {
+                    let current = verifiedDetail.current
                     factRow(
-                        "当时提醒",
-                        reminder.wasEnabled
-                            ? "开启 · 提前 \(reminder.leadDays) 天 · "
-                                + String(
-                                    format: "%02d:%02d",
-                                    reminder.localHour,
-                                    reminder.localMinute
-                                )
-                            : "关闭"
+                        "目标日",
+                        current.displayTargetDate.formatted(
+                            .dateTime.year().month(.twoDigits).day(.twoDigits)
+                        )
                     )
+                    .padding(.top, 18)
+                    factRow(
+                        current.lifecycle == .completed
+                            ? "完成时间"
+                            : "归档时间",
+                        CountdownDetailTerminalText.make(
+                            timestamp:
+                                CountdownDetailPresentation.terminalTimestamp(
+                                in: verifiedDetail
+                            ),
+                            loadState: loadState
+                        )
+                    )
+                    if let reminder = current.terminalReminder {
+                        factRow(
+                            "当时提醒",
+                            reminder.wasEnabled
+                                ? "开启 · 提前 \(reminder.leadDays) 天 · "
+                                    + String(
+                                        format: "%02d:%02d",
+                                        reminder.localHour,
+                                        reminder.localMinute
+                                    )
+                                : "关闭"
+                        )
+                    }
                 }
 
                 if let errorMessage {
-                    Text(errorMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(theme.vermilionText)
-                        .padding(.top, 20)
-                } else if let detail {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(theme.vermilionText)
+                        Button("重新读取") {
+                            Task { await load() }
+                        }
+                        .font(.body.weight(.bold))
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier(
+                            "countdown.detail.retryRead"
+                        )
+                    }
+                    .padding(.top, 20)
+                    .accessibilityIdentifier(
+                        "countdown.detail.readError"
+                    )
+                } else if let verifiedDetail {
                     Text("DATE CHAIN / 日期链")
                         .font(.caption.weight(.black))
                         .tracking(0.8)
                         .padding(.top, 28)
-                    ForEach(detail.events) { event in
+                    ForEach(verifiedDetail.events) { event in
                         eventRow(event)
                     }
                 } else {
@@ -559,9 +719,7 @@ private struct CountdownLedgerDetailView: View {
                     .foregroundStyle(theme.secondaryText)
             }
             Text(
-                event.timestamp.instant.formatted(
-                    .dateTime.year().month().day().hour().minute()
-                )
+                event.timestamp.recordedCivilMinuteLabel
             )
             .font(theme.utility(10))
             .foregroundStyle(theme.secondaryText)
@@ -589,18 +747,60 @@ private struct CountdownLedgerDetailView: View {
         }
     }
 
+    private func headerSubtitle(
+        for detail: CountdownDetailSnapshot?
+    ) -> String {
+        if let detail {
+            return detail.current.lifecycle == .completed
+                ? "已经完成，已收进旅程。"
+                : "未完成，已收进旅程。"
+        }
+        return switch loadState {
+        case .loading:
+            "正在核对本地历史事实。"
+        case .failed:
+            "这条历史记录没有通过完整性核对。"
+        case .loaded:
+            "没有可显示的已核对历史事实。"
+        }
+    }
+
+    private func headerStatus(
+        for detail: CountdownDetailSnapshot?
+    ) -> String {
+        if let detail {
+            return detail.current.lifecycle == .completed
+                ? "已完成"
+                : "已归档"
+        }
+        return switch loadState {
+        case .loading: "读取中"
+        case .failed: "未能核对"
+        case .loaded: "未能核对"
+        }
+    }
+
     private func load() async {
+        loadState = .loading
+        errorMessage = nil
+        detail = nil
         guard let reader else {
             errorMessage = "本地资料尚未准备好。"
+            loadState = .failed
             return
         }
         do {
-            guard let loaded = try await reader.countdownDetail(id: entry.id) else {
+            guard let loaded = try await reader.countdownDetail(
+                id: countdownID
+            ) else {
                 throw AppDataFailure.corruptionSuspected
             }
             detail = loaded
+            loadState = .loaded
         } catch {
+            detail = nil
             errorMessage = "日期链没有通过完整性检查，原记录没有被修改。"
+            loadState = .failed
         }
     }
 }

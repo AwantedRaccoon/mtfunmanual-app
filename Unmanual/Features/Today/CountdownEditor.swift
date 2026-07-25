@@ -11,6 +11,7 @@ struct CountdownEditor: View {
 
     @State private var activeCountdown: CountdownCurrentSnapshot?
     @State private var replacementSource: CountdownCurrentSnapshot?
+    @State private var gentleModeEnabled = false
     @State private var title = ""
     @State private var gentleTitle = ""
     @State private var targetDate =
@@ -20,7 +21,9 @@ struct CountdownEditor: View {
     @State private var reminderLeadDays = 0
     @State private var reminderTime = Self.defaultReminderTime
     @State private var hasLoadedExistingValue = false
-    @State private var errorMessage: String?
+    @State private var readErrorMessage: String?
+    @State private var saveErrorMessage: String?
+    @State private var isReading = false
     @State private var isSaving = false
     @State private var showDeleteConfirmation = false
     @State private var showArchiveConfirmation = false
@@ -34,7 +37,15 @@ struct CountdownEditor: View {
     }
 
     private var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if gentleModeEnabled,
+           activeCountdown == nil || replacementSource != nil {
+            return !gentleTitle.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty
+        }
+        return !title.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty
     }
 
     private var isDue: Bool {
@@ -55,82 +66,116 @@ struct CountdownEditor: View {
                 cancel: dismiss.callAsFunction
             ) {
                 VStack(spacing: V25Theme.fieldSpacing) {
-                    if let errorMessage {
-                        readError(errorMessage)
-                    }
-
-                    if isDue, replacementSource == nil {
-                        dueDecision
-                    }
-
-                    V25FieldSurface("这个日期是什么") {
-                        TextField(
-                            "例如：下一次复诊",
-                            text: $title,
-                            axis: .vertical
-                        )
-                        .lineLimit(1...3)
-                        .accessibilityIdentifier("countdown.title")
-                    }
-
-                    V25FieldSurface(
-                        "目标日期",
-                        labelColor: theme.indigoDeep
-                    ) {
-                        targetDatePicker
-                    }
-
-                    V25FieldSurface(
-                        "温和模式名称（可选）",
-                        note: "温和模式会在 App 内改用这个名称；如果留空，会显示“私人日期”。",
-                        labelColor: theme.blueText
-                    ) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            TextField(
-                                "例如：私人日期",
-                                text: $gentleTitle,
-                                axis: .vertical
-                            )
-                            .lineLimit(1...3)
+                    if isReading {
+                        ProgressView("正在读取本地倒计时")
+                            .frame(maxWidth: .infinity, minHeight: 88)
                             .accessibilityIdentifier(
-                                "countdown.gentleTitle"
+                                "countdown.reading"
                             )
-                            Text("温和模式可以使用这个名称，但不会改变系统备份设置，也不会隐藏导出文件。")
-                                .font(.caption)
-                                .foregroundStyle(theme.secondaryText)
-                                .fixedSize(
-                                    horizontal: false,
-                                    vertical: true
+                    } else if let readErrorMessage {
+                        readError(readErrorMessage)
+                    } else {
+                        if isDue, replacementSource == nil {
+                            dueDecision
+                        }
+
+                        if gentleModeEnabled {
+                            V25FieldSurface(
+                                "温和模式名称",
+                                note: "原始名称不会显示在这个页面或辅助功能树中。",
+                                labelColor: theme.blueText
+                            ) {
+                                TextField(
+                                    "例如：私人日期",
+                                    text: $gentleTitle,
+                                    axis: .vertical
                                 )
+                                .lineLimit(1...3)
+                                .accessibilityLabel("温和模式名称")
                                 .accessibilityIdentifier(
-                                    "countdown.privacyBoundary"
+                                    "countdown.gentleTitle"
+                                )
+                            }
+                        } else {
+                            V25FieldSurface("这个日期是什么") {
+                                TextField(
+                                    "例如：下一次复诊",
+                                    text: $title,
+                                    axis: .vertical
+                                )
+                                .lineLimit(1...3)
+                                .accessibilityLabel("这个日期是什么")
+                                .accessibilityIdentifier("countdown.title")
+                            }
+                        }
+
+                        V25FieldSurface(
+                            "目标日期",
+                            labelColor: theme.indigoDeep
+                        ) {
+                            targetDatePicker
+                        }
+
+                        if !gentleModeEnabled {
+                            V25FieldSurface(
+                                "温和模式名称（可选）",
+                                note: "温和模式会在 App 内改用这个名称；如果留空，会显示“私人日期”。",
+                                labelColor: theme.blueText
+                            ) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    TextField(
+                                        "例如：私人日期",
+                                        text: $gentleTitle,
+                                        axis: .vertical
+                                    )
+                                    .lineLimit(1...3)
+                                    .accessibilityLabel(
+                                        "温和模式名称（可选）"
+                                    )
+                                    .accessibilityIdentifier(
+                                        "countdown.gentleTitle"
+                                    )
+                                    Text("温和模式可以使用这个名称，但不会改变系统备份设置，也不会隐藏导出文件。")
+                                        .font(.caption)
+                                        .foregroundStyle(theme.secondaryText)
+                                        .fixedSize(
+                                            horizontal: false,
+                                            vertical: true
+                                        )
+                                        .accessibilityIdentifier(
+                                            "countdown.privacyBoundary"
+                                        )
+                                }
+                            }
+                        }
+
+                        V25FieldSurface(
+                            "今天页",
+                            note: "关闭后，今天页不会显示这项；仍可从旅程中的倒计时台账回来管理。",
+                            labelColor: theme.indigoDeep
+                        ) {
+                            Toggle("在今天页显示", isOn: $showInToday)
+                                .accessibilityIdentifier(
+                                    "countdown.showInToday"
                                 )
                         }
-                    }
 
-                    V25FieldSurface(
-                        "今天页",
-                        note: "关闭后，今天页不会显示这项；仍可从旅程中的倒计时台账回来管理。",
-                        labelColor: theme.indigoDeep
-                    ) {
-                        Toggle("在今天页显示", isOn: $showInToday)
-                            .accessibilityIdentifier(
-                                "countdown.showInToday"
-                            )
-                    }
+                        reminderFields
 
-                    reminderFields
-
-                    if activeCountdown != nil,
-                       replacementSource == nil {
-                        managementActions
+                        if activeCountdown != nil,
+                           replacementSource == nil {
+                            managementActions
+                        }
                     }
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 V25SaveBar(
                     title: saveTitle,
-                    isEnabled: canSave && !isSaving,
+                    isEnabled: canSave
+                        && !isSaving
+                        && !isReading
+                        && readErrorMessage == nil,
                     accessibilityIdentifier: "countdown.save",
                     action: save
                 )
@@ -146,7 +191,7 @@ struct CountdownEditor: View {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("当前正文会从资料中移除，但系统备份、旧 generation 或已导出文件可能仍保留副本；这不是取证级擦除。")
+                Text("当前名称会从活动资料中移除；append-only 生命周期仍保留日期与动作时间，系统备份、旧 generation 或已导出文件也可能保留副本。这不是取证级擦除。")
             }
             .confirmationDialog(
                 "未完成，收进旅程？",
@@ -172,7 +217,7 @@ struct CountdownEditor: View {
             }
         }
         .tint(theme.indigo)
-        .localSaveErrorAlert(message: $errorMessage)
+        .localSaveErrorAlert(message: $saveErrorMessage)
     }
 
     private var editorEyebrow: String {
@@ -195,22 +240,36 @@ struct CountdownEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("暂时无法读取倒计时")
                 .font(.headline.weight(.black))
+                .accessibilityIdentifier("countdown.readError")
             Text(message)
                 .font(.subheadline)
+            Button("重新读取") {
+                Task { await loadExistingValue() }
+            }
+            .font(.body.weight(.bold))
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("countdown.retryRead")
         }
         .foregroundStyle(theme.indigoDeep)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.rose.opacity(0.28))
         .overlay { Rectangle().stroke(theme.vermilion, lineWidth: 2) }
-        .accessibilityIdentifier("countdown.readError")
     }
 
     private var dueDecision: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("目标日到了")
+            Text(
+                activeCountdown?.overdueMode == .countingUp
+                    ? "正在继续计算"
+                    : "目标日到了"
+            )
                 .font(theme.display(26, relativeTo: .title2))
-            Text("它不会自动结束。你可以把它作为完成路标收进旅程、继续计算已经过了多久，或直接在下方换一个目标日。")
+            Text(
+                activeCountdown?.overdueMode == .countingUp
+                    ? "计时会继续保留到你明确完成或改期。你仍然可以把它收进旅程，或在下方换一个目标日。"
+                    : "它不会自动结束。你可以把它作为完成路标收进旅程、继续计算已经过了多久，或直接在下方换一个目标日。"
+            )
                 .font(.subheadline)
                 .foregroundStyle(theme.secondaryText)
             Button("已经完成，收进旅程") {
@@ -218,12 +277,14 @@ struct CountdownEditor: View {
             }
             .buttonStyle(V25PrimaryButtonStyle())
             .accessibilityIdentifier("countdown.complete")
-            Button("继续计算已经过了多久") {
-                continueCounting()
+            if activeCountdown?.overdueMode == .awaitingDecision {
+                Button("继续计算已经过了多久") {
+                    continueCounting()
+                }
+                .buttonStyle(.bordered)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("countdown.continue")
             }
-            .buttonStyle(.bordered)
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("countdown.continue")
             Button("换一个目标日") {
                 showsRetargetGuidance = true
             }
@@ -367,15 +428,18 @@ struct CountdownEditor: View {
     }
 
     private func loadExistingValue() async {
-        guard !hasLoadedExistingValue else { return }
-        defer { hasLoadedExistingValue = true }
+        guard !hasLoadedExistingValue, !isReading else { return }
+        isReading = true
+        defer { isReading = false }
         guard let appReadActor else {
-            errorMessage = "本地资料尚未准备好，请稍后重试。"
+            readErrorMessage = "本地资料尚未准备好，请稍后重试。"
             return
         }
         do {
-            activeCountdown = try await appReadActor
-                .countdownCurrentSnapshot()
+            let snapshot = try await appReadActor
+                .countdownEditorSnapshot()
+            activeCountdown = snapshot.current
+            gentleModeEnabled = snapshot.gentleModeEnabled
             if let activeCountdown {
                 title = activeCountdown.title
                 gentleTitle = activeCountdown.gentleTitle ?? ""
@@ -388,15 +452,18 @@ struct CountdownEditor: View {
                     minute: activeCountdown.reminder.localMinute
                 )
             }
+            readErrorMessage = nil
+            hasLoadedExistingValue = true
         } catch {
-            errorMessage = "读取没有通过完整性检查。当前页面不会用空白内容覆盖原记录。"
+            readErrorMessage =
+                "读取没有通过完整性检查。当前页面不会用空白内容覆盖原记录。"
         }
     }
 
     private func save() {
         guard !isSaving else { return }
         guard let appDataWriter else {
-            errorMessage = "本地资料尚未准备好，请稍后再试。"
+            saveErrorMessage = "本地资料尚未准备好，请稍后再试。"
             return
         }
         isSaving = true
@@ -480,7 +547,8 @@ struct CountdownEditor: View {
                 }
                 dismiss()
             } catch {
-                errorMessage = "倒计时仍在当前页面。请检查日期和提醒时间后再保存。"
+                saveErrorMessage =
+                    "倒计时仍在当前页面。请检查日期和提醒时间后再保存。"
             }
         }
     }
@@ -496,7 +564,7 @@ struct CountdownEditor: View {
                     eventID: UUID(),
                     countdownID: current.id,
                     expectedLatestEventID: current.latestEventID,
-                    today: try currentCivilDate(),
+                    today: timestamp.localDate,
                     timestamp: timestamp
                 )
             )
@@ -514,7 +582,7 @@ struct CountdownEditor: View {
                     eventID: UUID(),
                     countdownID: current.id,
                     expectedLatestEventID: current.latestEventID,
-                    today: try currentCivilDate(),
+                    today: timestamp.localDate,
                     timestamp: timestamp
                 )
             )
@@ -564,7 +632,8 @@ struct CountdownEditor: View {
                 try await operation()
                 dismiss()
             } catch {
-                errorMessage = "这项没有写入。记录可能已在另一处改变，请重新打开后再试。"
+                saveErrorMessage =
+                    "这项没有写入。记录可能已在另一处改变，请重新打开后再试。"
             }
         }
     }
@@ -595,6 +664,11 @@ struct CountdownEditor: View {
         let cleanGentle = gentleTitle.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
+        let isNewGentleCountdown = gentleModeEnabled
+            && (activeCountdown == nil || replacementSource != nil)
+        let resolvedTitle = isNewGentleCountdown
+            ? cleanGentle
+            : cleanTitle
         let time = Calendar.current.dateComponents(
             [.hour, .minute],
             from: reminderTime
@@ -603,7 +677,7 @@ struct CountdownEditor: View {
             throw CountdownWriteFailure.invalidInput
         }
         return (
-            cleanTitle,
+            resolvedTitle,
             cleanGentle.isEmpty ? nil : cleanGentle,
             try civilDate(from: targetDate),
             CountdownReminderInput(
@@ -655,6 +729,10 @@ enum CountdownReminderCoveragePresentation {
         coverage: CountdownReminderCoverageSnapshot,
         countdownRuntimeErrorCode: String?
     ) -> String {
+        if countdownRuntimeErrorCode == "countdown-needs-confirmation"
+            || coverage.lastErrorCode == "countdown-needs-confirmation" {
+            return "旧版提醒需要你重新保存一次，确认后才会安排"
+        }
         if countdownRuntimeErrorCode != nil {
             return "提醒覆盖没有完成核对，请打开 App 重试"
         }

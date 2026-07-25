@@ -30,6 +30,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
                 events.append("reconcile-start")
                 await Task.yield()
                 events.append("reconcile-complete")
+                return true
             },
             refresh: {
                 events.append("refresh")
@@ -37,6 +38,18 @@ final class LocalReminderSchedulingTests: XCTestCase {
         )
 
         XCTAssertEqual(events, ["reconcile-start", "reconcile-complete", "refresh"])
+    }
+
+    @MainActor
+    func testSupersededReconciliationDoesNotPublishRefresh() async {
+        var didRefresh = false
+
+        await AppReminderLifecycleFlow.reconcileThenRefresh(
+            reconcile: { false },
+            refresh: { didRefresh = true }
+        )
+
+        XCTAssertFalse(didRefresh)
     }
 
     @MainActor
@@ -128,7 +141,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         }
         XCTAssertTrue(runtime.isSuspendedForRecovery)
         await client.releaseAdd()
-        await reconcileTask.value
+        _ = await reconcileTask.value
         let didClear = await recoveryTask.value
         XCTAssertTrue(didClear)
 
@@ -213,6 +226,45 @@ final class LocalReminderSchedulingTests: XCTestCase {
         let pending = await client.pendingRequests()
         XCTAssertFalse(pending.contains { $0.identifier == ownedID })
         XCTAssertTrue(pending.contains { $0.identifier == foreignID })
+    }
+
+    @MainActor
+    func testUnverifiedOwnedCleanupDoesNotSettleOrPublishTodayRefresh() async throws {
+        let store = try makeRuntimeStore()
+        let ownedID = LocalReminderPlanner.requestPrefix + "stale-removal-no-op"
+        let client = FakeLocalNotificationClient(
+            pending: [
+                LocalPendingNotificationRequest(
+                    identifier: ownedID,
+                    fireAt: referenceDate
+                )
+            ],
+            ignoresRemovals: true
+        )
+        let runtime = LocalReminderRuntime(client: client)
+        var didRefresh = false
+
+        await AppReminderLifecycleFlow.reconcileThenRefresh(
+            reconcile: {
+                await runtime.reconcile(
+                    reader: store.reader,
+                    writer: store.writer,
+                    now: referenceDate,
+                    displayTimeZoneIdentifier: "UTC"
+                )
+            },
+            refresh: {
+                didRefresh = true
+            }
+        )
+
+        XCTAssertFalse(didRefresh)
+        XCTAssertEqual(
+            runtime.lastErrorCode,
+            "pending-readback-mismatch-owned-removal-unverified"
+        )
+        let pending = await client.pendingRequests()
+        XCTAssertTrue(pending.contains { $0.identifier == ownedID })
     }
 
     @MainActor
@@ -321,8 +373,8 @@ final class LocalReminderSchedulingTests: XCTestCase {
         }
         await Task.yield()
         await client.releaseFirstSettingsRead()
-        await firstTask.value
-        await latestTask.value
+        _ = await firstTask.value
+        _ = await latestTask.value
 
         let latestSnapshot = try await latest.reader.todayExecutionSnapshot(
             now: referenceDate,
@@ -362,7 +414,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         await latestStarted.waitUntilStarted()
         await Task.yield()
         await client.releaseAdd()
-        await firstTask.value
+        _ = await firstTask.value
         await latestTask.value
 
         let addCallCount = await client.addCallCount()
@@ -391,13 +443,13 @@ final class LocalReminderSchedulingTests: XCTestCase {
         }
         await clock.waitUntilFirstReadStarts()
 
-        await runtime.reconcile(
+        let latestDidSettle = await runtime.reconcile(
             reader: store.reader,
             writer: store.writer,
             displayTimeZoneIdentifier: "UTC"
         )
         await clock.releaseFirstRead()
-        await earlierTask.value
+        let earlierDidSettle = await earlierTask.value
 
         let snapshot = try await store.reader.todayExecutionSnapshot(
             now: latestDate,
@@ -405,6 +457,8 @@ final class LocalReminderSchedulingTests: XCTestCase {
         )
         XCTAssertEqual(snapshot.coverage.status, .disabledByUser)
         XCTAssertEqual(snapshot.coverage.observedAt, latestDate)
+        XCTAssertTrue(latestDidSettle)
+        XCTAssertFalse(earlierDidSettle)
     }
 
     @MainActor
@@ -428,7 +482,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         await client.waitUntilAuthorizationStarts()
         await clock.set(afterPrompt)
         await client.releaseAuthorization()
-        await task.value
+        _ = await task.value
 
         let snapshot = try await store.reader.todayExecutionSnapshot(
             now: afterPrompt,
@@ -528,7 +582,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         XCTAssertFalse(didFinishBeforeRelease)
 
         await client.releaseFirstSettingsRead()
-        await firstTask.value
+        _ = await firstTask.value
         await queuedTask.value
         let didFinishAfterRelease = await probe.isFinished()
         XCTAssertTrue(didFinishAfterRelease)
@@ -1003,7 +1057,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         XCTAssertFalse(finalPending.contains { $0.identifier.hasSuffix("stale") })
     }
 
-    func testReconcilerDoesNotClaimDisabledWhenOwnedStaleRemovalIsNotObserved() async {
+    func testReconcilerReportsUnverifiedOwnedCleanupWhenStaleRemovalNeverApplies() async {
         let plan = LocalReminderPlanner.plan(
             candidates: [] as [LocalReminderCandidate],
             settings: .init(authorization: .authorized, alertsEnabled: true),
@@ -1030,29 +1084,47 @@ final class LocalReminderSchedulingTests: XCTestCase {
         XCTAssertEqual(observation.desiredCount, 0)
         XCTAssertEqual(observation.confirmedPendingCount, 0)
         XCTAssertNil(observation.scheduledThrough)
-        XCTAssertEqual(observation.lastErrorCode, "pending-readback-mismatch")
+        XCTAssertEqual(
+            observation.lastErrorCode,
+            "pending-readback-mismatch-owned-removal-unverified"
+        )
         let pending = await client.pendingRequests()
         XCTAssertTrue(pending.contains { $0.identifier == staleID })
     }
 
-    func testReconcilerReportsPartialAddFailureWithoutClaimingCoverage() async throws {
+    func testReconcilerClearsAllOwnedRequestsAfterPartialAddFailure() async throws {
         let plan = LocalReminderPlanner.plan(
-            candidates: [try makeCandidate(ruleIndex: 0, occurrenceIndex: 1)],
+            candidates: [
+                try makeCandidate(ruleIndex: 0, occurrenceIndex: 1),
+                try makeCandidate(ruleIndex: 1, occurrenceIndex: 2)
+            ],
             settings: .init(authorization: .authorized, alertsEnabled: true),
             now: referenceDate
         )
-        let desired = try XCTUnwrap(plan.requests.first)
-        let client = FakeLocalNotificationClient(pending: [], failAddIdentifiers: [desired.identifier])
+        XCTAssertEqual(plan.requests.count, 2)
+        let failed = plan.requests[1]
+        let foreignID = "foreign.calendar.reminder"
+        let client = FakeLocalNotificationClient(
+            pending: [
+                LocalPendingNotificationRequest(
+                    identifier: foreignID,
+                    fireAt: referenceDate.addingTimeInterval(900)
+                )
+            ],
+            failAddIdentifiers: [failed.identifier]
+        )
 
         let observation = await LocalReminderReconciler(client: client).reconcile(
             plan: plan,
             observedAt: referenceDate
         )
+        let pending = await client.pendingRequests()
 
         XCTAssertEqual(observation.status, .schedulingFailed)
         XCTAssertEqual(observation.confirmedPendingCount, 0)
         XCTAssertNil(observation.scheduledThrough)
         XCTAssertEqual(observation.lastErrorCode, "add-request-failed")
+        XCTAssertEqual(pending.map(\.identifier), [foreignID])
     }
 
     func testReconcilerReplacesSameIdentifierWithWrongFireDate() async throws {
@@ -1119,7 +1191,44 @@ final class LocalReminderSchedulingTests: XCTestCase {
         XCTAssertEqual(pending, [foreign])
     }
 
-    func testReconcilerUsesLatestForeignCountBeforeAddingOwnedRequests() async throws {
+    func testReconcilerReportsForeignOnlySystemBudgetOverflow() async throws {
+        let plan = LocalReminderPlanner.plan(
+            candidates: [
+                try makeCandidate(ruleIndex: 0, occurrenceIndex: 1)
+            ],
+            settings: .init(
+                authorization: .authorized,
+                alertsEnabled: true
+            ),
+            now: referenceDate,
+            foreignPendingCount: 61
+        )
+        XCTAssertEqual(plan.status, .limitedByBudget)
+        XCTAssertTrue(plan.requests.isEmpty)
+        let foreign = (0..<61).map {
+            LocalPendingNotificationRequest(
+                identifier: "foreign.overflow.\($0)",
+                fireAt: nil
+            )
+        }
+        let client = FakeLocalNotificationClient(pending: foreign)
+
+        let observation = await LocalReminderReconciler(
+            client: client
+        ).reconcile(plan: plan, observedAt: referenceDate)
+
+        XCTAssertEqual(observation.status, .schedulingFailed)
+        XCTAssertEqual(
+            observation.lastErrorCode,
+            "notification-budget-exceeded"
+        )
+        let remaining = await client.pendingRequests()
+        XCTAssertEqual(remaining, foreign)
+    }
+
+    func testReconcilerKeepsLatestAllowedPrefixWhenForeignCountConsumesBudget()
+        async throws
+    {
         let candidates = try (0..<60).map {
             try makeCandidate(ruleIndex: $0, occurrenceIndex: $0 + 1)
         }
@@ -1146,8 +1255,98 @@ final class LocalReminderSchedulingTests: XCTestCase {
             pending.count { !$0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix) },
             59
         )
-        XCTAssertEqual(observation.status, .schedulingFailed)
-        XCTAssertEqual(observation.lastErrorCode, "notification-budget-changed")
+        XCTAssertEqual(
+            pending.count {
+                $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
+            },
+            1
+        )
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(observation.scheduledThrough, plan.requests[1].fireAt)
+        XCTAssertEqual(observation.desiredCount, 1)
+        XCTAssertEqual(observation.confirmedPendingCount, 1)
+        XCTAssertNil(observation.lastErrorCode)
+    }
+
+    func testInitialOverflowKeepsMatchingOwnedPrefixWhenForeignCountLeavesCapacity()
+        async throws
+    {
+        let candidates = try (0..<2).map {
+            try makeCandidate(ruleIndex: $0, occurrenceIndex: $0 + 1)
+        }
+        let plan = LocalReminderPlanner.plan(
+            candidates: candidates,
+            settings: .init(authorization: .authorized, alertsEnabled: true),
+            now: referenceDate
+        )
+        XCTAssertEqual(plan.requests.count, 2)
+        let foreign = (0..<59).map {
+            LocalPendingNotificationRequest(
+                identifier: "foreign.initial-overflow.\($0)",
+                fireAt: nil
+            )
+        }
+        let owned = plan.requests.map {
+            LocalPendingNotificationRequest(
+                identifier: $0.identifier,
+                fireAt: $0.fireAt
+            )
+        }
+        let client = FakeLocalNotificationClient(pending: foreign + owned)
+
+        let observation = await LocalReminderReconciler(
+            client: client
+        ).reconcile(plan: plan, observedAt: referenceDate)
+        let pending = await client.pendingRequests()
+        let ownedAfter = pending.filter {
+            LocalReminderPlanner.isOwnedIdentifier($0.identifier)
+        }
+
+        XCTAssertEqual(pending.count, LocalReminderPlanner.requestBudget)
+        XCTAssertEqual(ownedAfter.map(\.identifier), [plan.requests[0].identifier])
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(observation.scheduledThrough, plan.requests[1].fireAt)
+        XCTAssertEqual(observation.desiredCount, 1)
+        XCTAssertEqual(observation.confirmedPendingCount, 1)
+        XCTAssertNil(observation.lastErrorCode)
+    }
+
+    func testInitialOverflowRemovesOwnedWhenForeignCountConsumesAllCapacity()
+        async throws
+    {
+        let candidate = try makeCandidate(ruleIndex: 0, occurrenceIndex: 1)
+        let plan = LocalReminderPlanner.plan(
+            candidates: [candidate],
+            settings: .init(authorization: .authorized, alertsEnabled: true),
+            now: referenceDate
+        )
+        let request = try XCTUnwrap(plan.requests.first)
+        let foreign = (0..<60).map {
+            LocalPendingNotificationRequest(
+                identifier: "foreign.initial-full.\($0)",
+                fireAt: nil
+            )
+        }
+        let owned = LocalPendingNotificationRequest(
+            identifier: request.identifier,
+            fireAt: request.fireAt
+        )
+        let client = FakeLocalNotificationClient(pending: foreign + [owned])
+
+        let observation = await LocalReminderReconciler(
+            client: client
+        ).reconcile(plan: plan, observedAt: referenceDate)
+        let pending = await client.pendingRequests()
+
+        XCTAssertEqual(pending.count, LocalReminderPlanner.requestBudget)
+        XCTAssertFalse(pending.contains {
+            LocalReminderPlanner.isOwnedIdentifier($0.identifier)
+        })
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(observation.scheduledThrough, request.fireAt)
+        XCTAssertEqual(observation.desiredCount, 0)
+        XCTAssertEqual(observation.confirmedPendingCount, 0)
+        XCTAssertNil(observation.lastErrorCode)
     }
 
     func testForeignPendingGrowthCannotLeaveOwnedRequestsOverSystemBudget() async throws {
@@ -1174,11 +1373,14 @@ final class LocalReminderSchedulingTests: XCTestCase {
         }
         let foreignCount = pending.count - ownedCount
 
-        XCTAssertEqual(observation.status, .schedulingFailed)
-        XCTAssertEqual(observation.lastErrorCode, "notification-budget-changed")
-        XCTAssertLessThanOrEqual(pending.count, LocalReminderPlanner.requestBudget)
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(observation.scheduledThrough, plan.requests[1].fireAt)
+        XCTAssertEqual(observation.desiredCount, 1)
+        XCTAssertEqual(observation.confirmedPendingCount, 1)
+        XCTAssertNil(observation.lastErrorCode)
+        XCTAssertEqual(pending.count, LocalReminderPlanner.requestBudget)
         XCTAssertEqual(foreignCount, 59)
-        XCTAssertLessThanOrEqual(ownedCount, 1)
+        XCTAssertEqual(ownedCount, 1)
     }
 
     func testForeignPendingGrowthDuringCleanupCannotLeaveOwnedRequestsOverBudget() async throws {
@@ -1201,15 +1403,87 @@ final class LocalReminderSchedulingTests: XCTestCase {
         )
         let pending = await client.pendingRequests()
 
-        XCTAssertEqual(observation.status, .schedulingFailed)
-        XCTAssertEqual(observation.lastErrorCode, "notification-budget-changed")
-        XCTAssertLessThanOrEqual(pending.count, LocalReminderPlanner.requestBudget)
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(observation.scheduledThrough, plan.requests[0].fireAt)
+        XCTAssertEqual(observation.desiredCount, 0)
+        XCTAssertEqual(observation.confirmedPendingCount, 0)
+        XCTAssertNil(observation.lastErrorCode)
+        XCTAssertEqual(pending.count, LocalReminderPlanner.requestBudget)
         XCTAssertFalse(pending.contains {
             $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
         })
     }
 
-    func testForeignGrowthOnEveryShrinkRoundFallsBackToRemovingAllOwnedRequests() async throws {
+    func testDynamicBudgetCutoffPreservesCountdownAndLimitsScheduleSeparately()
+        async throws
+    {
+        let schedule = try makeCandidate(
+            ruleIndex: 0,
+            occurrenceIndex: 2
+        )
+        let countdownID = UUID()
+        let countdown = CountdownReminderCandidate(
+            countdownID: countdownID,
+            semanticRevision: UUID(),
+            fireAt: referenceDate.addingTimeInterval(1_800),
+            timeZoneIdentifier: "UTC",
+            contentVersion: "neutralV1"
+        )
+        let plan = LocalReminderPlanner.plan(
+            candidates: [schedule],
+            countdownCandidates: [countdown],
+            settings: .init(
+                authorization: .authorized,
+                alertsEnabled: true
+            ),
+            now: referenceDate,
+            hasEnabledIntent: true,
+            countdownHasEnabledIntent: true,
+            countdownID: countdownID
+        )
+        XCTAssertEqual(plan.requests.count, 2)
+        XCTAssertTrue(
+            plan.requests[0].identifier.hasPrefix(
+                LocalReminderPlanner.countdownRequestPrefix
+            )
+        )
+        let client = HardLimitNotificationClient(foreignCount: 59)
+
+        let observation = await LocalReminderReconciler(
+            client: client
+        ).reconcile(plan: plan, observedAt: referenceDate)
+        let pending = await client.pendingRequests()
+
+        XCTAssertEqual(pending.count, LocalReminderPlanner.requestBudget)
+        XCTAssertEqual(
+            pending.count {
+                $0.identifier.hasPrefix(
+                    LocalReminderPlanner.countdownRequestPrefix
+                )
+            },
+            1
+        )
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(
+            observation.scheduledThrough,
+            schedule.occurrence.instant
+        )
+        XCTAssertEqual(observation.desiredCount, 0)
+        XCTAssertEqual(observation.confirmedPendingCount, 0)
+        XCTAssertNil(observation.lastErrorCode)
+        XCTAssertEqual(observation.countdownStatus, .scheduledForWindow)
+        XCTAssertEqual(
+            observation.countdownScheduledFireAt,
+            countdown.fireAt
+        )
+        XCTAssertEqual(observation.countdownDesiredCount, 1)
+        XCTAssertEqual(observation.countdownConfirmedPendingCount, 1)
+        XCTAssertNil(observation.countdownLastErrorCode)
+    }
+
+    func testRepeatedForeignGrowthThatEventuallyStopsReportsSuccessfulContraction()
+        async throws
+    {
         let candidates = try (0..<60).map {
             try makeCandidate(ruleIndex: $0, occurrenceIndex: $0 + 1)
         }
@@ -1226,12 +1500,88 @@ final class LocalReminderSchedulingTests: XCTestCase {
         )
         let pending = await client.pendingRequests()
 
-        XCTAssertEqual(observation.status, .schedulingFailed)
-        XCTAssertEqual(observation.lastErrorCode, "notification-budget-changed")
-        XCTAssertLessThanOrEqual(pending.count, LocalReminderPlanner.requestBudget)
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(observation.scheduledThrough, plan.requests[0].fireAt)
+        XCTAssertEqual(observation.desiredCount, 0)
+        XCTAssertEqual(observation.confirmedPendingCount, 0)
+        XCTAssertNil(observation.lastErrorCode)
+        XCTAssertEqual(pending.count, LocalReminderPlanner.requestBudget)
         XCTAssertFalse(pending.contains {
             $0.identifier.hasPrefix(LocalReminderPlanner.requestPrefix)
         })
+    }
+
+    func testForeignGrowthBeyondBudgetFailsClosedWithoutOwnedRequests()
+        async throws
+    {
+        let candidates = try (0..<2).map {
+            try makeCandidate(ruleIndex: $0, occurrenceIndex: $0 + 1)
+        }
+        let plan = LocalReminderPlanner.plan(
+            candidates: candidates,
+            settings: .init(
+                authorization: .authorized,
+                alertsEnabled: true
+            ),
+            now: referenceDate
+        )
+        let client = GrowingForeignNotificationClient(
+            foreignCountInjectedAtFinalRead: 61
+        )
+
+        let observation = await LocalReminderReconciler(
+            client: client
+        ).reconcile(plan: plan, observedAt: referenceDate)
+        let pending = await client.pendingRequests()
+
+        XCTAssertEqual(observation.status, .schedulingFailed)
+        XCTAssertEqual(
+            observation.lastErrorCode,
+            "notification-budget-changed"
+        )
+        XCTAssertTrue(observation.ownedCleanupWasVerified)
+        XCTAssertEqual(pending.count, 61)
+        XCTAssertFalse(pending.contains {
+            LocalReminderPlanner.isOwnedIdentifier($0.identifier)
+        })
+    }
+
+    func testSuccessfulScheduleContractionDoesNotMaskCountdownPlanningFailure()
+        async throws
+    {
+        let candidates = try (0..<2).map {
+            try makeCandidate(ruleIndex: $0, occurrenceIndex: $0 + 1)
+        }
+        let countdownID = UUID()
+        let plan = LocalReminderPlanner.plan(
+            candidates: candidates,
+            settings: .init(
+                authorization: .authorized,
+                alertsEnabled: true
+            ),
+            now: referenceDate,
+            hasEnabledIntent: true,
+            countdownHasEnabledIntent: true,
+            countdownID: countdownID,
+            countdownResolutionFailed: true
+        )
+        let observation = await LocalReminderReconciler(
+            client: HardLimitNotificationClient(foreignCount: 59)
+        ).reconcile(plan: plan, observedAt: referenceDate)
+
+        XCTAssertEqual(observation.status, .limitedByBudget)
+        XCTAssertEqual(observation.scheduledThrough, plan.requests[1].fireAt)
+        XCTAssertEqual(observation.desiredCount, 1)
+        XCTAssertEqual(observation.confirmedPendingCount, 1)
+        XCTAssertNil(observation.lastErrorCode)
+        XCTAssertEqual(observation.countdownStatus, .schedulingFailed)
+        XCTAssertNil(observation.countdownScheduledFireAt)
+        XCTAssertEqual(observation.countdownDesiredCount, 0)
+        XCTAssertEqual(observation.countdownConfirmedPendingCount, 0)
+        XCTAssertEqual(
+            observation.countdownLastErrorCode,
+            "countdown-local-time-invalid"
+        )
     }
 
     private let referenceDate = Date(timeIntervalSince1970: 1_790_000_000)

@@ -18,6 +18,9 @@ struct V25TodayHome: View {
     let regimenAction: () -> Void
     let metricsAction: () -> Void
     let journeyAction: () -> Void
+    let contentIsLoading: Bool
+    let contentErrorMessage: String?
+    let contentRetryAction: () -> Void
     let executionSnapshot: TodayExecutionSnapshot
     let executionIsLoading: Bool
     let executionErrorMessage: String?
@@ -41,6 +44,9 @@ struct V25TodayHome: View {
         regimenAction: @escaping () -> Void,
         metricsAction: @escaping () -> Void,
         journeyAction: @escaping () -> Void,
+        contentIsLoading: Bool = false,
+        contentErrorMessage: String? = nil,
+        contentRetryAction: @escaping () -> Void = {},
         executionSnapshot: TodayExecutionSnapshot = .empty,
         executionIsLoading: Bool = false,
         executionErrorMessage: String? = nil,
@@ -63,6 +69,9 @@ struct V25TodayHome: View {
         self.regimenAction = regimenAction
         self.metricsAction = metricsAction
         self.journeyAction = journeyAction
+        self.contentIsLoading = contentIsLoading
+        self.contentErrorMessage = contentErrorMessage
+        self.contentRetryAction = contentRetryAction
         self.executionSnapshot = executionSnapshot
         self.executionIsLoading = executionIsLoading
         self.executionErrorMessage = executionErrorMessage
@@ -99,31 +108,57 @@ struct V25TodayHome: View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
-            if dynamicTypeSize.isAccessibilitySize {
-                accessibleNow
+            if let contentErrorMessage {
+                contentReadNotice(contentErrorMessage)
+            } else if contentIsLoading {
+                ProgressView("正在读取本地资料")
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .accessibilityIdentifier("today.contentLoading")
             } else {
-                dayRuler
+                if dynamicTypeSize.isAccessibilitySize {
+                    accessibleNow
+                } else {
+                    dayRuler
+                }
+
+                TodayExecutionLedger(
+                    snapshot: executionSnapshot,
+                    isLoading: executionIsLoading,
+                    errorMessage: executionErrorMessage,
+                    inFlightOccurrenceKeys: inFlightOccurrenceKeys,
+                    runtimeReminderErrorCode: runtimeReminderErrorCode,
+                    retryAction: executionRetryAction,
+                    createPlanAction: regimenAction,
+                    administrationAction: administrationAction,
+                    snoozeAction: snoozeAction,
+                    reminderAction: reminderAction,
+                    correctionAction: correctionAction
+                )
+
+                context
+                latestTrace
             }
-
-            TodayExecutionLedger(
-                snapshot: executionSnapshot,
-                isLoading: executionIsLoading,
-                errorMessage: executionErrorMessage,
-                inFlightOccurrenceKeys: inFlightOccurrenceKeys,
-                runtimeReminderErrorCode: runtimeReminderErrorCode,
-                retryAction: executionRetryAction,
-                createPlanAction: regimenAction,
-                administrationAction: administrationAction,
-                snoozeAction: snoozeAction,
-                reminderAction: reminderAction,
-                correctionAction: correctionAction
-            )
-
-            context
-            latestTrace
             privacyFooter
         }
         .foregroundStyle(theme.indigoDeep)
+    }
+
+    private func contentReadNotice(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("今天页资料需要重新读取")
+                .font(.headline.weight(.black))
+            Text(message)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("重新读取", action: contentRetryAction)
+                .font(.body.weight(.bold))
+                .frame(minHeight: 44)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.rose.opacity(0.28))
+        .overlay { Rectangle().stroke(theme.vermilion, lineWidth: 2) }
+        .accessibilityIdentifier("today.contentReadError")
     }
 
     @ViewBuilder

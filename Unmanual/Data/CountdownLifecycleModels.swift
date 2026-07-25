@@ -323,6 +323,49 @@ final class CountdownNotificationCoverageRecord {
     }
 }
 
+extension CountdownNotificationCoverageRecord {
+    static func isConsistent(
+        status: NotificationCoverageStatus,
+        scheduledFireAt: Date?,
+        desiredCount: Int,
+        confirmedPendingCount: Int,
+        lastErrorCode: String?
+    ) -> Bool {
+        guard desiredCount >= 0,
+              confirmedPendingCount >= 0,
+              confirmedPendingCount <= desiredCount,
+              scheduledFireAt?.timeIntervalSince1970.isFinite != false else {
+            return false
+        }
+        switch status {
+        case .disabledByUser, .notDetermined, .blockedByPermission,
+             .limitedBySystemSettings, .reconciliationPending,
+             .staleObservation:
+            return desiredCount == 0
+                && confirmedPendingCount == 0
+                && scheduledFireAt == nil
+                && lastErrorCode == nil
+        case .scheduledForWindow:
+            return confirmedPendingCount == desiredCount
+                && lastErrorCode == nil
+                && (
+                    desiredCount == 0
+                        ? scheduledFireAt == nil
+                        : scheduledFireAt != nil
+                )
+        case .limitedByBudget:
+            return desiredCount == 0
+                && confirmedPendingCount == 0
+                && scheduledFireAt == nil
+                && lastErrorCode == nil
+        case .schedulingFailed:
+            return confirmedPendingCount == 0
+                && scheduledFireAt == nil
+                && lastErrorCode?.isEmpty == false
+        }
+    }
+}
+
 @Model
 final class CountdownLifecycleBackfillState {
     static let fixedKey = "v5-to-v6-countdown-lifecycle"

@@ -294,3 +294,16 @@ struct HistoricalTimestamp: Codable, Equatable, Sendable {
         )
     }
 }
+
+extension HistoricalTimestamp {
+    var recordedCivilMinuteLabel: String {
+        String(
+            format: "%04d-%02d-%02d %02d:%02d",
+            localDate.year,
+            localDate.month,
+            localDate.day,
+            localTime.hour,
+            localTime.minute
+        )
+    }
+}

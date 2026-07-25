@@ -35,8 +35,9 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 7_300)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1_200)
         // Each legacy lab adds definition/sample/result/time plus a sample receipt.
-        // V6 also adds state/event/reminder/receipt revisions for each legacy countdown.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 23_353)
+        // V7 also adds state/event/reminder/receipt/command-audit revisions for
+        // each legacy countdown, plus one integrity-marker revision.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 23_414)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabSampleRecord>()), 1_200)
         XCTAssertEqual(
             try context.fetchCount(FetchDescriptor<CountdownStateRecord>()),

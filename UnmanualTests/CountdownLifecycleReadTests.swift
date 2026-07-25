@@ -3,11 +3,175 @@ import XCTest
 @testable import Unmanual
 
 final class CountdownLifecycleReadTests: XCTestCase {
+    func testDetailTerminalTextStopsLoadingAfterReadFailure() {
+        XCTAssertEqual(
+            CountdownDetailTerminalText.make(
+                timestamp: nil,
+                loadState: .loading
+            ),
+            "读取中"
+        )
+        XCTAssertEqual(
+            CountdownDetailTerminalText.make(
+                timestamp: nil,
+                loadState: .failed
+            ),
+            "未能核对"
+        )
+        XCTAssertEqual(
+            CountdownDetailTerminalText.make(
+                timestamp: nil,
+                loadState: .loaded
+            ),
+            "未记录"
+        )
+    }
+
+    func testDetailTerminalTimestampUsesArchivedPredecessorWhenReviewSharesInstant()
+        async throws
+    {
+        let container = try AppModelContainerFactory
+            .makeInMemoryCountdownLifecycleContainer()
+        let context = ModelContext(container)
+        let archivedAt = try XCTUnwrap(
+            ISO8601DateFormatter().date(
+                from: "2026-04-01T01:30:00Z"
+            )
+        )
+        let countdownID = UUID()
+        context.insert(
+            CountdownRecord(
+                id: countdownID,
+                title: "同一时刻的旧归档",
+                targetDate: archivedAt.addingTimeInterval(-86_400),
+                createdAt: archivedAt.addingTimeInterval(-172_800),
+                archivedAt: archivedAt,
+                continuesCountingUp: true
+            )
+        )
+        try context.save()
+        XCTAssertTrue(try LegacyV1Backfill.run(in: container).didComplete)
+        XCTAssertTrue(
+            try CoreTimeRegimenBackfill.run(
+                in: container,
+                assumedTimeZoneIdentifier: "America/Chicago"
+            ).didComplete
+        )
+        XCTAssertTrue(try TodayExecutionBackfill.run(in: container).didComplete)
+        XCTAssertTrue(try PersonalTimelineBackfill.run(in: container).didComplete)
+        XCTAssertTrue(
+            try CountdownLifecycleBackfill.run(in: container).didComplete
+        )
+        let reader = AppReadActor(modelContainer: container)
+        let reviewPage = try await reader.countdownReviewPage(
+            after: nil,
+            limit: 20
+        )
+        let review = try XCTUnwrap(
+            reviewPage.items.first
+        )
+        let reviewTimestamp = try HistoricalTimestamp.captured(
+            instant: archivedAt,
+            timeZoneIdentifier: "Asia/Tokyo",
+            provenance: .userEntered
+        )
+        _ = try await AppWriteActor(
+            modelContainer: container
+        ).resolveCountdownReview(
+            ResolveCountdownReviewCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                countdownID: countdownID,
+                expectedLatestEventID: review.latestEventID,
+                resolution: .keepArchived,
+                timestamp: reviewTimestamp
+            )
+        )
+
+        let loadedDetail = try await reader.countdownDetail(id: countdownID)
+        let detail = try XCTUnwrap(loadedDetail)
+        XCTAssertEqual(
+            detail.events.map(\.kind),
+            [.migratedSnapshot, .reviewResolved]
+        )
+        XCTAssertEqual(
+            detail.events.map(\.timestamp.instant),
+            [archivedAt, archivedAt]
+        )
+        XCTAssertEqual(
+            detail.events.map(\.timestamp.timeZoneIdentifier),
+            ["America/Chicago", "Asia/Tokyo"]
+        )
+        let terminal = try XCTUnwrap(
+            CountdownDetailPresentation.terminalTimestamp(in: detail)
+        )
+        XCTAssertEqual(terminal, detail.events[0].timestamp)
+        XCTAssertNotEqual(
+            terminal.recordedCivilMinuteLabel,
+            detail.events[1].timestamp.recordedCivilMinuteLabel
+        )
+    }
+
+    func testLedgerStatusUsesAtLeastForPagedReviewAndHistory() {
+        XCTAssertEqual(
+            CountdownLedgerStatusText.make(
+                hasError: false,
+                isLoading: false,
+                reviewCount: 20,
+                reviewHasMore: true,
+                hasCurrent: false,
+                historyCount: 0,
+                historyHasMore: false
+            ),
+            "至少 20 项待核对"
+        )
+        XCTAssertEqual(
+            CountdownLedgerStatusText.make(
+                hasError: false,
+                isLoading: false,
+                reviewCount: 0,
+                reviewHasMore: false,
+                hasCurrent: false,
+                historyCount: 20,
+                historyHasMore: true
+            ),
+            "至少 20 项历史"
+        )
+    }
+
+    func testEditorSnapshotCarriesGentleModeWithoutAnActiveCountdown()
+        async throws
+    {
+        let container = try preparedContainer()
+        let storage = AppWriteActor(modelContainer: container)
+        try await storage.setGentleMode(
+            SetGentleModeCommand(
+                isEnabled: true,
+                committedAt: Date(
+                    timeIntervalSince1970: 1_774_521_600
+                )
+            )
+        )
+
+        let snapshot = try await AppReadActor(
+            modelContainer: container
+        ).countdownEditorSnapshot(
+            displayTimeZoneIdentifier: "UTC"
+        )
+
+        XCTAssertTrue(snapshot.gentleModeEnabled)
+        XCTAssertNil(snapshot.current)
+    }
+
     func testTodayProjectionHonorsVisibilityAndGentleModeWithoutLeakingTitle() async throws {
         let container = try preparedContainer()
         let storage = AppWriteActor(modelContainer: container)
         let timestamp = try HistoricalTimestamp.captured(
-            instant: Date(timeIntervalSince1970: 1_774_521_600),
+            instant: try XCTUnwrap(
+                ISO8601DateFormatter().date(
+                    from: "2026-04-01T12:00:00Z"
+                )
+            ),
             timeZoneIdentifier: "UTC",
             provenance: .userEntered
         )
@@ -55,12 +219,17 @@ final class CountdownLifecycleReadTests: XCTestCase {
                 timestamp: timestamp
             )
         )
-        let context = ModelContext(container)
-        let preferences = try XCTUnwrap(
-            context.fetch(FetchDescriptor<UserPreferencesRecord>()).first
+        try await storage.setGentleMode(
+            SetGentleModeCommand(
+                isEnabled: true,
+                committedAt: timestamp.instant.addingTimeInterval(1)
+            )
         )
-        preferences.gentleModeEnabled = true
-        try context.save()
+        let gentleMode = try await reader.gentleModeSnapshot()
+        XCTAssertEqual(
+            gentleMode,
+            GentleModeSnapshot(isEnabled: true)
+        )
 
         let visible = try await reader.countdownTodaySnapshot(
             today: CivilDateFact(year: 2026, month: 4, day: 1),
@@ -75,7 +244,11 @@ final class CountdownLifecycleReadTests: XCTestCase {
         let container = try preparedContainer()
         let storage = AppWriteActor(modelContainer: container)
         let timestamp = try HistoricalTimestamp.captured(
-            instant: Date(timeIntervalSince1970: 1_774_521_600),
+            instant: try XCTUnwrap(
+                ISO8601DateFormatter().date(
+                    from: "2026-04-01T12:00:00Z"
+                )
+            ),
             timeZoneIdentifier: "UTC",
             provenance: .userEntered
         )
@@ -117,7 +290,7 @@ final class CountdownLifecycleReadTests: XCTestCase {
         )
         XCTAssertNil(hidden)
         let history = try await reader.countdownHistoryPage(
-            offset: 0,
+            after: nil,
             limit: 20
         )
         XCTAssertEqual(history.items.map(\.id), [countdownID])
@@ -125,6 +298,32 @@ final class CountdownLifecycleReadTests: XCTestCase {
         let detail = try await reader.countdownDetail(id: countdownID)
         XCTAssertEqual(detail?.events.map(\.kind), [.created, .completed])
         XCTAssertEqual(detail?.current.latestEventID, completeEventID)
+        let completedDetail = try XCTUnwrap(detail)
+        XCTAssertEqual(
+            CountdownDetailPresentation.terminalTimestamp(
+                in: completedDetail
+            ),
+            completedDetail.events.last?.timestamp
+        )
+        XCTAssertNil(
+            CountdownDetailPresentation.verifiedDetail(
+                detail,
+                loadState: .loading
+            )
+        )
+        XCTAssertNil(
+            CountdownDetailPresentation.verifiedDetail(
+                detail,
+                loadState: .failed
+            )
+        )
+        XCTAssertEqual(
+            CountdownDetailPresentation.verifiedDetail(
+                detail,
+                loadState: .loaded
+            )?.current.title,
+            "里程碑"
+        )
     }
 
     func testCurrentSnapshotExposesPersistedCountdownReminderCoverage() async throws {
@@ -179,6 +378,55 @@ final class CountdownLifecycleReadTests: XCTestCase {
         XCTAssertNil(snapshot?.coverage.scheduledFireAt)
     }
 
+    func testCountdownReadRejectsCoverageThatClaimsAnUnconfirmedSchedule() async throws {
+        let container = try preparedContainer()
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: Date(timeIntervalSince1970: 1_775_203_200),
+            timeZoneIdentifier: "UTC",
+            provenance: .userEntered
+        )
+        let countdownID = UUID()
+        _ = try await AppWriteActor(
+            modelContainer: container
+        ).createCountdown(
+            CreateCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                countdownID: countdownID,
+                title: "需要提醒",
+                gentleTitle: nil,
+                targetDate: CivilDateFact(year: 2026, month: 4, day: 3),
+                showInToday: true,
+                reminder: .disabled,
+                timestamp: timestamp
+            )
+        )
+        let context = ModelContext(container)
+        let coverage = try XCTUnwrap(
+            context.fetch(
+                FetchDescriptor<CountdownNotificationCoverageRecord>()
+            ).first
+        )
+        coverage.countdownID = countdownID
+        coverage.statusRawValue =
+            NotificationCoverageStatus.scheduledForWindow.rawValue
+        coverage.scheduledFireAt = timestamp.instant.addingTimeInterval(3_600)
+        coverage.desiredCount = 1
+        coverage.confirmedPendingCount = 0
+        coverage.lastErrorCode = nil
+        coverage.observedAt = timestamp.instant
+        try context.save()
+
+        do {
+            _ = try await AppReadActor(
+                modelContainer: container
+            ).countdownCurrentSnapshot()
+            XCTFail("Unconfirmed scheduled coverage must fail closed")
+        } catch {
+            XCTAssertEqual(error as? AppDataFailure, .corruptionSuspected)
+        }
+    }
+
     func testHistoryPaginationDoesNotLoadOrCapTheEntireLedger() async throws {
         let container = try preparedContainer()
         let context = ModelContext(container)
@@ -221,22 +469,103 @@ final class CountdownLifecycleReadTests: XCTestCase {
         let reader = AppReadActor(modelContainer: container)
 
         let first = try await reader.countdownHistoryPage(
-            offset: 0,
+            after: nil,
             limit: 12
         )
-        let deepPage = try await reader.countdownHistoryPage(
-            offset: 1_020,
-            limit: 12
+        let insertedAfterSnapshotID = UUID()
+        let insertedEventID = UUID()
+        let insertedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        context.insert(
+            CountdownStateRecord(
+                id: insertedAfterSnapshotID,
+                title: "并发新增历史",
+                targetDate: try CivilDateFact(
+                    year: 2027,
+                    month: 1,
+                    day: 1
+                ),
+                lifecycle: .archived,
+                latestEventID: insertedEventID,
+                archivedAt: insertedAt,
+                terminalReminderWasEnabled: false,
+                terminalReminderLeadDays: 0,
+                terminalReminderLocalHour: 9,
+                terminalReminderLocalMinute: 0,
+                createdAt: insertedAt.addingTimeInterval(-1),
+                updatedAt: insertedAt
+            )
         )
+        context.insert(
+            CountdownReminderRuleRecord(
+                countdownID: insertedAfterSnapshotID,
+                isEnabled: false,
+                lastOperationID: UUID(),
+                updatedAt: insertedAt
+            )
+        )
+        try context.save()
+        var allItems = first.items
+        var cursor = first.nextCursor
+        while let nextCursor = cursor {
+            let page = try await reader.countdownHistoryPage(
+                after: nextCursor,
+                limit: 50
+            )
+            allItems.append(contentsOf: page.items)
+            cursor = page.nextCursor
+        }
 
         XCTAssertEqual(first.items.count, 12)
-        XCTAssertEqual(first.nextOffset, 12)
-        XCTAssertEqual(deepPage.items.count, 10)
-        XCTAssertNil(deepPage.nextOffset)
-        XCTAssertEqual(
-            Set((first.items + deepPage.items).map(\.id)).count,
-            22
+        XCTAssertNotNil(first.nextCursor)
+        XCTAssertEqual(allItems.count, 1_030)
+        XCTAssertEqual(Set(allItems.map(\.id)).count, 1_030)
+        XCTAssertFalse(allItems.contains {
+            $0.id == insertedAfterSnapshotID
+        })
+    }
+
+    func testLedgerCursorRejectsWrongDomainAndNonFiniteDate()
+        async throws
+    {
+        let reader = AppReadActor(
+            modelContainer: try preparedContainer()
         )
+        do {
+            _ = try await reader.countdownHistoryPage(
+                after: CountdownLedgerCursor(
+                    kind: .review,
+                    sortDate: Date(
+                        timeIntervalSince1970: 1_700_000_000
+                    ),
+                    recordID: UUID()
+                ),
+                limit: 20
+            )
+            XCTFail("A review cursor cannot drive history")
+        } catch {
+            XCTAssertEqual(
+                error as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        do {
+            _ = try await reader.countdownReviewPage(
+                after: CountdownLedgerCursor(
+                    kind: .review,
+                    sortDate: Date(
+                        timeIntervalSince1970: .infinity
+                    ),
+                    recordID: UUID()
+                ),
+                limit: 20
+            )
+            XCTFail("A non-finite cursor must fail closed")
+        } catch {
+            XCTAssertEqual(
+                error as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
     }
 
     func testCoveragePresentationMakesPermissionAndSchedulingFailuresVisible() {
@@ -432,10 +761,10 @@ final class CountdownLifecycleReadTests: XCTestCase {
 
         let page = try await AppReadActor(
             modelContainer: container
-        ).countdownReviewPage(offset: 0, limit: 20)
+        ).countdownReviewPage(after: nil, limit: 20)
 
         XCTAssertEqual(page.items.count, 20)
-        XCTAssertEqual(page.nextOffset, 20)
+        XCTAssertNotNil(page.nextCursor)
         XCTAssertEqual(page.activeReviewCount, 25)
     }
 

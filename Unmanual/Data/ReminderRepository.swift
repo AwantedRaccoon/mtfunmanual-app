@@ -475,29 +475,14 @@ extension AppWriteActor {
     private static func countdownCoverageObservationIsConsistent(
         _ observation: LocalReminderReconciliationObservation
     ) -> Bool {
-        switch observation.countdownStatus {
-        case .disabledByUser, .notDetermined, .blockedByPermission,
-             .limitedBySystemSettings, .reconciliationPending,
-             .staleObservation:
-            return observation.countdownDesiredCount == 0
-                && observation.countdownConfirmedPendingCount == 0
-                && observation.countdownScheduledFireAt == nil
-        case .scheduledForWindow:
-            return observation.countdownConfirmedPendingCount
-                    == observation.countdownDesiredCount
-                && (
-                    observation.countdownDesiredCount == 0
-                        || observation.countdownScheduledFireAt != nil
-                )
-        case .limitedByBudget:
-            return observation.countdownConfirmedPendingCount
-                    == observation.countdownDesiredCount
-                && observation.countdownDesiredCount == 0
-                && observation.countdownScheduledFireAt == nil
-        case .schedulingFailed:
-            return observation.countdownScheduledFireAt == nil
-                && observation.countdownLastErrorCode?.isEmpty == false
-        }
+        CountdownNotificationCoverageRecord.isConsistent(
+            status: observation.countdownStatus,
+            scheduledFireAt: observation.countdownScheduledFireAt,
+            desiredCount: observation.countdownDesiredCount,
+            confirmedPendingCount:
+                observation.countdownConfirmedPendingCount,
+            lastErrorCode: observation.countdownLastErrorCode
+        )
     }
 }
 

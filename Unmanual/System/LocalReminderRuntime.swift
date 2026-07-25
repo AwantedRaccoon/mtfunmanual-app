@@ -13,6 +13,8 @@ final class LocalReminderRuntime {
     private var reconciliationEpoch = 0
     private var nextRequestSequence = 0
     private var latestRequestedSequence = 0
+    private var lastSettledEpoch = -1
+    private var lastSettledSequence = -1
     private var reconciliationWaiters: [CheckedContinuation<Void, Never>] = []
     private var recoveryCleanupInProgress = false
     private var recoveryCleanupWaiters: [CheckedContinuation<Void, Never>] = []
@@ -29,15 +31,16 @@ final class LocalReminderRuntime {
         self.nowProvider = now
     }
 
+    @discardableResult
     func reconcile(
         reader: AppReadActor,
         writer: AppDataWriter,
         now: Date? = nil,
         displayTimeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier
-    ) async {
+    ) async -> Bool {
         let sequence = allocateRequestSequence()
         let epoch = reconciliationEpoch
-        guard !isSuspendedForRecovery else { return }
+        guard !isSuspendedForRecovery else { return false }
 
         let resolvedNow: Date
         if let now {
@@ -47,7 +50,7 @@ final class LocalReminderRuntime {
         }
         guard !isSuspendedForRecovery,
               epoch == reconciliationEpoch,
-              sequence == latestRequestedSequence else { return }
+              sequence == latestRequestedSequence else { return false }
         let request = ReconciliationRequest(
             reader: reader,
             writer: writer,
@@ -56,16 +59,16 @@ final class LocalReminderRuntime {
             epoch: epoch,
             sequence: sequence
         )
-        await process(.reconciliation(request))
+        return await process(.reconciliation(request))
     }
 
-    private func process(_ initialWork: RuntimeWork) async {
+    private func process(_ initialWork: RuntimeWork) async -> Bool {
         if isReconciling {
             if initialWork.sequence > (pendingWork?.sequence ?? 0) {
                 pendingWork = initialWork
             }
             await waitForReconciliationToStop()
-            return
+            return didSettle(initialWork)
         }
         isReconciling = true
         defer {
@@ -84,26 +87,33 @@ final class LocalReminderRuntime {
             }
             switch current {
             case let .reconciliation(request):
-                await performReconciliation(request)
+                if await performReconciliation(request) {
+                    markSettled(current)
+                }
             case let .failure(request):
-                await performFailClosed(request)
+                if await performFailClosed(request) {
+                    markSettled(current)
+                }
             }
             currentWork = pendingWork
         }
+        return didSettle(initialWork)
     }
 
-    private func performReconciliation(_ current: ReconciliationRequest) async {
+    private func performReconciliation(
+        _ current: ReconciliationRequest
+    ) async -> Bool {
         do {
             let planning = try await current.reader.reminderPlanningSnapshot(
                 now: current.now,
                 displayTimeZoneIdentifier: current.displayTimeZoneIdentifier,
                 horizonLocalDays: 14
             )
-            guard isCurrent(current) else { return }
+            guard isCurrent(current) else { return false }
             let settings = await client.settings()
-            guard isCurrent(current) else { return }
+            guard isCurrent(current) else { return false }
             let pending = await client.pendingRequests()
-            guard isCurrent(current) else { return }
+            guard isCurrent(current) else { return false }
             let foreignPendingCount = pending.count {
                 !LocalReminderPlanner.isOwnedIdentifier($0.identifier)
             }
@@ -118,6 +128,7 @@ final class LocalReminderRuntime {
                 countdownID: planning.countdownID,
                 countdownResolutionFailed:
                     planning.countdownResolutionFailed,
+                countdownFailureCode: planning.countdownFailureCode,
                 foreignPendingCount: foreignPendingCount
             )
             let observation = await LocalReminderReconciler(client: client).reconcile(
@@ -127,7 +138,7 @@ final class LocalReminderRuntime {
             )
             guard isCurrent(current) else {
                 _ = await clearOwnedPending(maxAttempts: 3)
-                return
+                return false
             }
             try await current.writer.updateUnifiedNotificationCoverage(
                 observation
@@ -136,10 +147,12 @@ final class LocalReminderRuntime {
                 lastErrorCode = observation.lastErrorCode
                 countdownLastErrorCode =
                     observation.countdownLastErrorCode
+                return observation.ownedCleanupWasVerified
             }
+            return false
         } catch {
             if isCurrent(current) {
-                await performFailClosed(
+                return await performFailClosed(
                     FailureRequest(
                         writer: current.writer,
                         observedAt: current.now,
@@ -149,6 +162,7 @@ final class LocalReminderRuntime {
                     )
                 )
             }
+            return false
         }
     }
 
@@ -238,7 +252,7 @@ final class LocalReminderRuntime {
                 }
                 guard isCurrent(epoch: epoch) else { return }
                 let sequence = allocateRequestSequence()
-                await process(
+                _ = await process(
                     .failure(
                         FailureRequest(
                             writer: writer,
@@ -260,7 +274,7 @@ final class LocalReminderRuntime {
         }
         guard isCurrent(epoch: epoch) else { return }
         let sequence = allocateRequestSequence()
-        await process(
+        _ = await process(
             .reconciliation(
                 ReconciliationRequest(
                     reader: reader,
@@ -274,16 +288,16 @@ final class LocalReminderRuntime {
         )
     }
 
-    private func performFailClosed(_ request: FailureRequest) async {
-        guard isCurrent(request) else { return }
+    private func performFailClosed(_ request: FailureRequest) async -> Bool {
+        guard isCurrent(request) else { return false }
         let didRemoveOwned = await clearOwnedPending(maxAttempts: 3)
-        guard isCurrent(request) else { return }
+        guard isCurrent(request) else { return false }
         let finalErrorCode = didRemoveOwned
             ? request.errorCode
             : request.errorCode + "-owned-removal-unverified"
         lastErrorCode = finalErrorCode
         countdownLastErrorCode = finalErrorCode
-        guard isCurrent(request) else { return }
+        guard isCurrent(request) else { return false }
         do {
             try await request.writer.updateUnifiedNotificationCoverage(
                 LocalReminderReconciliationObservation(
@@ -294,13 +308,26 @@ final class LocalReminderRuntime {
                     lastErrorCode: finalErrorCode,
                     observedAt: request.observedAt,
                     countdownStatus: .schedulingFailed,
-                    countdownLastErrorCode: finalErrorCode
+                    countdownLastErrorCode: finalErrorCode,
+                    ownedCleanupWasVerified: didRemoveOwned
                 )
             )
+            return didRemoveOwned && isCurrent(request)
         } catch {
             lastErrorCode = finalErrorCode
             countdownLastErrorCode = finalErrorCode
+            return false
         }
+    }
+
+    private func markSettled(_ work: RuntimeWork) {
+        lastSettledEpoch = work.epoch
+        lastSettledSequence = work.sequence
+    }
+
+    private func didSettle(_ work: RuntimeWork) -> Bool {
+        lastSettledEpoch == work.epoch
+            && lastSettledSequence == work.sequence
     }
 
     private func isCurrent(_ request: ReconciliationRequest) -> Bool {

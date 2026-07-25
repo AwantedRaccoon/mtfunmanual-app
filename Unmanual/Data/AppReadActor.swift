@@ -495,6 +495,13 @@ actor AppReadActor {
     }
 
     func archiveSnapshot() throws -> AppArchiveSnapshot {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-archive-read-error"
+        ) {
+            throw AppDataFailure.corruptionSuspected
+        }
+#endif
         let profileCount = try modelContext.fetchCount(FetchDescriptor<HRTProfile>())
         let countdownCount = try modelContext.fetchCount(FetchDescriptor<CountdownRecord>())
         let journeyCount = try modelContext.fetchCount(FetchDescriptor<JourneyEntry>())

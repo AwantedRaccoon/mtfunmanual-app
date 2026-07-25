@@ -163,6 +163,7 @@ struct LocalReminderPlan: Equatable, Sendable {
     let countdownRequestIdentifiers: Set<String>
     let countdownHasEnabledIntent: Bool
     let countdownID: UUID?
+    let countdownFailureCode: String?
 
     init(
         status: NotificationCoverageStatus,
@@ -173,7 +174,8 @@ struct LocalReminderPlan: Equatable, Sendable {
         countdownDesiredCount: Int = 0,
         countdownRequestIdentifiers: Set<String> = [],
         countdownHasEnabledIntent: Bool = false,
-        countdownID: UUID? = nil
+        countdownID: UUID? = nil,
+        countdownFailureCode: String? = nil
     ) {
         self.status = status
         self.requests = requests
@@ -184,6 +186,7 @@ struct LocalReminderPlan: Equatable, Sendable {
         self.countdownRequestIdentifiers = countdownRequestIdentifiers
         self.countdownHasEnabledIntent = countdownHasEnabledIntent
         self.countdownID = countdownID
+        self.countdownFailureCode = countdownFailureCode
     }
 }
 
@@ -200,6 +203,7 @@ struct LocalReminderReconciliationObservation: Equatable, Sendable {
     let countdownConfirmedPendingCount: Int
     let countdownID: UUID?
     let countdownLastErrorCode: String?
+    let ownedCleanupWasVerified: Bool
 
     init(
         status: NotificationCoverageStatus,
@@ -213,7 +217,8 @@ struct LocalReminderReconciliationObservation: Equatable, Sendable {
         countdownDesiredCount: Int = 0,
         countdownConfirmedPendingCount: Int = 0,
         countdownID: UUID? = nil,
-        countdownLastErrorCode: String? = nil
+        countdownLastErrorCode: String? = nil,
+        ownedCleanupWasVerified: Bool = true
     ) {
         self.status = status
         self.scheduledThrough = scheduledThrough
@@ -233,6 +238,7 @@ struct LocalReminderReconciliationObservation: Equatable, Sendable {
                     ? lastErrorCode
                     : nil
             )
+        self.ownedCleanupWasVerified = ownedCleanupWasVerified
     }
 }
 
@@ -264,6 +270,7 @@ enum LocalReminderPlanner {
         countdownHasEnabledIntent: Bool? = nil,
         countdownID: UUID? = nil,
         countdownResolutionFailed: Bool = false,
+        countdownFailureCode: String? = nil,
         foreignPendingCount: Int = 0
     ) -> LocalReminderPlan {
         let scheduleCandidates = Array(candidates)
@@ -377,6 +384,7 @@ enum LocalReminderPlanner {
             countdownStatus: hasCountdownIntent
                 ? (
                     countdownResolutionFailed
+                        || countdownFailureCode != nil
                         ? .schedulingFailed
                         : countdownWasBudgetLimited
                         ? .limitedByBudget
@@ -388,7 +396,8 @@ enum LocalReminderPlanner {
             countdownRequestIdentifiers: countdownRequestIdentifiers,
             countdownHasEnabledIntent: hasCountdownIntent,
             countdownID: countdownID
-                ?? countdownCandidates.first?.countdownID
+                ?? countdownCandidates.first?.countdownID,
+            countdownFailureCode: countdownFailureCode
         )
     }
 
@@ -528,6 +537,8 @@ struct LocalReminderReconciler: Sendable {
             ($0.identifier, $0)
         })
         let foreignBeforeCount = pendingBefore.count - ownedBefore.count
+        let initialForeignCountExceededBudget =
+            foreignBeforeCount > LocalReminderPlanner.requestBudget
         let allowedBeforeCount = max(
             0,
             LocalReminderPlanner.requestBudget - foreignBeforeCount
@@ -635,7 +646,11 @@ struct LocalReminderReconciler: Sendable {
                 do {
                     try await client.add(request)
                 } catch {
-                    errorCode = "add-request-failed"
+                    return await failClosedObservation(
+                        plan: plan,
+                        observedAt: observedAt,
+                        errorCode: "add-request-failed"
+                    )
                 }
                 guard await isCurrent() else {
                     return await failClosedObservation(
@@ -721,26 +736,58 @@ struct LocalReminderReconciler: Sendable {
             }
             errorCode = "notification-budget-changed"
         }
+        guard pendingAfter.count <= LocalReminderPlanner.requestBudget else {
+            return await failClosedObservation(
+                plan: plan,
+                observedAt: observedAt,
+                errorCode: initialForeignCountExceededBudget
+                    ? "notification-budget-exceeded"
+                    : (errorCode ?? "notification-budget-changed")
+            )
+        }
+        let foreignAfterCount = pendingAfter.count - ownedAfter.count
+        let authoritativeRequestCount = max(
+            0,
+            min(
+                plan.requests.count,
+                LocalReminderPlanner.requestBudget - foreignAfterCount
+            )
+        )
+        let authoritativeRequests = Array(
+            plan.requests.prefix(authoritativeRequestCount)
+        )
+        let authoritativeByID = Dictionary(
+            uniqueKeysWithValues: authoritativeRequests.map {
+                ($0.identifier, $0)
+            }
+        )
         let confirmedIDs = Set(ownedAfter.compactMap { pending -> String? in
-            guard let desired = desiredByID[pending.identifier],
+            guard let desired = authoritativeByID[pending.identifier],
                   Self.pending(pending, matches: desired) else { return nil }
             return pending.identifier
         })
         let ownedAfterIDs = Set(ownedAfter.map(\.identifier))
-        let fullyConfirmed = ownedAfter.count == desiredByID.count
-            && ownedAfterIDs == Set(desiredByID.keys)
-            && confirmedIDs.count == desiredByID.count
+        let authoritativeIDs = Set(authoritativeByID.keys)
+        let fullyConfirmed = ownedAfter.count == authoritativeByID.count
+            && ownedAfterIDs == authoritativeIDs
+            && confirmedIDs.count == authoritativeByID.count
         let countdownDesiredIDs = plan.countdownRequestIdentifiers
         let scheduleDesiredIDs = Set(desiredByID.keys)
             .subtracting(countdownDesiredIDs)
-        let countdownConfirmedIDs = confirmedIDs.intersection(
+        let authoritativeCountdownIDs = authoritativeIDs.intersection(
             countdownDesiredIDs
         )
-        let scheduleConfirmedIDs = confirmedIDs.intersection(
+        let authoritativeScheduleIDs = authoritativeIDs.intersection(
             scheduleDesiredIDs
         )
+        let countdownConfirmedIDs = confirmedIDs.intersection(
+            authoritativeCountdownIDs
+        )
+        let scheduleConfirmedIDs = confirmedIDs.intersection(
+            authoritativeScheduleIDs
+        )
         let unexpectedOwnedIDs = ownedAfterIDs.subtracting(
-            Set(desiredByID.keys)
+            authoritativeIDs
         )
         let hasUnexpectedScheduleOwned = unexpectedOwnedIDs.contains {
             $0.hasPrefix(LocalReminderPlanner.requestPrefix)
@@ -749,9 +796,13 @@ struct LocalReminderReconciler: Sendable {
             $0.hasPrefix(LocalReminderPlanner.countdownRequestPrefix)
         }
         let scheduleFullyConfirmed =
-            scheduleConfirmedIDs == scheduleDesiredIDs
+            scheduleConfirmedIDs == authoritativeScheduleIDs
         let countdownFullyConfirmed =
-            countdownConfirmedIDs == countdownDesiredIDs
+            countdownConfirmedIDs == authoritativeCountdownIDs
+        let scheduleWasDynamicallyLimited =
+            authoritativeScheduleIDs != scheduleDesiredIDs
+        let countdownWasDynamicallyLimited =
+            authoritativeCountdownIDs != countdownDesiredIDs
         let finalStatus: NotificationCoverageStatus =
             hasUnexpectedScheduleOwned
                 ? .schedulingFailed
@@ -760,7 +811,9 @@ struct LocalReminderReconciler: Sendable {
                 : (
                     !scheduleFullyConfirmed
                         ? .schedulingFailed
-                        : plan.status
+                        : scheduleWasDynamicallyLimited
+                            ? .limitedByBudget
+                            : plan.status
                 )
         let countdownFinalStatus: NotificationCoverageStatus =
             hasUnexpectedCountdownOwned
@@ -770,10 +823,20 @@ struct LocalReminderReconciler: Sendable {
                 : (
                     !countdownFullyConfirmed
                         ? .schedulingFailed
-                        : plan.countdownStatus
+                        : countdownWasDynamicallyLimited
+                            ? .limitedByBudget
+                            : plan.countdownStatus
                 )
-        if !fullyConfirmed, errorCode == nil {
-            errorCode = "pending-readback-mismatch"
+        if !fullyConfirmed
+            || (
+                countdownWasDynamicallyLimited
+                    && !authoritativeCountdownIDs.isEmpty
+            ) {
+            return await failClosedObservation(
+                plan: plan,
+                observedAt: observedAt,
+                errorCode: errorCode ?? "pending-readback-mismatch"
+            )
         }
         let scheduleLastErrorCode = finalStatus == .schedulingFailed
             ? (errorCode ?? "schedule-reconciliation-failed")
@@ -781,29 +844,61 @@ struct LocalReminderReconciler: Sendable {
         let countdownLastErrorCode =
             countdownFinalStatus == .schedulingFailed
                 ? (
-                    errorCode
-                        ?? (
-                            plan.countdownStatus == .schedulingFailed
-                                ? "countdown-local-time-invalid"
-                                : "countdown-reconciliation-failed"
+                    plan.countdownStatus == .schedulingFailed
+                        ? (
+                            plan.countdownFailureCode
+                                ?? "countdown-local-time-invalid"
+                        )
+                        : (
+                            errorCode
+                                ?? "countdown-reconciliation-failed"
                         )
                 )
                 : nil
+        let firstDynamicallyUncoveredSchedule = plan.requests
+            .filter {
+                scheduleDesiredIDs.contains($0.identifier)
+                    && !authoritativeScheduleIDs.contains($0.identifier)
+            }
+            .map(\.fireAt)
+            .min()
+        let finalScheduledThrough: Date? = switch finalStatus {
+        case .scheduledForWindow:
+            plan.scheduledThrough
+        case .limitedByBudget:
+            [
+                plan.status == .limitedByBudget
+                    ? plan.scheduledThrough
+                    : nil,
+                firstDynamicallyUncoveredSchedule
+            ]
+            .compactMap { $0 }
+            .min()
+        default:
+            nil
+        }
+        if finalStatus == .limitedByBudget,
+           finalScheduledThrough == nil {
+            return await failClosedObservation(
+                plan: plan,
+                observedAt: observedAt,
+                errorCode: "schedule-budget-cutoff-missing"
+            )
+        }
 
         return LocalReminderReconciliationObservation(
             status: finalStatus,
-            scheduledThrough: scheduleFullyConfirmed
-                ? plan.scheduledThrough
-                : nil,
-            desiredCount: scheduleDesiredIDs.count,
+            scheduledThrough: finalScheduledThrough,
+            desiredCount: authoritativeScheduleIDs.count,
             confirmedPendingCount: scheduleConfirmedIDs.count,
             lastErrorCode: scheduleLastErrorCode,
             observedAt: observedAt,
             countdownStatus: countdownFinalStatus,
-            countdownScheduledFireAt: countdownFullyConfirmed
+            countdownScheduledFireAt:
+                countdownFinalStatus == .scheduledForWindow
                 ? plan.countdownScheduledFireAt
                 : nil,
-            countdownDesiredCount: countdownDesiredIDs.count,
+            countdownDesiredCount: authoritativeCountdownIDs.count,
             countdownConfirmedPendingCount: countdownConfirmedIDs.count,
             countdownID: plan.countdownID,
             countdownLastErrorCode: countdownLastErrorCode
@@ -820,13 +915,13 @@ struct LocalReminderReconciler: Sendable {
         let scheduleDesiredCount = plan.requests.count
             - countdownDesiredIDs.count
         return LocalReminderReconciliationObservation(
-            status: plan.status == .disabledByUser
+            status: didClear && plan.status == .disabledByUser
                 ? .disabledByUser
                 : .schedulingFailed,
             scheduledThrough: nil,
             desiredCount: scheduleDesiredCount,
             confirmedPendingCount: 0,
-            lastErrorCode: plan.status == .disabledByUser
+            lastErrorCode: didClear && plan.status == .disabledByUser
                 ? nil
                 : (
                     didClear
@@ -834,20 +929,23 @@ struct LocalReminderReconciler: Sendable {
                         : errorCode + "-owned-removal-unverified"
                 ),
             observedAt: observedAt,
-            countdownStatus: plan.countdownHasEnabledIntent
-                ? .schedulingFailed
-                : .disabledByUser,
+            countdownStatus:
+                didClear && !plan.countdownHasEnabledIntent
+                    ? .disabledByUser
+                    : .schedulingFailed,
             countdownScheduledFireAt: nil,
             countdownDesiredCount: countdownDesiredIDs.count,
             countdownConfirmedPendingCount: 0,
             countdownID: plan.countdownID,
-            countdownLastErrorCode: plan.countdownHasEnabledIntent
-                ? (
+            countdownLastErrorCode:
+                didClear && !plan.countdownHasEnabledIntent
+                    ? nil
+                    : (
                     didClear
                         ? errorCode
                         : errorCode + "-owned-removal-unverified"
-                )
-                : nil
+                ),
+            ownedCleanupWasVerified: didClear
         )
     }
 

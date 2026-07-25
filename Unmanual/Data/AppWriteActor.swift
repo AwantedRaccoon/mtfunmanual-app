@@ -36,6 +36,16 @@ struct SetStartDateCommand: Sendable {
     }
 }
 
+struct SetGentleModeCommand: Sendable {
+    let isEnabled: Bool
+    let committedAt: Date
+
+    init(isEnabled: Bool, committedAt: Date = Date()) {
+        self.isEnabled = isEnabled
+        self.committedAt = committedAt
+    }
+}
+
 struct SaveCountdownCommand: Sendable {
     let recordID: UUID
     let expectsExistingRecord: Bool
@@ -381,6 +391,39 @@ actor AppWriteActor {
                     recordType: "HrtPeriodRecord",
                     recordID: activePeriod.id,
                     fields: try CoreFactDigestV1.period(activePeriod),
+                    reservation: reservation,
+                    committedAt: command.committedAt
+                )
+                try markCommitted(at: command.committedAt)
+            }
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
+
+    func setGentleMode(_ command: SetGentleModeCommand) throws {
+        modelContext.autosaveEnabled = false
+        let reservation = try reserveRevision(
+            committedAt: command.committedAt
+        )
+        do {
+            try modelContext.transaction {
+                var descriptor =
+                    FetchDescriptor<UserPreferencesRecord>()
+                descriptor.fetchLimit = 2
+                let preferences = try modelContext.fetch(descriptor)
+                guard preferences.count == 1,
+                      let preference = preferences.first else {
+                    throw AppWriteFailure.missingFoundation
+                }
+                preference.gentleModeEnabled = command.isEnabled
+                try upsertRevision(
+                    recordType: "UserPreferencesRecord",
+                    recordID: CoreTimeRegimenBackfill.stableUUID(
+                        for: preference.singletonKey
+                    ),
+                    fields: CoreFactDigestV1.preferences(preference),
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -1011,6 +1054,11 @@ struct AppDataWriter: Sendable {
 
     func setStartDate(_ command: SetStartDateCommand) async throws {
         try await storage.setStartDate(command)
+        await revalidateProtectionAfterCommit()
+    }
+
+    func setGentleMode(_ command: SetGentleModeCommand) async throws {
+        try await storage.setGentleMode(command)
         await revalidateProtectionAfterCommit()
     }
 

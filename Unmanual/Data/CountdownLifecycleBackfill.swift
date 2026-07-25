@@ -9,7 +9,8 @@ struct CountdownLifecycleBackfillOutcome: Equatable, Sendable {
 enum CountdownLifecycleBackfill {
     static func run(
         in container: ModelContainer,
-        now: Date = Date()
+        now: Date = Date(),
+        includeIntegrityFacts: Bool = true
     ) throws -> CountdownLifecycleBackfillOutcome {
         let context = ModelContext(container)
         context.autosaveEnabled = false
@@ -18,7 +19,13 @@ enum CountdownLifecycleBackfill {
         let states = try context.fetch(stateDescriptor)
         guard states.count <= 1 else { throw AppDataFailure.migrationFailed }
         if let state = states.first, state.completedAt != nil {
-            try validateCompletedBackfill(in: context, state: state)
+            try validateCompletedMarker(in: context, state: state)
+            if includeIntegrityFacts {
+                _ = try CountdownIntegrityBackfill.run(
+                    in: container,
+                    now: now
+                )
+            }
             return CountdownLifecycleBackfillOutcome(
                 didComplete: true,
                 didChangeStore: false
@@ -49,7 +56,8 @@ enum CountdownLifecycleBackfill {
                 if states.isEmpty { context.insert(state) }
                 let facts = try migrateLegacyCountdowns(
                     in: context,
-                    assumedTimeZoneIdentifier: assumedZone
+                    assumedTimeZoneIdentifier: assumedZone,
+                    includeIntegrityFacts: includeIntegrityFacts
                 )
                 try ensureRevisions(
                     for: facts,
@@ -70,10 +78,16 @@ enum CountdownLifecycleBackfill {
                 state.updatedAt = now
                 try context.save()
             }
-            try validateCompletedBackfill(
+            try validateFreshMigrationOutcome(
                 in: context,
                 state: try requiredBackfillState(in: context)
             )
+            if includeIntegrityFacts {
+                _ = try CountdownIntegrityBackfill.run(
+                    in: container,
+                    now: now
+                )
+            }
             return CountdownLifecycleBackfillOutcome(
                 didComplete: true,
                 didChangeStore: true
@@ -89,11 +103,13 @@ enum CountdownLifecycleBackfill {
         var events: [CountdownLifecycleEventRecord] = []
         var reminders: [CountdownReminderRuleRecord] = []
         var receipts: [OperationReceiptRecord] = []
+        var audits: [CountdownCommandAuditRecord] = []
     }
 
     private static func migrateLegacyCountdowns(
         in context: ModelContext,
-        assumedTimeZoneIdentifier: String
+        assumedTimeZoneIdentifier: String,
+        includeIntegrityFacts: Bool
     ) throws -> BackfilledFacts {
         let legacy = try context.fetch(
             FetchDescriptor<CountdownRecord>(
@@ -131,7 +147,8 @@ enum CountdownLifecycleBackfill {
                 || (source.archivedAt != nil && source.continuesCountingUp)
             let timestamp = try HistoricalTimestamp.legacyAssumed(
                 instant: source.archivedAt ?? source.createdAt,
-                assumedTimeZoneIdentifier: assumedTimeZoneIdentifier
+                assumedTimeZoneIdentifier: assumedTimeZoneIdentifier,
+                precision: .subsecond
             )
             let canonical = CountdownStateRecord(
                 id: source.id,
@@ -173,14 +190,68 @@ enum CountdownLifecycleBackfill {
                 lastOperationID: operationID,
                 updatedAt: source.archivedAt ?? source.createdAt
             )
-            let receipt = OperationReceiptRecord(
-                operationID: operationID,
-                commandDigest: try migrationCommandDigest(
+            let commandDigest: String
+            if includeIntegrityFacts {
+                let audit = CountdownCommandAuditRecord(
+                    eventID: event.id,
+                    operationID: operationID,
+                    countdownID: source.id,
+                    commandKind: .migratedSnapshot,
+                    titleCommitment:
+                        try CountdownIntegrityDigest.privateCommitment(
+                            source.title,
+                            operationID: operationID,
+                            label: "title"
+                        ),
+                    gentleTitleCommitment:
+                        try CountdownIntegrityDigest.privateCommitment(
+                            source.gentleTitle,
+                            operationID: operationID,
+                            label: "gentleTitle"
+                        ),
+                    targetDate: targetDate,
+                    showInToday: canonical.showInToday,
+                    reminder: .disabled,
+                    eventTimestampCommitment:
+                        try CountdownIntegrityDigest.timestampCommitment(
+                            timestamp,
+                            operationID: operationID
+                        ),
+                    eventSemanticDigest:
+                        try CountdownIntegrityDigest.eventSemantic(event),
+                    preFactsDigest:
+                        try CountdownIntegrityDigest
+                            .absentFactsDigest(),
+                    postFactsDigest: try CountdownIntegrityDigest.facts(
+                        state: canonical,
+                        reminder: reminder,
+                        legacy: source
+                    ),
+                    terminalReminderWasEnabled:
+                        canonical.terminalReminderWasEnabled,
+                    terminalReminderLeadDays:
+                        canonical.terminalReminderLeadDays,
+                    terminalReminderLocalHour:
+                        canonical.terminalReminderLocalHour,
+                    terminalReminderLocalMinute:
+                        canonical.terminalReminderLocalMinute,
+                    committedAt: source.archivedAt ?? source.createdAt
+                )
+                try audit.seal()
+                context.insert(audit)
+                facts.audits.append(audit)
+                commandDigest = audit.commandDigest
+            } else {
+                commandDigest = try migrationCommandDigest(
                     source: source,
                     state: canonical,
                     event: event,
                     reminder: reminder
-                ),
+                )
+            }
+            let receipt = OperationReceiptRecord(
+                operationID: operationID,
+                commandDigest: commandDigest,
                 resultRecordType: "CountdownLifecycleEventRecord",
                 resultRecordID: event.id,
                 committedAt: source.archivedAt ?? source.createdAt
@@ -224,6 +295,14 @@ enum CountdownLifecycleBackfill {
                 "OperationReceiptRecord",
                 $0.operationID,
                 try TodayExecutionDigestV1.operationReceipt($0),
+                $0.committedAt
+            )
+        }
+        revisionFacts += try facts.audits.map {
+            (
+                "CountdownCommandAuditRecord",
+                $0.eventID,
+                try CountdownIntegrityDigest.revisionFields($0),
                 $0.committedAt
             )
         }
@@ -305,7 +384,7 @@ enum CountdownLifecycleBackfill {
         }
     }
 
-    private static func validateCompletedBackfill(
+    private static func validateCompletedMarker(
         in context: ModelContext,
         state: CountdownLifecycleBackfillState
     ) throws {
@@ -315,17 +394,10 @@ enum CountdownLifecycleBackfill {
               TimeZone(identifier: state.assumedTimeZoneIdentifier) != nil else {
             throw AppDataFailure.migrationFailed
         }
-        let legacyCount = try context.fetchCount(FetchDescriptor<CountdownRecord>())
-        let canonical = try context.fetch(FetchDescriptor<CountdownStateRecord>())
-        let events = try context.fetch(FetchDescriptor<CountdownLifecycleEventRecord>())
-        let reminders = try context.fetch(FetchDescriptor<CountdownReminderRuleRecord>())
         let coverage = try context.fetch(
             FetchDescriptor<CountdownNotificationCoverageRecord>()
         )
-        guard canonical.count == legacyCount,
-              events.count == legacyCount,
-              reminders.count == legacyCount,
-              coverage.count == 1,
+        guard coverage.count == 1,
               coverage.first?.coverageKey
                 == CountdownNotificationCoverageRecord.fixedKey,
               coverage.first?.status != nil else {
@@ -333,7 +405,28 @@ enum CountdownLifecycleBackfill {
         }
     }
 
-    private static func migrationCommandDigest(
+    private static func validateFreshMigrationOutcome(
+        in context: ModelContext,
+        state: CountdownLifecycleBackfillState
+    ) throws {
+        try validateCompletedMarker(in: context, state: state)
+        let legacyCount = try context.fetchCount(
+            FetchDescriptor<CountdownRecord>()
+        )
+        guard try context.fetchCount(
+                  FetchDescriptor<CountdownStateRecord>()
+              ) == legacyCount,
+              try context.fetchCount(
+                  FetchDescriptor<CountdownLifecycleEventRecord>()
+              ) == legacyCount,
+              try context.fetchCount(
+                  FetchDescriptor<CountdownReminderRuleRecord>()
+              ) == legacyCount else {
+            throw AppDataFailure.migrationFailed
+        }
+    }
+
+    static func migrationCommandDigest(
         source: CountdownRecord,
         state: CountdownStateRecord,
         event: CountdownLifecycleEventRecord,
@@ -361,7 +454,7 @@ enum CountdownLifecycleBackfill {
                         try RecordDigestV1.sha256Hex(
                             recordType: "CountdownLifecycleEventRecord",
                             recordID: event.id,
-                            fields: CountdownDigestV1.event(event)
+                            fields: CountdownDigestV1.eventSemantic(event)
                         )
                     )
                 ),

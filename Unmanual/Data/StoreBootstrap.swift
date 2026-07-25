@@ -249,7 +249,7 @@ struct GenerationPointer: Codable, Equatable, Sendable {
 
     init(
         generationID: UUID,
-        schemaVersion: String = "6.0.0",
+        schemaVersion: String = "7.0.0",
         origin: AppDataStoreOrigin,
         datasetID: UUID,
         minimumFactCount: Int,
@@ -328,7 +328,7 @@ struct GenerationPointerStore: Sendable {
                 from: Data(contentsOf: layout.pointerURL)
             )
             guard pointer.formatVersion == GenerationPointer.formatVersion,
-                  ["2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0"]
+                  ["2.0.0", "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"]
                     .contains(pointer.schemaVersion),
                   pointer.minimumFactCount >= 0,
                   pointer.minimumRevisionCount >= 0,
@@ -379,7 +379,12 @@ struct MigrationJournalStore: Sendable {
                             || (journal.sourceSchemaVersion == "4.0.0"
                                 && journal.targetSchemaVersion == "5.0.0")
                             || (journal.sourceSchemaVersion == "5.0.0"
-                                && journal.targetSchemaVersion == "6.0.0")))),
+                                && (
+                                    journal.targetSchemaVersion == "6.0.0"
+                                        || journal.targetSchemaVersion == "7.0.0"
+                                ))
+                            || (journal.sourceSchemaVersion == "6.0.0"
+                                && journal.targetSchemaVersion == "7.0.0")))),
                   journal.updatedAt.timeIntervalSince1970.isFinite else {
                 throw AppDataFailure.migrationFailed
             }
@@ -512,6 +517,14 @@ struct AppDataStoreBootstrapper {
                     failAt: failpoint
                 )
             }
+            if pointer.schemaVersion == "6.0.0" {
+                return try upgradeV6Generation(
+                    pointer: pointer,
+                    pointerStore: pointerStore,
+                    journalStore: journalStore,
+                    failAt: failpoint
+                )
+            }
             return try openActive(pointer: pointer, reportedOrigin: .existingGeneration)
         }
 
@@ -549,6 +562,11 @@ struct AppDataStoreBootstrapper {
             let identity = try validateAndBackfillCountdownLifecycle(
                 storeURL: targetURL,
                 failAt: failpoint
+            )
+            try validateAttachmentsBeforeActivation(
+                generationID: journal.targetGenerationID,
+                containerAt: targetURL,
+                failure: .migrationFailed
             )
             journal.phase = .validated
             journal.updatedAt = Date()
@@ -617,6 +635,11 @@ struct AppDataStoreBootstrapper {
         let identity = try validateAndBackfillCountdownLifecycle(
             storeURL: layout.storeURL(for: generationID),
             failAt: failpoint
+        )
+        try validateAttachmentsBeforeActivation(
+            generationID: generationID,
+            containerAt: layout.storeURL(for: generationID),
+            failure: .migrationFailed
         )
         journal.phase = .validated
         journal.updatedAt = Date()
@@ -950,7 +973,9 @@ struct AppDataStoreBootstrapper {
            existing.origin == .schemaUpgrade,
            existing.sourceGenerationID == pointer.generationID,
            existing.sourceSchemaVersion == "5.0.0",
-           existing.targetSchemaVersion == "6.0.0" {
+           ["6.0.0", "7.0.0"].contains(
+               existing.targetSchemaVersion ?? ""
+           ) {
             journal = existing
         } else {
             journal = MigrationJournal(
@@ -958,7 +983,7 @@ struct AppDataStoreBootstrapper {
                 origin: .schemaUpgrade,
                 sourceGenerationID: pointer.generationID,
                 sourceSchemaVersion: "5.0.0",
-                targetSchemaVersion: "6.0.0"
+                targetSchemaVersion: "7.0.0"
             )
             try journalStore.write(journal)
         }
@@ -1000,6 +1025,11 @@ struct AppDataStoreBootstrapper {
             storeURL: targetURL,
             failAt: failpoint
         )
+        try validateAttachmentsBeforeActivation(
+            generationID: journal.targetGenerationID,
+            containerAt: targetURL,
+            failure: .migrationFailed
+        )
         journal.phase = .validated
         journal.updatedAt = Date()
         try journalStore.write(journal)
@@ -1009,7 +1039,7 @@ struct AppDataStoreBootstrapper {
 
         let upgradedPointer = GenerationPointer(
             generationID: journal.targetGenerationID,
-            schemaVersion: "6.0.0",
+            schemaVersion: "7.0.0",
             origin: .schemaUpgrade,
             datasetID: identity.datasetID,
             minimumFactCount: identity.factCount,
@@ -1020,6 +1050,109 @@ struct AppDataStoreBootstrapper {
         journal.updatedAt = Date()
         try journalStore.write(journal)
         return try openActive(pointer: upgradedPointer, reportedOrigin: .schemaUpgrade)
+    }
+
+    private func upgradeV6Generation(
+        pointer: GenerationPointer,
+        pointerStore: GenerationPointerStore,
+        journalStore: MigrationJournalStore,
+        failAt failpoint: StoreBootstrapFailpoint?
+    ) throws -> BootstrappedAppDataStore {
+        let sourceURL = layout.storeURL(for: pointer.generationID)
+        let sourceIdentity = try validateActiveStoreBeforeWritableOpen(
+            at: sourceURL,
+            schemaVersion: "6.0.0"
+        )
+        guard sourceIdentity.datasetID == pointer.datasetID,
+              sourceIdentity.factCount >= pointer.minimumFactCount,
+              sourceIdentity.revisionCount >= pointer.minimumRevisionCount else {
+            throw AppDataFailure.corruptionSuspected
+        }
+
+        var journal: MigrationJournal
+        if let existing = try journalStore.readIfPresent(),
+           existing.origin == .schemaUpgrade,
+           existing.sourceGenerationID == pointer.generationID,
+           existing.sourceSchemaVersion == "6.0.0",
+           existing.targetSchemaVersion == "7.0.0" {
+            journal = existing
+        } else {
+            journal = MigrationJournal(
+                targetGenerationID: UUID(),
+                origin: .schemaUpgrade,
+                sourceGenerationID: pointer.generationID,
+                sourceSchemaVersion: "6.0.0",
+                targetSchemaVersion: "7.0.0"
+            )
+            try journalStore.write(journal)
+        }
+
+        if journal.phase == .preparing {
+            guard journal.targetGenerationID != pointer.generationID else {
+                throw AppDataFailure.migrationFailed
+            }
+            let targetGenerationURL = layout.generationDirectoryURL(
+                for: journal.targetGenerationID
+            )
+            let targetPresence = existingStoreBundleParts(
+                at: layout.storeURL(for: journal.targetGenerationID)
+            )
+            if targetPresence.main || targetPresence.wal
+                || targetPresence.shm
+                || fileManager.fileExists(atPath: targetGenerationURL.path) {
+                try fileManager.removeItem(at: targetGenerationURL)
+            }
+            try prepareGeneration(journal.targetGenerationID)
+            try copyStoreBundle(
+                from: sourceURL,
+                to: layout.storeURL(for: journal.targetGenerationID),
+                failAt: failpoint,
+                hardenSourceAfterCopy: false
+            )
+            journal.phase = .prepared
+            journal.updatedAt = Date()
+            try journalStore.write(journal)
+            if failpoint == .afterGenerationPrepared {
+                throw StoreBootstrapInterruption.injected
+            }
+        }
+
+        let targetURL = layout.storeURL(for: journal.targetGenerationID)
+        guard fileManager.fileExists(atPath: targetURL.path) else {
+            throw AppDataFailure.migrationFailed
+        }
+        let identity = try validateAndBackfillCountdownLifecycle(
+            storeURL: targetURL,
+            failAt: failpoint
+        )
+        try validateAttachmentsBeforeActivation(
+            generationID: journal.targetGenerationID,
+            containerAt: targetURL,
+            failure: .migrationFailed
+        )
+        journal.phase = .validated
+        journal.updatedAt = Date()
+        try journalStore.write(journal)
+        if failpoint == .afterValidationBeforePointer {
+            throw StoreBootstrapInterruption.injected
+        }
+
+        let upgradedPointer = GenerationPointer(
+            generationID: journal.targetGenerationID,
+            schemaVersion: "7.0.0",
+            origin: .schemaUpgrade,
+            datasetID: identity.datasetID,
+            minimumFactCount: identity.factCount,
+            minimumRevisionCount: identity.revisionCount
+        )
+        try pointerStore.write(upgradedPointer)
+        journal.phase = .activated
+        journal.updatedAt = Date()
+        try journalStore.write(journal)
+        return try openActive(
+            pointer: upgradedPointer,
+            reportedOrigin: .schemaUpgrade
+        )
     }
 
     private struct GenerationIdentity {
@@ -1194,7 +1327,10 @@ struct AppDataStoreBootstrapper {
                       try CoreTimeRegimenBackfill.run(in: container).didComplete,
                       try TodayExecutionBackfill.run(in: container).didComplete,
                       try PersonalTimelineBackfill.run(in: container).didComplete,
-                      try CountdownLifecycleBackfill.run(in: container).didComplete else {
+                      try CountdownLifecycleBackfill.run(in: container)
+                        .didComplete,
+                      try CountdownIntegrityBackfill.run(in: container)
+                        .didComplete else {
                     throw AppDataFailure.migrationFailed
                 }
                 _ = try validateFoundation(
@@ -1203,7 +1339,8 @@ struct AppDataStoreBootstrapper {
                     includesCoreFacts: true,
                     includesTodayFacts: true,
                     includesPersonalTimelineFacts: true,
-                    includesCountdownFacts: true
+                    includesCountdownFacts: true,
+                    includesCountdownIntegrityFacts: true
                 )
             }
             return try autoreleasepool {
@@ -1215,7 +1352,8 @@ struct AppDataStoreBootstrapper {
                     includesCoreFacts: true,
                     includesTodayFacts: true,
                     includesPersonalTimelineFacts: true,
-                    includesCountdownFacts: true
+                    includesCountdownFacts: true,
+                    includesCountdownIntegrityFacts: true
                 )
             }
         } catch let error as AppDataFailure {
@@ -1241,7 +1379,8 @@ struct AppDataStoreBootstrapper {
         includesCoreFacts: Bool = false,
         includesTodayFacts: Bool = false,
         includesPersonalTimelineFacts: Bool = false,
-        includesCountdownFacts: Bool = false
+        includesCountdownFacts: Bool = false,
+        includesCountdownIntegrityFacts: Bool = false
     ) throws -> GenerationIdentity {
         var stateDescriptor = FetchDescriptor<MigrationBackfillState>()
         stateDescriptor.fetchLimit = 2
@@ -1323,7 +1462,8 @@ struct AppDataStoreBootstrapper {
         if includesCountdownFacts {
             try CountdownLifecycleRelationshipValidator.validate(
                 in: context,
-                failure: failure
+                failure: failure,
+                includesIntegrityFacts: includesCountdownIntegrityFacts
             )
         }
 
@@ -1332,7 +1472,9 @@ struct AppDataStoreBootstrapper {
             includesCoreFacts: includesCoreFacts,
             includesTodayFacts: includesTodayFacts,
             includesPersonalTimelineFacts: includesPersonalTimelineFacts,
-            includesCountdownFacts: includesCountdownFacts
+            includesCountdownFacts: includesCountdownFacts,
+            includesCountdownIntegrityFacts:
+                includesCountdownIntegrityFacts
         )
         let revisions = try context.fetch(FetchDescriptor<RecordRevision>())
         let expectedKeys = Set(facts.map(\.recordKey))
@@ -1373,7 +1515,8 @@ struct AppDataStoreBootstrapper {
         includesCoreFacts: Bool = false,
         includesTodayFacts: Bool = false,
         includesPersonalTimelineFacts: Bool = false,
-        includesCountdownFacts: Bool = false
+        includesCountdownFacts: Bool = false,
+        includesCountdownIntegrityFacts: Bool = false
     ) throws -> [FactIdentity] {
         var facts = try context.fetch(FetchDescriptor<HRTProfile>()).map {
             FactIdentity(recordType: "HRTProfile", recordID: $0.id, digestHex: try FactDigestV1.digest($0))
@@ -1541,6 +1684,38 @@ struct AppDataStoreBootstrapper {
                 fields: try CountdownDigestV1.reminder($0)
             )
         }
+        guard includesCountdownIntegrityFacts else { return facts }
+        facts += try context.fetch(
+            FetchDescriptor<CountdownCommandAuditRecord>()
+        ).map {
+            try coreFactIdentity(
+                recordType: "CountdownCommandAuditRecord",
+                recordID: $0.eventID,
+                fields: try CountdownIntegrityDigest.revisionFields($0)
+            )
+        }
+        facts += try context.fetch(
+            FetchDescriptor<CountdownV6AuditCheckpointRecord>()
+        ).map {
+            try coreFactIdentity(
+                recordType: "CountdownV6AuditCheckpointRecord",
+                recordID: $0.countdownID,
+                fields:
+                    try CountdownIntegrityDigest
+                        .checkpointRevisionFields($0)
+            )
+        }
+        facts += try context.fetch(
+            FetchDescriptor<CountdownIntegrityBackfillState>()
+        ).map {
+            try coreFactIdentity(
+                recordType: "CountdownIntegrityBackfillState",
+                recordID: CoreTimeRegimenBackfill.stableUUID(
+                    for: $0.taskKey
+                ),
+                fields: try CountdownIntegrityDigest.backfillState($0)
+            )
+        }
         return facts
     }
 
@@ -1577,9 +1752,12 @@ struct AppDataStoreBootstrapper {
                 throw AppDataFailure.corruptionSuspected
             }
             let container: ModelContainer
-            if pointer.schemaVersion == "6.0.0" {
+            if pointer.schemaVersion == "7.0.0" {
                 container = try AppModelContainerFactory
                     .makeCountdownLifecycleContainer(at: storeURL)
+            } else if pointer.schemaVersion == "6.0.0" {
+                container = try AppModelContainerFactory
+                    .makeV6CountdownLifecycleContainer(at: storeURL)
             } else if pointer.schemaVersion == "5.0.0" {
                 container = try AppModelContainerFactory
                     .makePersonalTimelineContainer(at: storeURL)
@@ -1591,17 +1769,25 @@ struct AppDataStoreBootstrapper {
                 container = try AppModelContainerFactory.makeBridgeContainer(at: storeURL)
             }
             _ = try LegacyV1Backfill.run(in: container)
-            if ["3.0.0", "4.0.0", "5.0.0", "6.0.0"]
+            if ["3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"]
                 .contains(pointer.schemaVersion) {
                 _ = try CoreTimeRegimenBackfill.run(in: container)
             }
-            if ["4.0.0", "5.0.0", "6.0.0"].contains(pointer.schemaVersion) {
+            if ["4.0.0", "5.0.0", "6.0.0", "7.0.0"]
+                .contains(pointer.schemaVersion) {
                 _ = try TodayExecutionBackfill.run(in: container)
             }
-            if ["5.0.0", "6.0.0"].contains(pointer.schemaVersion) {
+            if ["5.0.0", "6.0.0", "7.0.0"]
+                .contains(pointer.schemaVersion) {
                 _ = try PersonalTimelineBackfill.run(in: container)
-                if pointer.schemaVersion == "6.0.0" {
-                    _ = try CountdownLifecycleBackfill.run(in: container)
+                if ["6.0.0", "7.0.0"].contains(
+                    pointer.schemaVersion
+                ) {
+                    _ = try CountdownLifecycleBackfill.run(
+                        in: container,
+                        includeIntegrityFacts:
+                            pointer.schemaVersion == "7.0.0"
+                    )
                 }
                 let context = ModelContext(container)
                 let records = try context.fetch(FetchDescriptor<AttachmentRecord>())
@@ -1678,6 +1864,66 @@ struct AppDataStoreBootstrapper {
         }
     }
 
+    private func validateAttachmentsBeforeActivation(
+        generationID: UUID,
+        containerAt storeURL: URL,
+        failure: AppDataFailure
+    ) throws {
+        do {
+            let container = try AppModelContainerFactory
+                .makeCountdownLifecycleContainer(at: storeURL)
+            let context = ModelContext(container)
+            let records = try context.fetch(
+                FetchDescriptor<AttachmentRecord>()
+            )
+            let activeRecords = records.filter { $0.deletedAt == nil }
+            let attachments = activeRecords.compactMap(AttachmentSnapshot.init)
+            guard attachments.count == activeRecords.count else {
+                throw failure
+            }
+            var committedAttachments: [UUID: AttachmentCommittedImport] = [:]
+            for record in activeRecords {
+                guard let attachment = AttachmentSnapshot(record),
+                      committedAttachments.updateValue(
+                        AttachmentCommittedImport(
+                            operationID: record.operationID,
+                            attachment: attachment
+                        ),
+                        forKey: record.id
+                      ) == nil else {
+                    throw failure
+                }
+            }
+            var committedDeletions: [UUID: AttachmentCommittedDeletion] = [:]
+            for record in records where record.deletedAt != nil {
+                guard let operationID = record.deleteOperationID,
+                      let attachment = AttachmentSnapshot(record),
+                      committedDeletions.updateValue(
+                        AttachmentCommittedDeletion(
+                            operationID: operationID,
+                            attachment: attachment
+                        ),
+                        forKey: record.id
+                      ) == nil else {
+                    throw failure
+                }
+            }
+            let attachmentStore = AttachmentFileStore(
+                rootURL: layout.generationDirectoryURL(for: generationID)
+                    .appendingPathComponent("Files", isDirectory: true)
+            )
+            _ = try attachmentStore.recover(
+                committedAttachments: committedAttachments,
+                committedDeletions: committedDeletions
+            )
+            try attachmentStore.audit(attachments)
+        } catch let error as AppDataFailure {
+            throw error
+        } catch {
+            throw AppDataFailure.classifyStorage(error, fallback: failure)
+        }
+    }
+
     private func validateActiveStoreBeforeWritableOpen(
         at storeURL: URL,
         schemaVersion: String
@@ -1688,19 +1934,29 @@ struct AppDataStoreBootstrapper {
         do {
             return try autoreleasepool {
                 let includesCoreFacts = [
-                    "3.0.0", "4.0.0", "5.0.0", "6.0.0"
+                    "3.0.0", "4.0.0", "5.0.0", "6.0.0", "7.0.0"
                 ].contains(schemaVersion)
                 let includesTodayFacts = [
-                    "4.0.0", "5.0.0", "6.0.0"
+                    "4.0.0", "5.0.0", "6.0.0", "7.0.0"
                 ].contains(schemaVersion)
                 let includesPersonalTimelineFacts = [
-                    "5.0.0", "6.0.0"
+                    "5.0.0", "6.0.0", "7.0.0"
                 ].contains(schemaVersion)
-                let includesCountdownFacts = schemaVersion == "6.0.0"
+                let includesCountdownFacts = [
+                    "6.0.0", "7.0.0"
+                ].contains(schemaVersion)
+                let includesCountdownIntegrityFacts =
+                    schemaVersion == "7.0.0"
                 let container: ModelContainer
-                if includesCountdownFacts {
+                if includesCountdownIntegrityFacts {
                     container = try AppModelContainerFactory
                         .makeReadOnlyCountdownLifecycleContainer(at: storeURL)
+                } else if includesCountdownFacts {
+                    container = try AppModelContainerFactory
+                        .makeV6CountdownLifecycleContainer(
+                            at: storeURL,
+                            allowsSave: false
+                        )
                 } else if includesPersonalTimelineFacts {
                     container = try AppModelContainerFactory
                         .makeReadOnlyPersonalTimelineContainer(at: storeURL)
@@ -1717,7 +1973,9 @@ struct AppDataStoreBootstrapper {
                     includesCoreFacts: includesCoreFacts,
                     includesTodayFacts: includesTodayFacts,
                     includesPersonalTimelineFacts: includesPersonalTimelineFacts,
-                    includesCountdownFacts: includesCountdownFacts
+                    includesCountdownFacts: includesCountdownFacts,
+                    includesCountdownIntegrityFacts:
+                        includesCountdownIntegrityFacts
                 )
             }
         } catch let failure as AppDataFailure {
@@ -1803,11 +2061,115 @@ struct AppDataStoreBootstrapper {
                 throw StoreBootstrapInterruption.injected
             }
         }
+        try copyGenerationFilesIfPresent(
+            fromStoreURL: source,
+            toStoreURL: destination
+        )
         // The legacy bundle is the only recovery source until every existing
         // SQLite part has reached the inactive generation. Never mutate its
         // metadata before that safety copy is complete.
         if hardenSourceAfterCopy {
             try hardenPreservedLegacyBundle(at: source)
+        }
+    }
+
+    private func copyGenerationFilesIfPresent(
+        fromStoreURL sourceStoreURL: URL,
+        toStoreURL destinationStoreURL: URL
+    ) throws {
+        let sourceGenerationURL = sourceStoreURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .standardizedFileURL
+        let generationsRoot = layout.generationsURL.standardizedFileURL
+        let generationsPrefix = generationsRoot.path + "/"
+        guard sourceGenerationURL.path.hasPrefix(generationsPrefix) else {
+            return
+        }
+        let sourceFilesURL = sourceGenerationURL
+            .appendingPathComponent("Files", isDirectory: true)
+        guard fileManager.fileExists(atPath: sourceFilesURL.path) else {
+            return
+        }
+        let sourceRootValues = try sourceFilesURL.resourceValues(
+            forKeys: [.isSymbolicLinkKey, .isDirectoryKey]
+        )
+        guard sourceRootValues.isSymbolicLink != true,
+              sourceRootValues.isDirectory == true else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let destinationFilesURL = destinationStoreURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Files", isDirectory: true)
+        guard !fileManager.fileExists(atPath: destinationFilesURL.path) else {
+            throw AppDataFailure.migrationFailed
+        }
+        try fileManager.createDirectory(
+            at: destinationFilesURL,
+            withIntermediateDirectories: false,
+            attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        try applyBackupPolicy(to: destinationFilesURL)
+        let keys: [URLResourceKey] = [
+            .isSymbolicLinkKey,
+            .isDirectoryKey,
+            .isRegularFileKey
+        ]
+        var enumerationError: Error?
+        guard let enumerator = fileManager.enumerator(
+            at: sourceFilesURL,
+            includingPropertiesForKeys: keys,
+            options: [],
+            errorHandler: { _, error in
+                enumerationError = error
+                return false
+            }
+        ) else {
+            throw AppDataFailure.migrationFailed
+        }
+        let sourcePrefix = sourceFilesURL.standardizedFileURL.path + "/"
+        while let sourceItem = enumerator.nextObject() as? URL {
+            let standardized = sourceItem.standardizedFileURL
+            guard standardized.path.hasPrefix(sourcePrefix) else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let relativePath = String(
+                standardized.path.dropFirst(sourcePrefix.count)
+            )
+            guard !relativePath.isEmpty,
+                  !relativePath.split(separator: "/").contains("..") else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let values = try standardized.resourceValues(forKeys: Set(keys))
+            guard values.isSymbolicLink != true else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let destinationItem = destinationFilesURL
+                .appendingPathComponent(relativePath)
+            if values.isDirectory == true {
+                try fileManager.createDirectory(
+                    at: destinationItem,
+                    withIntermediateDirectories: false,
+                    attributes: [.protectionKey: FileProtectionType.complete]
+                )
+                try applyBackupPolicy(to: destinationItem)
+            } else if values.isRegularFile == true {
+                try fileManager.copyItem(
+                    at: standardized,
+                    to: destinationItem
+                )
+                try applyCompleteFileProtection(to: destinationItem)
+                try applyBackupPolicy(to: destinationItem)
+            } else {
+                throw AppDataFailure.corruptionSuspected
+            }
+        }
+        if let enumerationError {
+            throw AppDataFailure.classifyStorage(
+                enumerationError,
+                fallback: .migrationFailed
+            )
         }
     }
 

@@ -299,6 +299,297 @@ struct ReplaceCountdownCommand: Sendable {
     }
 }
 
+private struct CountdownCommandAuditPayload {
+    let eventID: UUID
+    let operationID: UUID
+    let countdownID: UUID
+    let kind: CountdownCommandAuditKind
+    let expectedLatestEventID: UUID?
+    let titleCommitment: String?
+    let gentleTitleCommitment: String?
+    let targetDate: CivilDateFact?
+    let showInToday: Bool?
+    let reminder: CountdownReminderInput?
+    let today: CivilDateFact?
+    let reviewResolution: CountdownReviewResolution?
+    let replacementCountdownID: UUID?
+    let replacementEventID: UUID?
+    let primaryCommandDigest: String?
+    let eventTimestampCommitment: String
+    let committedAt: Date
+
+    func commandDigest() throws -> String {
+        let value = makeRecord(
+            eventSemanticDigest: String(repeating: "0", count: 64),
+            preFactsDigest:
+                try CountdownIntegrityDigest.absentFactsDigest(),
+            postFactsDigest:
+                try CountdownIntegrityDigest.absentFactsDigest(),
+            previousAuditDigest: nil,
+            terminalReminder: nil
+        )
+        return try CountdownIntegrityDigest.command(value)
+    }
+
+    func makeRecord(
+        eventSemanticDigest: String,
+        preFactsDigest: String,
+        postFactsDigest: String,
+        previousAuditDigest: String?,
+        terminalReminder: CountdownReminderInput?
+    ) -> CountdownCommandAuditRecord {
+        CountdownCommandAuditRecord(
+            eventID: eventID,
+            operationID: operationID,
+            countdownID: countdownID,
+            commandKind: kind,
+            expectedLatestEventID: expectedLatestEventID,
+            titleCommitment: titleCommitment,
+            gentleTitleCommitment: gentleTitleCommitment,
+            targetDate: targetDate,
+            showInToday: showInToday,
+            reminder: reminder,
+            today: today,
+            reviewResolution: reviewResolution,
+            replacementCountdownID: replacementCountdownID,
+            replacementEventID: replacementEventID,
+            primaryCommandDigest: primaryCommandDigest,
+            eventTimestampCommitment: eventTimestampCommitment,
+            eventSemanticDigest: eventSemanticDigest,
+            preFactsDigest: preFactsDigest,
+            postFactsDigest: postFactsDigest,
+            previousAuditDigest: previousAuditDigest,
+            terminalReminderWasEnabled: terminalReminder?.isEnabled,
+            terminalReminderLeadDays: terminalReminder?.leadDays,
+            terminalReminderLocalHour: terminalReminder?.localHour,
+            terminalReminderLocalMinute: terminalReminder?.localMinute,
+            committedAt: committedAt
+        )
+    }
+
+    static func create(
+        _ command: CreateCountdownCommand,
+        normalized: AppWriteActor.NormalizedCountdownContent
+    ) throws -> Self {
+        try content(
+            eventID: command.eventID,
+            operationID: command.operationID,
+            countdownID: command.countdownID,
+            kind: .create,
+            expectedLatestEventID: nil,
+            title: normalized.title,
+            gentleTitle: normalized.gentleTitle,
+            targetDate: command.targetDate,
+            showInToday: command.showInToday,
+            reminder: normalized.reminder,
+            timestamp: command.timestamp,
+            committedAt: command.committedAt
+        )
+    }
+
+    static func update(
+        _ command: UpdateCountdownCommand,
+        normalized: AppWriteActor.NormalizedCountdownContent
+    ) throws -> Self {
+        try content(
+            eventID: command.eventID,
+            operationID: command.operationID,
+            countdownID: command.countdownID,
+            kind: .update,
+            expectedLatestEventID: command.expectedLatestEventID,
+            title: normalized.title,
+            gentleTitle: normalized.gentleTitle,
+            targetDate: command.targetDate,
+            showInToday: command.showInToday,
+            reminder: normalized.reminder,
+            timestamp: command.timestamp,
+            committedAt: command.committedAt
+        )
+    }
+
+    static func review(
+        _ command: ResolveCountdownReviewCommand
+    ) throws -> Self {
+        try Self(
+            eventID: command.eventID,
+            operationID: command.operationID,
+            countdownID: command.countdownID,
+            kind: .review,
+            expectedLatestEventID: command.expectedLatestEventID,
+            titleCommitment: nil,
+            gentleTitleCommitment: nil,
+            targetDate: nil,
+            showInToday: nil,
+            reminder: nil,
+            today: nil,
+            reviewResolution: command.resolution,
+            replacementCountdownID: nil,
+            replacementEventID: nil,
+            primaryCommandDigest: nil,
+            eventTimestampCommitment:
+                CountdownIntegrityDigest.timestampCommitment(
+                    command.timestamp,
+                    operationID: command.operationID
+                ),
+            committedAt: command.committedAt
+        )
+    }
+
+    static func transition(
+        eventID: UUID,
+        operationID: UUID,
+        countdownID: UUID,
+        kind: CountdownCommandAuditKind,
+        expectedLatestEventID: UUID,
+        today: CivilDateFact?,
+        timestamp: HistoricalTimestamp,
+        committedAt: Date
+    ) throws -> Self {
+        try Self(
+            eventID: eventID,
+            operationID: operationID,
+            countdownID: countdownID,
+            kind: kind,
+            expectedLatestEventID: expectedLatestEventID,
+            titleCommitment: nil,
+            gentleTitleCommitment: nil,
+            targetDate: nil,
+            showInToday: nil,
+            reminder: nil,
+            today: today,
+            reviewResolution: nil,
+            replacementCountdownID: nil,
+            replacementEventID: nil,
+            primaryCommandDigest: nil,
+            eventTimestampCommitment:
+                CountdownIntegrityDigest.timestampCommitment(
+                    timestamp,
+                    operationID: operationID
+                ),
+            committedAt: committedAt
+        )
+    }
+
+    static func replace(
+        _ command: ReplaceCountdownCommand,
+        normalized: AppWriteActor.NormalizedCountdownContent
+    ) throws -> Self {
+        var value = try content(
+            eventID: command.newEventID,
+            operationID: command.operationID,
+            countdownID: command.newCountdownID,
+            kind: .replace,
+            expectedLatestEventID: command.expectedLatestEventID,
+            title: normalized.title,
+            gentleTitle: normalized.gentleTitle,
+            targetDate: command.targetDate,
+            showInToday: command.showInToday,
+            reminder: normalized.reminder,
+            timestamp: command.timestamp,
+            committedAt: command.committedAt
+        )
+        value = Self(
+            eventID: value.eventID,
+            operationID: value.operationID,
+            countdownID: value.countdownID,
+            kind: value.kind,
+            expectedLatestEventID: value.expectedLatestEventID,
+            titleCommitment: value.titleCommitment,
+            gentleTitleCommitment: value.gentleTitleCommitment,
+            targetDate: value.targetDate,
+            showInToday: value.showInToday,
+            reminder: value.reminder,
+            today: nil,
+            reviewResolution: nil,
+            replacementCountdownID: command.countdownID,
+            replacementEventID: command.deleteEventID,
+            primaryCommandDigest: nil,
+            eventTimestampCommitment: value.eventTimestampCommitment,
+            committedAt: value.committedAt
+        )
+        return value
+    }
+
+    static func replacementDeletion(
+        _ command: ReplaceCountdownCommand,
+        operationID: UUID,
+        primaryCommandDigest: String
+    ) throws -> Self {
+        try Self(
+            eventID: command.deleteEventID,
+            operationID: operationID,
+            countdownID: command.countdownID,
+            kind: .replacementDeletion,
+            expectedLatestEventID: command.expectedLatestEventID,
+            titleCommitment: nil,
+            gentleTitleCommitment: nil,
+            targetDate: nil,
+            showInToday: nil,
+            reminder: nil,
+            today: nil,
+            reviewResolution: nil,
+            replacementCountdownID: command.newCountdownID,
+            replacementEventID: command.newEventID,
+            primaryCommandDigest: primaryCommandDigest,
+            eventTimestampCommitment:
+                CountdownIntegrityDigest.timestampCommitment(
+                    command.timestamp,
+                    operationID: operationID
+                ),
+            committedAt: command.committedAt
+        )
+    }
+
+    private static func content(
+        eventID: UUID,
+        operationID: UUID,
+        countdownID: UUID,
+        kind: CountdownCommandAuditKind,
+        expectedLatestEventID: UUID?,
+        title: String,
+        gentleTitle: String?,
+        targetDate: CivilDateFact,
+        showInToday: Bool,
+        reminder: CountdownReminderInput,
+        timestamp: HistoricalTimestamp,
+        committedAt: Date
+    ) throws -> Self {
+        Self(
+            eventID: eventID,
+            operationID: operationID,
+            countdownID: countdownID,
+            kind: kind,
+            expectedLatestEventID: expectedLatestEventID,
+            titleCommitment:
+                try CountdownIntegrityDigest.privateCommitment(
+                    title,
+                    operationID: operationID,
+                    label: "title"
+                ),
+            gentleTitleCommitment:
+                try CountdownIntegrityDigest.privateCommitment(
+                    gentleTitle,
+                    operationID: operationID,
+                    label: "gentleTitle"
+                ),
+            targetDate: targetDate,
+            showInToday: showInToday,
+            reminder: reminder,
+            today: nil,
+            reviewResolution: nil,
+            replacementCountdownID: nil,
+            replacementEventID: nil,
+            primaryCommandDigest: nil,
+            eventTimestampCommitment:
+                try CountdownIntegrityDigest.timestampCommitment(
+                    timestamp,
+                    operationID: operationID
+                ),
+            committedAt: committedAt
+        )
+    }
+}
+
 extension AppWriteActor {
     func createCountdown(
         _ command: CreateCountdownCommand
@@ -308,10 +599,19 @@ extension AppWriteActor {
             gentleTitle: command.gentleTitle,
             reminder: command.reminder
         )
-        let digest = try CountdownDigestV1.createCommand(command, normalized: normalized)
+        let auditPayload = try CountdownCommandAuditPayload.create(
+            command,
+            normalized: normalized
+        )
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest = try CountdownDigestV1.createCommand(
+            command,
+            normalized: normalized
+        )
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -321,6 +621,9 @@ extension AppWriteActor {
         }
         guard try activeCountdownStates().isEmpty else {
             throw CountdownWriteFailure.activeCountdownAlreadyExists
+        }
+        guard try unresolvedCountdownReviewStates().isEmpty else {
+            throw CountdownWriteFailure.invalidTransition
         }
         let legacyTarget = try legacyDisplayDate(
             command.targetDate,
@@ -333,7 +636,8 @@ extension AppWriteActor {
             try modelContext.transaction {
                 if let replay = try countdownReplay(
                     operationID: command.operationID,
-                    digest: digest
+                    digest: digest,
+                    legacyDigest: legacyDigest
                 ) {
                     result = replay
                     return
@@ -344,6 +648,9 @@ extension AppWriteActor {
                 }
                 guard try activeCountdownStates().isEmpty else {
                     throw CountdownWriteFailure.activeCountdownAlreadyExists
+                }
+                guard try unresolvedCountdownReviewStates().isEmpty else {
+                    throw CountdownWriteFailure.invalidTransition
                 }
 
                 let event = CountdownLifecycleEventRecord(
@@ -389,8 +696,10 @@ extension AppWriteActor {
                     event: event,
                     reminder: reminder,
                     legacy: legacy,
-                    commandDigest: digest,
-                    operationID: command.operationID,
+                    auditPayload: auditPayload,
+                    preFactsDigest:
+                        try CountdownIntegrityDigest
+                            .absentFactsDigest(),
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -416,10 +725,19 @@ extension AppWriteActor {
             gentleTitle: command.gentleTitle,
             reminder: command.reminder
         )
-        let digest = try CountdownDigestV1.updateCommand(command, normalized: normalized)
+        let auditPayload = try CountdownCommandAuditPayload.update(
+            command,
+            normalized: normalized
+        )
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest = try CountdownDigestV1.updateCommand(
+            command,
+            normalized: normalized
+        )
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -441,7 +759,8 @@ extension AppWriteActor {
             try modelContext.transaction {
                 if let replay = try countdownReplay(
                     operationID: command.operationID,
-                    digest: digest
+                    digest: digest,
+                    legacyDigest: legacyDigest
                 ) {
                     result = replay
                     return
@@ -456,6 +775,11 @@ extension AppWriteActor {
                       let oldTarget = current.targetDate else {
                     throw CountdownWriteFailure.staleRecord
                 }
+                let preFactsDigest = try CountdownIntegrityDigest.facts(
+                    state: current,
+                    reminder: reminder,
+                    legacy: legacy
+                )
                 let targetChanged = oldTarget != command.targetDate
                 let contentChanged = current.title != normalized.title
                     || current.gentleTitle != normalized.gentleTitle
@@ -510,8 +834,8 @@ extension AppWriteActor {
                 reminder.updatedAt = command.timestamp.instant
                 legacy.title = normalized.title
                 legacy.gentleTitle = normalized.gentleTitle
-                legacy.targetDate = legacyTarget
                 if targetChanged {
+                    legacy.targetDate = legacyTarget
                     legacy.continuesCountingUp = false
                 }
                 try persistCountdownFacts(
@@ -519,8 +843,8 @@ extension AppWriteActor {
                     event: event,
                     reminder: reminder,
                     legacy: legacy,
-                    commandDigest: digest,
-                    operationID: command.operationID,
+                    auditPayload: auditPayload,
+                    preFactsDigest: preFactsDigest,
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -541,10 +865,14 @@ extension AppWriteActor {
     func resolveCountdownReview(
         _ command: ResolveCountdownReviewCommand
     ) throws -> CountdownMutationResult {
-        let digest = try CountdownDigestV1.reviewResolutionCommand(command)
+        let auditPayload = try CountdownCommandAuditPayload.review(command)
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest =
+            try CountdownDigestV1.reviewResolutionCommand(command)
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -565,7 +893,8 @@ extension AppWriteActor {
             try modelContext.transaction {
                 if let replay = try countdownReplay(
                     operationID: command.operationID,
-                    digest: digest
+                    digest: digest,
+                    legacyDigest: legacyDigest
                 ) {
                     result = replay
                     return
@@ -586,6 +915,30 @@ extension AppWriteActor {
                       ) else {
                     throw CountdownWriteFailure.staleRecord
                 }
+                let preFactsDigest = try CountdownIntegrityDigest.facts(
+                    state: state,
+                    reminder: reminder,
+                    legacy: legacy
+                )
+                let terminalReminderBeforeMutation =
+                    CountdownReminderInput(
+                        isEnabled:
+                            command.resolution == .keepArchived
+                                ? state.terminalReminderWasEnabled ?? false
+                                : reminder.isEnabled,
+                        leadDays:
+                            command.resolution == .keepArchived
+                                ? state.terminalReminderLeadDays ?? 0
+                                : reminder.leadDays,
+                        localHour:
+                            command.resolution == .keepArchived
+                                ? state.terminalReminderLocalHour ?? 9
+                                : reminder.localHour,
+                        localMinute:
+                            command.resolution == .keepArchived
+                                ? state.terminalReminderLocalMinute ?? 0
+                                : reminder.localMinute
+                    )
                 let kind: CountdownLifecycleEventKind =
                     command.resolution == .archive
                         ? .archived
@@ -632,8 +985,12 @@ extension AppWriteActor {
                     event: event,
                     reminder: reminder,
                     legacy: legacy,
-                    commandDigest: digest,
-                    operationID: command.operationID,
+                    auditPayload: auditPayload,
+                    preFactsDigest: preFactsDigest,
+                    terminalReminder:
+                        command.resolution == .keepAsCurrent
+                            ? nil
+                            : terminalReminderBeforeMutation,
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -656,10 +1013,22 @@ extension AppWriteActor {
     func continueCountdown(
         _ command: ContinueCountdownCommand
     ) throws -> CountdownMutationResult {
-        let digest = try CountdownDigestV1.continueCommand(command)
+        let auditPayload = try CountdownCommandAuditPayload.transition(
+            eventID: command.eventID,
+            operationID: command.operationID,
+            countdownID: command.countdownID,
+            kind: .continueCountingUp,
+            expectedLatestEventID: command.expectedLatestEventID,
+            today: command.today,
+            timestamp: command.timestamp,
+            committedAt: command.committedAt
+        )
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest = try CountdownDigestV1.continueCommand(command)
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -667,9 +1036,12 @@ extension AppWriteActor {
             id: command.countdownID,
             expectedEventID: command.expectedLatestEventID
         )
-        guard let target = state.targetDate,
+        guard command.today == command.timestamp.localDate,
+              let target = state.targetDate,
+              let overdueMode = state.overdueMode,
               CountdownLifecycleRules.canContinueCounting(
                   lifecycle: .active,
+                  overdueMode: overdueMode,
                   target: target,
                   today: command.today
               ),
@@ -684,7 +1056,9 @@ extension AppWriteActor {
             kind: .continuedCountingUp,
             timestamp: command.timestamp,
             committedAt: command.committedAt,
-            commandDigest: digest
+            auditPayload: auditPayload,
+            legacyDigest: legacyDigest,
+            capturesTerminalReminder: false
         ) { state, legacy, reminder in
             state.overdueModeRawValue = CountdownOverdueMode.countingUp.rawValue
             legacy.continuesCountingUp = true
@@ -696,10 +1070,22 @@ extension AppWriteActor {
     func completeCountdown(
         _ command: CompleteCountdownCommand
     ) throws -> CountdownMutationResult {
-        let digest = try CountdownDigestV1.completeCommand(command)
+        let auditPayload = try CountdownCommandAuditPayload.transition(
+            eventID: command.eventID,
+            operationID: command.operationID,
+            countdownID: command.countdownID,
+            kind: .complete,
+            expectedLatestEventID: command.expectedLatestEventID,
+            today: command.today,
+            timestamp: command.timestamp,
+            committedAt: command.committedAt
+        )
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest = try CountdownDigestV1.completeCommand(command)
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -707,7 +1093,8 @@ extension AppWriteActor {
             id: command.countdownID,
             expectedEventID: command.expectedLatestEventID
         )
-        guard let target = state.targetDate,
+        guard command.today == command.timestamp.localDate,
+              let target = state.targetDate,
               CountdownLifecycleRules.canComplete(
                   lifecycle: .active,
                   target: target,
@@ -724,9 +1111,13 @@ extension AppWriteActor {
             kind: .completed,
             timestamp: command.timestamp,
             committedAt: command.committedAt,
-            commandDigest: digest
+            auditPayload: auditPayload,
+            legacyDigest: legacyDigest,
+            capturesTerminalReminder: true
         ) { state, legacy, reminder in
             state.lifecycleRawValue = CountdownLifecycle.completed.rawValue
+            state.overdueModeRawValue =
+                CountdownOverdueMode.awaitingDecision.rawValue
             state.showInToday = false
             state.completedAt = command.timestamp.instant
             state.archivedAt = command.timestamp.instant
@@ -741,10 +1132,22 @@ extension AppWriteActor {
     func archiveCountdown(
         _ command: ArchiveCountdownCommand
     ) throws -> CountdownMutationResult {
-        let digest = try CountdownDigestV1.archiveCommand(command)
+        let auditPayload = try CountdownCommandAuditPayload.transition(
+            eventID: command.eventID,
+            operationID: command.operationID,
+            countdownID: command.countdownID,
+            kind: .archive,
+            expectedLatestEventID: command.expectedLatestEventID,
+            today: nil,
+            timestamp: command.timestamp,
+            committedAt: command.committedAt
+        )
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest = try CountdownDigestV1.archiveCommand(command)
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -763,9 +1166,13 @@ extension AppWriteActor {
             kind: .archived,
             timestamp: command.timestamp,
             committedAt: command.committedAt,
-            commandDigest: digest
+            auditPayload: auditPayload,
+            legacyDigest: legacyDigest,
+            capturesTerminalReminder: true
         ) { state, legacy, reminder in
             state.lifecycleRawValue = CountdownLifecycle.archived.rawValue
+            state.overdueModeRawValue =
+                CountdownOverdueMode.awaitingDecision.rawValue
             state.showInToday = false
             state.archivedAt = command.timestamp.instant
             legacy.archivedAt = command.timestamp.instant
@@ -779,10 +1186,22 @@ extension AppWriteActor {
     func deleteCountdown(
         _ command: DeleteCountdownCommand
     ) throws -> CountdownMutationResult {
-        let digest = try CountdownDigestV1.deleteCommand(command)
+        let auditPayload = try CountdownCommandAuditPayload.transition(
+            eventID: command.eventID,
+            operationID: command.operationID,
+            countdownID: command.countdownID,
+            kind: .delete,
+            expectedLatestEventID: command.expectedLatestEventID,
+            today: nil,
+            timestamp: command.timestamp,
+            committedAt: command.committedAt
+        )
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest = try CountdownDigestV1.deleteCommand(command)
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -800,7 +1219,8 @@ extension AppWriteActor {
             try modelContext.transaction {
                 if let replay = try countdownReplay(
                     operationID: command.operationID,
-                    digest: digest
+                    digest: digest,
+                    legacyDigest: legacyDigest
                 ) {
                     result = replay
                     return
@@ -817,6 +1237,11 @@ extension AppWriteActor {
                       ) else {
                     throw CountdownWriteFailure.staleRecord
                 }
+                let preFactsDigest = try CountdownIntegrityDigest.facts(
+                    state: state,
+                    reminder: reminder,
+                    legacy: legacy
+                )
                 let event = CountdownLifecycleEventRecord(
                     id: command.eventID,
                     countdownID: state.id,
@@ -843,8 +1268,8 @@ extension AppWriteActor {
                     state: state,
                     event: event,
                     reminder: reminder,
-                    commandDigest: digest,
-                    operationID: command.operationID,
+                    auditPayload: auditPayload,
+                    preFactsDigest: preFactsDigest,
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -870,13 +1295,19 @@ extension AppWriteActor {
             gentleTitle: command.gentleTitle,
             reminder: command.reminder
         )
-        let digest = try CountdownDigestV1.replaceCommand(
+        let auditPayload = try CountdownCommandAuditPayload.replace(
+            command,
+            normalized: normalized
+        )
+        let digest = try auditPayload.commandDigest()
+        let legacyDigest = try CountdownDigestV1.replaceCommand(
             command,
             normalized: normalized
         )
         if let replay = try countdownReplay(
             operationID: command.operationID,
-            digest: digest
+            digest: digest,
+            legacyDigest: legacyDigest
         ) {
             return replay
         }
@@ -887,6 +1318,9 @@ extension AppWriteActor {
             id: command.countdownID,
             expectedEventID: command.expectedLatestEventID
         )
+        guard try unresolvedCountdownReviewStates().isEmpty else {
+            throw CountdownWriteFailure.invalidTransition
+        }
         guard command.newCountdownID != command.countdownID,
               command.deleteEventID != command.newEventID,
               try fetchCountdownState(id: command.newCountdownID) == nil,
@@ -901,14 +1335,11 @@ extension AppWriteActor {
             command.targetDate,
             timeZoneIdentifier: command.timestamp.timeZoneIdentifier
         )
-        let deletionDigest = try CountdownDigestV1
-            .replacementDeletionCommand(
+        let deletionAuditPayload =
+            try CountdownCommandAuditPayload.replacementDeletion(
+                command,
                 operationID: deletionOperationID,
-                primaryCommandDigest: digest,
-                countdownID: command.countdownID,
-                eventID: command.deleteEventID,
-                replacementCountdownID: command.newCountdownID,
-                committedAt: command.committedAt
+                primaryCommandDigest: digest
             )
         let reservation = try reserveRevision(committedAt: command.committedAt)
         modelContext.autosaveEnabled = false
@@ -917,7 +1348,8 @@ extension AppWriteActor {
             try modelContext.transaction {
                 if let replay = try countdownReplay(
                     operationID: command.operationID,
-                    digest: digest
+                    digest: digest,
+                    legacyDigest: legacyDigest
                 ) {
                     result = replay
                     return
@@ -926,6 +1358,9 @@ extension AppWriteActor {
                     id: command.countdownID,
                     expectedEventID: command.expectedLatestEventID
                 )
+                guard try unresolvedCountdownReviewStates().isEmpty else {
+                    throw CountdownWriteFailure.invalidTransition
+                }
                 guard let oldTarget = oldState.targetDate,
                       let oldLegacy = try fetchLegacyCountdown(id: oldState.id),
                       let oldReminder = try fetchCountdownReminder(
@@ -939,6 +1374,12 @@ extension AppWriteActor {
                       ) == nil else {
                     throw CountdownWriteFailure.staleRecord
                 }
+                let oldPreFactsDigest =
+                    try CountdownIntegrityDigest.facts(
+                        state: oldState,
+                        reminder: oldReminder,
+                        legacy: oldLegacy
+                    )
 
                 let deleteEvent = CountdownLifecycleEventRecord(
                     id: command.deleteEventID,
@@ -967,8 +1408,8 @@ extension AppWriteActor {
                     state: oldState,
                     event: deleteEvent,
                     reminder: oldReminder,
-                    commandDigest: deletionDigest,
-                    operationID: deletionOperationID,
+                    auditPayload: deletionAuditPayload,
+                    preFactsDigest: oldPreFactsDigest,
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -1020,8 +1461,10 @@ extension AppWriteActor {
                     event: newEvent,
                     reminder: newReminder,
                     legacy: newLegacy,
-                    commandDigest: digest,
-                    operationID: command.operationID,
+                    auditPayload: auditPayload,
+                    preFactsDigest:
+                        try CountdownIntegrityDigest
+                            .absentFactsDigest(),
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
@@ -1047,7 +1490,9 @@ extension AppWriteActor {
         kind: CountdownLifecycleEventKind,
         timestamp: HistoricalTimestamp,
         committedAt: Date,
-        commandDigest: String,
+        auditPayload: CountdownCommandAuditPayload,
+        legacyDigest: String,
+        capturesTerminalReminder: Bool,
         mutate: (CountdownStateRecord, CountdownRecord, CountdownReminderRuleRecord) -> Void
     ) throws -> CountdownMutationResult {
         let reservation = try reserveRevision(committedAt: committedAt)
@@ -1057,7 +1502,8 @@ extension AppWriteActor {
             try modelContext.transaction {
                 if let replay = try countdownReplay(
                     operationID: operationID,
-                    digest: commandDigest
+                    digest: try auditPayload.commandDigest(),
+                    legacyDigest: legacyDigest
                 ) {
                     result = replay
                     return
@@ -1072,6 +1518,19 @@ extension AppWriteActor {
                       let reminder = try fetchCountdownReminder(countdownID: state.id) else {
                     throw CountdownWriteFailure.staleRecord
                 }
+                let preFactsDigest = try CountdownIntegrityDigest.facts(
+                    state: state,
+                    reminder: reminder,
+                    legacy: legacy
+                )
+                let terminalReminder = capturesTerminalReminder
+                    ? CountdownReminderInput(
+                        isEnabled: reminder.isEnabled,
+                        leadDays: reminder.leadDays,
+                        localHour: reminder.localHour,
+                        localMinute: reminder.localMinute
+                    )
+                    : nil
                 let event = CountdownLifecycleEventRecord(
                     id: eventID,
                     countdownID: state.id,
@@ -1094,8 +1553,9 @@ extension AppWriteActor {
                     event: event,
                     reminder: reminder,
                     legacy: legacy,
-                    commandDigest: commandDigest,
-                    operationID: operationID,
+                    auditPayload: auditPayload,
+                    preFactsDigest: preFactsDigest,
+                    terminalReminder: terminalReminder,
                     reservation: reservation,
                     committedAt: committedAt
                 )
@@ -1202,6 +1662,16 @@ extension AppWriteActor {
         return try modelContext.fetch(descriptor)
     }
 
+    private func unresolvedCountdownReviewStates() throws
+        -> [CountdownStateRecord]
+    {
+        var descriptor = FetchDescriptor<CountdownStateRecord>(
+            predicate: #Predicate { $0.requiresReview }
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor)
+    }
+
     private func fetchCountdownState(id: UUID) throws -> CountdownStateRecord? {
         var descriptor = FetchDescriptor<CountdownStateRecord>(
             predicate: #Predicate { $0.id == id }
@@ -1269,9 +1739,24 @@ extension AppWriteActor {
         return records.first
     }
 
+    private func fetchCountdownAudit(
+        eventID: UUID
+    ) throws -> CountdownCommandAuditRecord? {
+        var descriptor = FetchDescriptor<CountdownCommandAuditRecord>(
+            predicate: #Predicate { $0.eventID == eventID }
+        )
+        descriptor.fetchLimit = 2
+        let records = try modelContext.fetch(descriptor)
+        guard records.count <= 1 else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        return records.first
+    }
+
     private func countdownReplay(
         operationID: UUID,
-        digest: String
+        digest: String,
+        legacyDigest: String
     ) throws -> CountdownMutationResult? {
         var descriptor = FetchDescriptor<OperationReceiptRecord>(
             predicate: #Predicate { $0.operationID == operationID }
@@ -1282,12 +1767,22 @@ extension AppWriteActor {
             throw AppDataFailure.corruptionSuspected
         }
         guard let receipt = receipts.first else { return nil }
-        guard receipt.commandDigest == digest,
-              receipt.resultRecordType == "CountdownLifecycleEventRecord",
+        guard receipt.resultRecordType == "CountdownLifecycleEventRecord",
               let event = try fetchCountdownEvent(id: receipt.resultRecordID),
               event.operationID == operationID,
               try fetchCountdownState(id: event.countdownID) != nil else {
             throw CountdownWriteFailure.operationConflict
+        }
+        if let audit = try fetchCountdownAudit(eventID: event.id) {
+            guard audit.operationID == operationID,
+                  audit.commandDigest == digest,
+                  receipt.commandDigest == digest else {
+                throw CountdownWriteFailure.operationConflict
+            }
+        } else {
+            guard receipt.commandDigest == legacyDigest else {
+                throw CountdownWriteFailure.operationConflict
+            }
         }
         return CountdownMutationResult(
             countdownID: event.countdownID,
@@ -1301,11 +1796,22 @@ extension AppWriteActor {
         event: CountdownLifecycleEventRecord,
         reminder: CountdownReminderRuleRecord,
         legacy: CountdownRecord,
-        commandDigest: String,
-        operationID: UUID,
+        auditPayload: CountdownCommandAuditPayload,
+        preFactsDigest: String,
+        terminalReminder: CountdownReminderInput? = nil,
         reservation: ReservedRevision,
         committedAt: Date
     ) throws {
+        let audit = try makeCountdownAudit(
+            payload: auditPayload,
+            event: event,
+            state: state,
+            reminder: reminder,
+            legacy: legacy,
+            preFactsDigest: preFactsDigest,
+            terminalReminder: terminalReminder
+        )
+        modelContext.insert(audit)
         try upsertRevision(
             recordType: "CountdownStateRecord",
             recordID: state.id,
@@ -1334,10 +1840,17 @@ extension AppWriteActor {
             reservation: reservation,
             committedAt: committedAt
         )
+        try upsertRevision(
+            recordType: "CountdownCommandAuditRecord",
+            recordID: audit.eventID,
+            fields: try CountdownIntegrityDigest.revisionFields(audit),
+            reservation: reservation,
+            committedAt: committedAt
+        )
         try insertOperationReceipt(
             OperationReceiptRecord(
-                operationID: operationID,
-                commandDigest: commandDigest,
+                operationID: audit.operationID,
+                commandDigest: audit.commandDigest,
                 resultRecordType: "CountdownLifecycleEventRecord",
                 resultRecordID: event.id,
                 committedAt: committedAt
@@ -1351,11 +1864,21 @@ extension AppWriteActor {
         state: CountdownStateRecord,
         event: CountdownLifecycleEventRecord,
         reminder: CountdownReminderRuleRecord,
-        commandDigest: String,
-        operationID: UUID,
+        auditPayload: CountdownCommandAuditPayload,
+        preFactsDigest: String,
         reservation: ReservedRevision,
         committedAt: Date
     ) throws {
+        let audit = try makeCountdownAudit(
+            payload: auditPayload,
+            event: event,
+            state: state,
+            reminder: reminder,
+            legacy: nil,
+            preFactsDigest: preFactsDigest,
+            terminalReminder: nil
+        )
+        modelContext.insert(audit)
         try upsertRevision(
             recordType: "CountdownStateRecord",
             recordID: state.id,
@@ -1377,10 +1900,17 @@ extension AppWriteActor {
             reservation: reservation,
             committedAt: committedAt
         )
+        try upsertRevision(
+            recordType: "CountdownCommandAuditRecord",
+            recordID: audit.eventID,
+            fields: try CountdownIntegrityDigest.revisionFields(audit),
+            reservation: reservation,
+            committedAt: committedAt
+        )
         try insertOperationReceipt(
             OperationReceiptRecord(
-                operationID: operationID,
-                commandDigest: commandDigest,
+                operationID: audit.operationID,
+                commandDigest: audit.commandDigest,
                 resultRecordType: "CountdownLifecycleEventRecord",
                 resultRecordID: event.id,
                 committedAt: committedAt
@@ -1388,6 +1918,39 @@ extension AppWriteActor {
             reservation: reservation
         )
         try markCommitted(at: committedAt)
+    }
+
+    private func makeCountdownAudit(
+        payload: CountdownCommandAuditPayload,
+        event: CountdownLifecycleEventRecord,
+        state: CountdownStateRecord,
+        reminder: CountdownReminderRuleRecord,
+        legacy: CountdownRecord?,
+        preFactsDigest: String,
+        terminalReminder: CountdownReminderInput?
+    ) throws -> CountdownCommandAuditRecord {
+        guard payload.eventID == event.id,
+              payload.operationID == event.operationID,
+              payload.countdownID == event.countdownID else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let previousAuditDigest = try event.previousEventID.flatMap {
+            try fetchCountdownAudit(eventID: $0)?.auditDigest
+        }
+        let audit = payload.makeRecord(
+            eventSemanticDigest:
+                try CountdownIntegrityDigest.eventSemantic(event),
+            preFactsDigest: preFactsDigest,
+            postFactsDigest: try CountdownIntegrityDigest.facts(
+                state: state,
+                reminder: reminder,
+                legacy: legacy
+            ),
+            previousAuditDigest: previousAuditDigest,
+            terminalReminder: terminalReminder
+        )
+        try audit.seal()
+        return audit
     }
 
     private func applyDeletedState(
@@ -1411,6 +1974,12 @@ extension AppWriteActor {
         state.requiresReview = false
         state.updatedAt = timestamp
         reminder.isEnabled = false
+        reminder.leadDays = 0
+        reminder.localHour = 9
+        reminder.localMinute = 0
+        reminder.timeZoneBehaviorRawValue =
+            CountdownReminderTimeZoneBehavior.floatingLocalV1.rawValue
+        reminder.contentVersion = "neutralV1"
         reminder.lastOperationID = operationID
         reminder.updatedAt = timestamp
     }
@@ -1692,6 +2261,12 @@ enum CountdownDigestV1 {
     static func event(
         _ value: CountdownLifecycleEventRecord
     ) throws -> [RecordDigestV1.Field] {
+        try eventSemantic(value)
+    }
+
+    static func eventSemantic(
+        _ value: CountdownLifecycleEventRecord
+    ) throws -> [RecordDigestV1.Field] {
         [
             .init("countdownID", .uuid(value.countdownID)),
             .init("kind", .string(value.kindRawValue)),
@@ -1711,6 +2286,25 @@ enum CountdownDigestV1 {
             .init("precision", .string(value.precisionRawValue)),
             .init("provenance", .string(value.provenanceRawValue))
         ]
+    }
+
+    static func receiptEnvelope(
+        commandDigest: String,
+        event: CountdownLifecycleEventRecord
+    ) throws -> String {
+        let eventDigest = try RecordDigestV1.sha256Hex(
+            recordType: "CountdownLifecycleEventSemantic",
+            recordID: event.id,
+            fields: eventSemantic(event)
+        )
+        return try RecordDigestV1.sha256Hex(
+            recordType: "CountdownLifecycleReceiptEnvelopeV1",
+            recordID: event.operationID,
+            fields: [
+                .init("commandDigest", .string(commandDigest)),
+                .init("eventDigest", .string(eventDigest))
+            ]
+        )
     }
 
     static func reminder(

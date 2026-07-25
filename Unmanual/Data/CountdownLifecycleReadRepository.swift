@@ -9,6 +9,15 @@ struct CountdownReminderSnapshot: Equatable, Sendable {
     let contentVersion: String
 }
 
+struct GentleModeSnapshot: Equatable, Sendable {
+    let isEnabled: Bool
+}
+
+struct CountdownEditorSnapshot: Equatable, Sendable {
+    let current: CountdownCurrentSnapshot?
+    let gentleModeEnabled: Bool
+}
+
 struct CountdownReminderCoverageSnapshot: Equatable, Sendable {
     let countdownID: UUID?
     let status: NotificationCoverageStatus
@@ -31,6 +40,7 @@ struct CountdownCurrentSnapshot: Identifiable, Equatable, Sendable {
     let title: String
     let gentleTitle: String?
     let displayTitle: String
+    let gentleModeEnabled: Bool
     let targetDate: CivilDateFact
     let displayTargetDate: Date
     let lifecycle: CountdownLifecycle
@@ -49,8 +59,19 @@ struct CountdownCurrentSnapshot: Identifiable, Equatable, Sendable {
 
 struct CountdownLedgerPage: Equatable, Sendable {
     let items: [CountdownCurrentSnapshot]
-    let nextOffset: Int?
+    let nextCursor: CountdownLedgerCursor?
     let activeReviewCount: Int
+}
+
+enum CountdownLedgerKind: Equatable, Sendable {
+    case history
+    case review
+}
+
+struct CountdownLedgerCursor: Equatable, Sendable {
+    let kind: CountdownLedgerKind
+    let sortDate: Date
+    let recordID: UUID
 }
 
 struct CountdownTodaySnapshot: Identifiable, Equatable, Sendable {
@@ -64,6 +85,7 @@ struct CountdownTodaySnapshot: Identifiable, Equatable, Sendable {
 struct CountdownEventSnapshot: Identifiable, Equatable, Sendable {
     let id: UUID
     let kind: CountdownLifecycleEventKind
+    let previousEventID: UUID?
     let oldTargetDate: CivilDateFact?
     let newTargetDate: CivilDateFact?
     let replacementCountdownID: UUID?
@@ -76,9 +98,43 @@ struct CountdownDetailSnapshot: Equatable, Sendable {
 }
 
 extension AppReadActor {
+    func gentleModeSnapshot() throws -> GentleModeSnapshot {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-gentle-mode-read-error"
+        ) {
+            throw AppDataFailure.corruptionSuspected
+        }
+#endif
+        return GentleModeSnapshot(
+            isEnabled: try countdownGentleModeEnabled()
+        )
+    }
+
+    func countdownEditorSnapshot(
+        displayTimeZoneIdentifier: String =
+            TimeZone.autoupdatingCurrent.identifier
+    ) throws -> CountdownEditorSnapshot {
+        let gentleModeEnabled = try countdownGentleModeEnabled()
+        return CountdownEditorSnapshot(
+            current: try countdownCurrentSnapshot(
+                displayTimeZoneIdentifier:
+                    displayTimeZoneIdentifier
+            ),
+            gentleModeEnabled: gentleModeEnabled
+        )
+    }
+
     func countdownCurrentSnapshot(
         displayTimeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier
     ) throws -> CountdownCurrentSnapshot? {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-countdown-read-error"
+        ) {
+            throw AppDataFailure.corruptionSuspected
+        }
+#endif
         let activeValue = CountdownLifecycle.active.rawValue
         var descriptor = FetchDescriptor<CountdownStateRecord>(
             predicate: #Predicate {
@@ -122,68 +178,136 @@ extension AppReadActor {
     }
 
     func countdownHistoryPage(
-        offset: Int,
+        after cursor: CountdownLedgerCursor? = nil,
         limit: Int,
         displayTimeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier
     ) throws -> CountdownLedgerPage {
-        guard offset >= 0, (1...50).contains(limit) else {
+        guard (1...50).contains(limit),
+              cursor == nil || (
+                  cursor?.kind == .history
+                      && cursor?.sortDate.timeIntervalSince1970
+                        .isFinite == true
+              ) else {
             throw AppDataFailure.corruptionSuspected
         }
         let completed = CountdownLifecycle.completed.rawValue
         let archived = CountdownLifecycle.archived.rawValue
-        var descriptor = FetchDescriptor<CountdownStateRecord>(
-            predicate: #Predicate {
-                (
-                    $0.lifecycleRawValue == completed
-                        || $0.lifecycleRawValue == archived
-                )
-                    && !$0.requiresReview
-            },
-            sortBy: [
-                SortDescriptor(\.archivedAt, order: .reverse),
-                SortDescriptor(\.id)
-            ]
-        )
-        descriptor.fetchOffset = offset
+        var descriptor: FetchDescriptor<CountdownStateRecord>
+        if let cursor {
+            let sortDate = cursor.sortDate
+            let recordID = cursor.recordID
+            descriptor = FetchDescriptor<CountdownStateRecord>(
+                predicate: #Predicate {
+                    (
+                        $0.lifecycleRawValue == completed
+                            || $0.lifecycleRawValue == archived
+                    )
+                        && !$0.requiresReview
+                        && $0.archivedAt != nil
+                        && (
+                            ($0.archivedAt ?? sortDate) < sortDate
+                                || (
+                                    $0.archivedAt == sortDate
+                                        && $0.id > recordID
+                                )
+                        )
+                },
+                sortBy: [
+                    SortDescriptor(\.archivedAt, order: .reverse),
+                    SortDescriptor(\.id)
+                ]
+            )
+        } else {
+            descriptor = FetchDescriptor<CountdownStateRecord>(
+                predicate: #Predicate {
+                    (
+                        $0.lifecycleRawValue == completed
+                            || $0.lifecycleRawValue == archived
+                    )
+                        && !$0.requiresReview
+                        && $0.archivedAt != nil
+                },
+                sortBy: [
+                    SortDescriptor(\.archivedAt, order: .reverse),
+                    SortDescriptor(\.id)
+                ]
+            )
+        }
         descriptor.fetchLimit = limit + 1
-        let records = try modelContext.fetch(descriptor)
-        let pageRecords = Array(records.prefix(limit))
+        let selected = try modelContext.fetch(descriptor)
+        let records = Array(selected.prefix(limit))
         let gentleModeEnabled = try countdownGentleModeEnabled()
         return CountdownLedgerPage(
-            items: try pageRecords.map {
+            items: try records.map {
                 try countdownSnapshot(
                     $0,
                     displayTimeZoneIdentifier: displayTimeZoneIdentifier,
                     gentleModeEnabled: gentleModeEnabled
                 )
             },
-            nextOffset: records.count > limit ? offset + limit : nil,
+            nextCursor: selected.count > limit
+                ? records.last.flatMap {
+                    guard let sortDate = $0.archivedAt else { return nil }
+                    return CountdownLedgerCursor(
+                        kind: .history,
+                        sortDate: sortDate,
+                        recordID: $0.id
+                    )
+                }
+                : nil,
             activeReviewCount: 0
         )
     }
 
     func countdownReviewPage(
-        offset: Int,
+        after cursor: CountdownLedgerCursor? = nil,
         limit: Int,
         displayTimeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier
     ) throws -> CountdownLedgerPage {
-        guard offset >= 0, (1...50).contains(limit) else {
+        guard (1...50).contains(limit),
+              cursor == nil || (
+                  cursor?.kind == .review
+                      && cursor?.sortDate.timeIntervalSince1970
+                        .isFinite == true
+              ) else {
             throw AppDataFailure.corruptionSuspected
         }
         let deleted = CountdownLifecycle.deleted.rawValue
-        var descriptor = FetchDescriptor<CountdownStateRecord>(
-            predicate: #Predicate {
-                $0.requiresReview && $0.lifecycleRawValue != deleted
-            },
-            sortBy: [
-                SortDescriptor(\.createdAt),
-                SortDescriptor(\.id)
-            ]
-        )
-        descriptor.fetchOffset = offset
+        var descriptor: FetchDescriptor<CountdownStateRecord>
+        if let cursor {
+            let sortDate = cursor.sortDate
+            let recordID = cursor.recordID
+            descriptor = FetchDescriptor<CountdownStateRecord>(
+                predicate: #Predicate {
+                    $0.requiresReview
+                        && $0.lifecycleRawValue != deleted
+                        && (
+                            $0.createdAt > sortDate
+                                || (
+                                    $0.createdAt == sortDate
+                                        && $0.id > recordID
+                                )
+                        )
+                },
+                sortBy: [
+                    SortDescriptor(\.createdAt),
+                    SortDescriptor(\.id)
+                ]
+            )
+        } else {
+            descriptor = FetchDescriptor<CountdownStateRecord>(
+                predicate: #Predicate {
+                    $0.requiresReview && $0.lifecycleRawValue != deleted
+                },
+                sortBy: [
+                    SortDescriptor(\.createdAt),
+                    SortDescriptor(\.id)
+                ]
+            )
+        }
         descriptor.fetchLimit = limit + 1
-        let records = try modelContext.fetch(descriptor)
-        let pageRecords = Array(records.prefix(limit))
+        let selected = try modelContext.fetch(descriptor)
+        let records = Array(selected.prefix(limit))
         let active = CountdownLifecycle.active.rawValue
         let activeReviewCount = try modelContext.fetchCount(
             FetchDescriptor<CountdownStateRecord>(
@@ -194,14 +318,22 @@ extension AppReadActor {
         )
         let gentleModeEnabled = try countdownGentleModeEnabled()
         return CountdownLedgerPage(
-            items: try pageRecords.map {
+            items: try records.map {
                 try countdownSnapshot(
                     $0,
                     displayTimeZoneIdentifier: displayTimeZoneIdentifier,
                     gentleModeEnabled: gentleModeEnabled
                 )
             },
-            nextOffset: records.count > limit ? offset + limit : nil,
+            nextCursor: selected.count > limit
+                ? records.last.map {
+                    CountdownLedgerCursor(
+                        kind: .review,
+                        sortDate: $0.createdAt,
+                        recordID: $0.id
+                    )
+                }
+                : nil,
             activeReviewCount: activeReviewCount
         )
     }
@@ -257,6 +389,7 @@ extension AppReadActor {
             return CountdownEventSnapshot(
                 id: record.id,
                 kind: kind,
+                previousEventID: record.previousEventID,
                 oldTargetDate: record.oldTargetDate,
                 newTargetDate: record.newTargetDate,
                 replacementCountdownID: record.replacementCountdownID,
@@ -322,12 +455,11 @@ extension AppReadActor {
             title: state.title,
             gentleTitle: state.gentleTitle,
             displayTitle: gentleModeEnabled
-                ? (
-                    state.gentleTitle?.isEmpty == false
-                        ? state.gentleTitle!
-                        : "私人日期"
-                )
+                ? state.gentleTitle.flatMap {
+                    $0.isEmpty ? nil : $0
+                } ?? "私人日期"
                 : state.title,
+            gentleModeEnabled: gentleModeEnabled,
             targetDate: targetDate,
             displayTargetDate: try countdownDisplayDate(
                 targetDate,
@@ -375,12 +507,14 @@ extension AppReadActor {
         guard records.count == 1,
               let record = records.first,
               let status = record.status,
-              record.desiredCount >= 0,
-              record.confirmedPendingCount >= 0,
-              record.confirmedPendingCount <= record.desiredCount,
               record.observedAt.timeIntervalSince1970.isFinite,
-              record.scheduledFireAt?.timeIntervalSince1970.isFinite
-                != false else {
+              CountdownNotificationCoverageRecord.isConsistent(
+                  status: status,
+                  scheduledFireAt: record.scheduledFireAt,
+                  desiredCount: record.desiredCount,
+                  confirmedPendingCount: record.confirmedPendingCount,
+                  lastErrorCode: record.lastErrorCode
+              ) else {
             throw AppDataFailure.corruptionSuspected
         }
         if record.countdownID != state.id {

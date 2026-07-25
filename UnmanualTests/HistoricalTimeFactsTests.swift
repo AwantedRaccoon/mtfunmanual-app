@@ -70,6 +70,23 @@ final class HistoricalTimeFactsTests: XCTestCase {
         XCTAssertEqual(fact.timeZoneIdentifier, "Asia/Shanghai")
     }
 
+    func testRecordedCivilMinuteLabelUsesCapturedCivilFacts() throws {
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: XCTUnwrap(
+                ISO8601DateFormatter().date(
+                    from: "2026-04-01T12:30:00Z"
+                )
+            ),
+            timeZoneIdentifier: "America/Chicago",
+            precision: .minute
+        )
+
+        XCTAssertEqual(
+            timestamp.recordedCivilMinuteLabel,
+            "2026-04-01 07:30"
+        )
+    }
+
     func testCapturedMinutePrecisionRemovesHiddenSecondsAndNanoseconds() throws {
         let wholeSecond = try XCTUnwrap(
             ISO8601DateFormatter().date(from: "2026-07-22T14:35:47Z")

@@ -4,9 +4,18 @@ import SwiftUI
 struct ArchiveView: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.appReadActor) private var appReadActor
+    @Environment(\.appDataWriter) private var appDataWriter
 
     @State private var destination: ArchiveDestination?
     @State private var snapshot = AppArchiveSnapshot.empty
+    @State private var archiveIsLoading = true
+    @State private var archiveIsAvailable = false
+    @State private var archiveErrorMessage: String?
+    @State private var gentleModeEnabled = false
+    @State private var gentleModeIsAvailable = false
+    @State private var isLoadingGentleMode = true
+    @State private var isSavingGentleMode = false
+    @State private var gentleModeErrorMessage: String?
 
     var body: some View {
         V25Page {
@@ -18,37 +27,61 @@ struct ArchiveView: View {
                     status: SystemBackupDisclosure.statusLabel
                 )
 
-                V25SectionHeader(
-                    title: "这台设备里的记录",
-                    detail: snapshot.latestActivityLabel
-                )
+                if archiveIsLoading {
+                    ProgressView("正在读取本地档案")
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .accessibilityIdentifier("archive.loading")
+                } else if let archiveErrorMessage {
+                    archiveReadError(archiveErrorMessage)
+                } else if archiveIsAvailable {
+                    V25SectionHeader(
+                        title: "这台设备里的记录",
+                        detail: snapshot.latestActivityLabel
+                    )
 
-                ArchiveDossierCover(snapshot: snapshot)
+                    ArchiveDossierCover(snapshot: snapshot)
 
-                V25SectionHeader(title: "整理并带走", detail: "先预览，再生成")
-
+                    V25SectionHeader(
+                        title: "整理并带走",
+                        detail: "先预览，再生成"
+                    )
 #if DEBUG
-                ArchiveExportDesk(
-                    snapshot: snapshot,
-                    summaryAction: { destination = .visitSummary },
-                    exportAction: { destination = .rawExport },
-                    importAction: { destination = .rawImport }
-                )
+                    ArchiveExportDesk(
+                        snapshot: snapshot,
+                        summaryAction: { destination = .visitSummary },
+                        exportAction: { destination = .rawExport },
+                        importAction: { destination = .rawImport }
+                    )
 #else
-                ArchiveExportDesk(
-                    snapshot: snapshot,
-                    summaryAction: { destination = .visitSummary },
-                    exportAction: {},
-                    importAction: {}
-                )
+                    ArchiveExportDesk(
+                        snapshot: snapshot,
+                        summaryAction: { destination = .visitSummary },
+                        exportAction: {},
+                        importAction: {}
+                    )
 #endif
+                }
 
                 V25SectionHeader(title: "数据与隐私", detail: "你来决定")
 
                 ArchiveControlLedger(
+                    gentleModeEnabled: gentleModeEnabled,
+                    gentleModeIsAvailable: gentleModeIsAvailable,
+                    isLoadingGentleMode: isLoadingGentleMode,
+                    isSavingGentleMode: isSavingGentleMode,
+                    gentleModeAction: setGentleMode,
                     storageAction: { destination = .localStorage },
                     deleteAction: { destination = .deleteAndReset }
                 )
+                if let gentleModeErrorMessage {
+                    Text(gentleModeErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(theme.vermilionText)
+                        .padding(.top, 10)
+                        .accessibilityIdentifier(
+                            "archive.gentleModeError"
+                        )
+                }
 
                 V25SectionHeader(title: "随身附页", detail: "需要时再打开")
 
@@ -66,6 +99,27 @@ struct ArchiveView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task { await refreshSnapshot() }
+        .fullScreenCover(isPresented: $isSavingGentleMode) {
+            ZStack {
+                theme.rice
+                    .ignoresSafeArea()
+                VStack(spacing: 14) {
+                    ProgressView()
+                    Text("正在保存温和模式")
+                        .font(.headline.weight(.black))
+                        .foregroundStyle(theme.indigoDeep)
+                    Text("完成前先留在这里，避免其他页面短暂显示旧名称。")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .padding(24)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(
+                    "archive.gentleMode.saving"
+                )
+            }
+            .interactiveDismissDisabled()
+        }
         .sheet(item: $destination) { destination in
             Group {
                 switch destination {
@@ -85,10 +139,94 @@ struct ArchiveView: View {
     }
 
     private func refreshSnapshot() async {
-        guard let appReadActor else { return }
-        if let loaded = try? await appReadActor.archiveSnapshot() {
-            snapshot = loaded
+        archiveIsLoading = true
+        archiveIsAvailable = false
+        isLoadingGentleMode = true
+        gentleModeIsAvailable = false
+        defer {
+            archiveIsLoading = false
+            isLoadingGentleMode = false
         }
+        guard let appReadActor else {
+            snapshot = .empty
+            destination = nil
+            archiveErrorMessage =
+                "本地档案尚未准备好，请稍后重新打开此页。"
+            gentleModeErrorMessage =
+                "本地资料尚未准备好，温和模式没有改变。"
+            return
+        }
+        do {
+            snapshot = try await appReadActor.archiveSnapshot()
+            archiveIsAvailable = true
+            archiveErrorMessage = nil
+        } catch {
+            snapshot = .empty
+            destination = nil
+            archiveErrorMessage =
+                "档案摘要没有通过完整性检查。"
+        }
+        do {
+            let preference = try await appReadActor
+                .gentleModeSnapshot()
+            gentleModeEnabled = preference.isEnabled
+            gentleModeIsAvailable = true
+            gentleModeErrorMessage = nil
+        } catch {
+            gentleModeErrorMessage =
+                "温和模式状态没有通过完整性检查。"
+        }
+    }
+
+    private func setGentleMode(_ isEnabled: Bool) {
+        guard gentleModeIsAvailable,
+              !isSavingGentleMode,
+              let appDataWriter else {
+            gentleModeErrorMessage =
+                "本地资料尚未准备好，温和模式没有改变。"
+            return
+        }
+        let previous = gentleModeEnabled
+        isSavingGentleMode = true
+        gentleModeErrorMessage = nil
+        Task {
+            defer { isSavingGentleMode = false }
+            do {
+                try await appDataWriter.setGentleMode(
+                    SetGentleModeCommand(isEnabled: isEnabled)
+                )
+                gentleModeEnabled = isEnabled
+                NotificationCenter.default.post(
+                    name: .unmanualLocalDataChanged,
+                    object: nil
+                )
+            } catch {
+                gentleModeEnabled = previous
+                gentleModeErrorMessage =
+                    "温和模式没有改变；本地资料可能已在另一处更新。"
+            }
+        }
+    }
+
+    private func archiveReadError(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("档案摘要需要重新读取")
+                .font(.headline.weight(.black))
+                .accessibilityIdentifier("archive.readError")
+            Text(message)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("重新读取档案") {
+                Task { await refreshSnapshot() }
+            }
+            .font(.body.weight(.bold))
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("archive.retryRead")
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.rose.opacity(0.28))
+        .overlay { Rectangle().stroke(theme.vermilion, lineWidth: 2) }
     }
 }
 
@@ -349,12 +487,96 @@ private struct ArchiveActionRow: View {
 
 private struct ArchiveControlLedger: View {
     @Environment(AppTheme.self) private var theme
+    @State private var localGentleModeEnabled: Bool
 
+    let gentleModeEnabled: Bool
+    let gentleModeIsAvailable: Bool
+    let isLoadingGentleMode: Bool
+    let isSavingGentleMode: Bool
+    let gentleModeAction: (Bool) -> Void
     let storageAction: () -> Void
     let deleteAction: () -> Void
 
+    init(
+        gentleModeEnabled: Bool,
+        gentleModeIsAvailable: Bool,
+        isLoadingGentleMode: Bool,
+        isSavingGentleMode: Bool,
+        gentleModeAction: @escaping (Bool) -> Void,
+        storageAction: @escaping () -> Void,
+        deleteAction: @escaping () -> Void
+    ) {
+        self.gentleModeEnabled = gentleModeEnabled
+        self.gentleModeIsAvailable = gentleModeIsAvailable
+        self.isLoadingGentleMode = isLoadingGentleMode
+        self.isSavingGentleMode = isSavingGentleMode
+        self.gentleModeAction = gentleModeAction
+        self.storageAction = storageAction
+        self.deleteAction = deleteAction
+        _localGentleModeEnabled = State(
+            initialValue: gentleModeEnabled
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                Rectangle().fill(theme.mustard).frame(width: 4, height: 42)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("温和模式")
+                        .font(.body.weight(.black))
+                    Text("在 App 内使用温和名称；不会隐藏系统备份、最近任务或导出文件。")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Toggle(
+                    "温和模式",
+                    isOn: $localGentleModeEnabled
+                )
+                .labelsHidden()
+                .disabled(
+                    isSavingGentleMode
+                        || !gentleModeIsAvailable
+                )
+                .accessibilityIdentifier(
+                    "archive.gentleMode.toggle"
+                )
+                .onChange(of: localGentleModeEnabled) {
+                    _, newValue in
+                    if newValue != gentleModeEnabled {
+                        gentleModeAction(newValue)
+                    }
+                }
+                Text(
+                    isLoadingGentleMode
+                        ? "正在读取温和模式"
+                        : !gentleModeIsAvailable
+                        ? "温和模式状态不可用"
+                        : isSavingGentleMode
+                        ? "正在保存"
+                        : (
+                            gentleModeEnabled
+                                ? "温和模式已开启"
+                                : "温和模式已关闭"
+                        )
+                )
+                .font(theme.utility(9))
+                .foregroundStyle(theme.secondaryText)
+                .accessibilityIdentifier(
+                    "archive.gentleMode.status"
+                )
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 74)
+            .background(theme.paper)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(theme.indigo).frame(height: 1)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("archive.gentleMode")
             ArchiveLedgerRow(
                 title: "本地存储说明",
                 detail: "看看哪些内容留在设备里，导出后又会发生什么。",
@@ -373,6 +595,17 @@ private struct ArchiveControlLedger: View {
             )
         }
         .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
+        .onChange(of: gentleModeEnabled) { _, newValue in
+            if localGentleModeEnabled != newValue {
+                localGentleModeEnabled = newValue
+            }
+        }
+        .onChange(of: isSavingGentleMode) { _, isSaving in
+            if !isSaving,
+               localGentleModeEnabled != gentleModeEnabled {
+                localGentleModeEnabled = gentleModeEnabled
+            }
+        }
     }
 }
 

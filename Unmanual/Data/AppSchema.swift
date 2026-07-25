@@ -79,6 +79,17 @@ enum AppSchemaV6CountdownLifecycle: VersionedSchema {
     ]
 }
 
+enum AppSchemaV7CountdownIntegrity: VersionedSchema {
+    static let versionIdentifier = Schema.Version(7, 0, 0)
+
+    static let models: [any PersistentModel.Type] =
+        AppSchemaV6CountdownLifecycle.models + [
+            CountdownCommandAuditRecord.self,
+            CountdownV6AuditCheckpointRecord.self,
+            CountdownIntegrityBackfillState.self
+        ]
+}
+
 enum AppSchemaMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         AppSchemaV1.self,
@@ -86,7 +97,8 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
         AppSchemaV3Core.self,
         AppSchemaV4TodayExecution.self,
         AppSchemaV5PersonalTimeline.self,
-        AppSchemaV6CountdownLifecycle.self
+        AppSchemaV6CountdownLifecycle.self,
+        AppSchemaV7CountdownIntegrity.self
     ]
 
     static let stages: [MigrationStage] = [
@@ -100,6 +112,10 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
         .lightweight(
             fromVersion: AppSchemaV5PersonalTimeline.self,
             toVersion: AppSchemaV6CountdownLifecycle.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV6CountdownLifecycle.self,
+            toVersion: AppSchemaV7CountdownIntegrity.self
         )
     ]
 }
@@ -122,6 +138,10 @@ enum AppModelContainerFactory {
     }
 
     static var countdownLifecycleSchema: Schema {
+        Schema(versionedSchema: AppSchemaV7CountdownIntegrity.self)
+    }
+
+    static var frozenV6CountdownLifecycleSchema: Schema {
         Schema(versionedSchema: AppSchemaV6CountdownLifecycle.self)
     }
 
@@ -354,6 +374,25 @@ enum AppModelContainerFactory {
             isStoredInMemoryOnly: true,
             allowsSave: true,
             groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeV6CountdownLifecycleContainer(
+        at storeURL: URL,
+        allowsSave: Bool = true
+    ) throws -> ModelContainer {
+        let schema = frozenV6CountdownLifecycleSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
             cloudKitDatabase: .none
         )
         return try ModelContainer(

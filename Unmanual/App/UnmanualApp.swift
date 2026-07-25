@@ -247,11 +247,12 @@ enum AppReminderLifecyclePolicy {
 enum AppReminderLifecycleFlow {
     @MainActor
     static func reconcileThenRefresh(
-        reconcile: () async -> Void,
+        reconcile: () async -> Bool,
         refresh: () -> Void
     ) async {
-        await reconcile()
-        refresh()
+        if await reconcile() {
+            refresh()
+        }
     }
 }
 

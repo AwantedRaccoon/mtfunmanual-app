@@ -429,6 +429,165 @@ final class SystemBackupDisclosureUITests: XCTestCase {
         attachScreenshot(named: "Countdown-Lifecycle-Continue-Complete")
     }
 
+    func testGentleModeHidesCountdownRawTitleFromLedgerAndEditorAccessibility()
+        throws
+    {
+        let app = launch(arguments: ["-unmanual-countdown-due"])
+        enableGentleMode(in: app)
+
+        app.buttons["旅程"].tap()
+        let record = element("journey.record", in: app)
+        XCTAssertTrue(record.waitForExistence(timeout: 5))
+        record.tap()
+        let countdownMenu = app.buttons.containing(
+            .staticText,
+            identifier: "倒计时"
+        ).firstMatch
+        XCTAssertTrue(countdownMenu.waitForExistence(timeout: 5))
+        countdownMenu.tap()
+
+        let current = element("countdown.ledger.current", in: app)
+        XCTAssertTrue(current.waitForExistence(timeout: 8))
+        XCTAssertTrue(current.label.contains("私人日期"))
+        XCTAssertFalse(current.label.contains("到期测试"))
+        current.tap()
+
+        XCTAssertTrue(
+            element("countdown.gentleTitle", in: app)
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(element("countdown.title", in: app).exists)
+        XCTAssertFalse(app.staticTexts["到期测试"].exists)
+
+        let replace = app.buttons[
+            "删除并建立新的目标日"
+        ].firstMatch
+        scrollToVisible(replace, in: app)
+        XCTAssertTrue(replace.isHittable)
+        replace.tap()
+        let confirmation =
+            app.sheets.buttons["开始建立新目标"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 3))
+        confirmation.tap()
+
+        XCTAssertTrue(
+            element("countdown.gentleTitle", in: app)
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(element("countdown.title", in: app).exists)
+        XCTAssertFalse(app.staticTexts["到期测试"].exists)
+    }
+
+    func testGentleModeNewCountdownNeverExposesRawTitle() throws {
+        let app = launch()
+        enableGentleMode(in: app)
+
+        app.buttons["旅程"].tap()
+        let record = element("journey.record", in: app)
+        XCTAssertTrue(record.waitForExistence(timeout: 5))
+        record.tap()
+        let countdownMenu = app.buttons.containing(
+            .staticText,
+            identifier: "倒计时"
+        ).firstMatch
+        XCTAssertTrue(countdownMenu.waitForExistence(timeout: 5))
+        countdownMenu.tap()
+        let create = element("countdown.ledger.create", in: app)
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        create.tap()
+
+        let gentleTitle = element(
+            "countdown.gentleTitle",
+            in: app
+        )
+        XCTAssertTrue(gentleTitle.waitForExistence(timeout: 5))
+        XCTAssertFalse(element("countdown.title", in: app).exists)
+        gentleTitle.tap()
+        gentleTitle.typeText("私人里程碑")
+        XCTAssertTrue(element("countdown.save", in: app).isEnabled)
+    }
+
+    func testArchiveGentleModeReadFailureIsVisibleAndNotEditable()
+        throws
+    {
+        let app = launch(
+            arguments: ["-unmanual-gentle-mode-read-error"]
+        )
+        app.buttons["档案"].tap()
+
+        let error = element(
+            "archive.gentleModeError",
+            in: app
+        )
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            error.label.contains(
+                "温和模式状态没有通过完整性检查"
+            )
+        )
+        let toggle = element(
+            "archive.gentleMode.toggle",
+            in: app
+        )
+        XCTAssertTrue(toggle.exists)
+        XCTAssertFalse(toggle.isEnabled)
+        XCTAssertEqual(
+            element(
+                "archive.gentleMode.status",
+                in: app
+            ).label,
+            "温和模式状态不可用"
+        )
+    }
+
+    func testCountdownEditorReadFailureCannotBecomeBlankCreateOrSave()
+        throws
+    {
+        let app = launch(
+            arguments: [
+                "-unmanual-countdown",
+                "-unmanual-countdown-read-error"
+            ]
+        )
+        let error = element("countdown.readError", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(element("countdown.retryRead", in: app).exists)
+        XCTAssertFalse(element("countdown.title", in: app).exists)
+        XCTAssertFalse(element("countdown.save", in: app).isEnabled)
+
+        element("countdown.retryRead", in: app).tap()
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.alerts.count, 0)
+    }
+
+    func testTodayCountdownReadFailureIsVisibleAndClearsContent()
+        throws
+    {
+        let app = launch(
+            arguments: ["-unmanual-countdown-read-error"]
+        )
+        let error = element("today.contentReadError", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["重新读取"].exists)
+        XCTAssertFalse(element("today.v25.addStartDate", in: app).exists)
+        XCTAssertFalse(element("today.v25.quickRecord", in: app).exists)
+    }
+
+    func testArchiveSnapshotReadFailureHidesFactsAndExportActions()
+        throws
+    {
+        let app = launch(
+            arguments: ["-unmanual-archive-read-error"]
+        )
+        app.buttons["档案"].tap()
+
+        let error = element("archive.readError", in: app)
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertTrue(element("archive.retryRead", in: app).exists)
+        XCTAssertFalse(app.staticTexts["从第一笔开始"].exists)
+        XCTAssertFalse(app.staticTexts["整理就诊材料"].exists)
+    }
+
     func testCountdownSaveFailureStaysOnPageAndPreventsDuplicateSubmission()
         throws
     {
@@ -470,6 +629,39 @@ final class SystemBackupDisclosureUITests: XCTestCase {
         }
         app.launch()
         return app
+    }
+
+    private func enableGentleMode(in app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["档案"].waitForExistence(timeout: 5))
+        app.buttons["档案"].tap()
+        let toggle = element(
+            "archive.gentleMode.toggle",
+            in: app
+        )
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        scrollToFullyVisible(toggle, in: app)
+        XCTAssertTrue(isFullyVisible(toggle, in: app))
+        toggle.tap()
+        let status = element(
+            "archive.gentleMode.status",
+            in: app
+        )
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        let enabledStatus = NSPredicate(
+            format: "label == %@",
+            "温和模式已开启"
+        )
+        let expectation = XCTNSPredicateExpectation(
+            predicate: enabledStatus,
+            object: status
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [expectation],
+                timeout: 5
+            ),
+            .completed
+        )
     }
 
     private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {

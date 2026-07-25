@@ -94,10 +94,13 @@ enum CountdownLifecycleRules {
 
     static func canContinueCounting(
         lifecycle: CountdownLifecycle,
+        overdueMode: CountdownOverdueMode,
         target: CivilDateFact,
         today: CivilDateFact
     ) -> Bool {
-        lifecycle == .active && target <= today
+        lifecycle == .active
+            && overdueMode == .awaitingDecision
+            && target <= today
     }
 }
 

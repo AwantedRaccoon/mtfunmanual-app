@@ -138,7 +138,7 @@ final class StoreBootstrapTests: XCTestCase {
         }
     }
 
-    func testV2ActiveGenerationUpgradesThroughInactiveCopiesBeforeV4PointerSwitch() throws {
+    func testV2ActiveGenerationUpgradesThroughInactiveCopiesBeforeLatestPointerSwitch() throws {
         let layout = try makeLayout()
         let sourceGenerationID = UUID()
         let sourceStoreURL = layout.storeURL(for: sourceGenerationID)
@@ -196,7 +196,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "6.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "7.0.0")
         XCTAssertEqual(pointer.generationID, upgraded.generationID)
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         let sourceResourceValuesAfterUpgrade = try sourceStoreURL.resourceValues(
@@ -280,7 +280,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "6.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "7.0.0")
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<AdministrationEventRecord>()), 0)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<ReminderPreferenceRecord>()), 0)
@@ -291,7 +291,7 @@ final class StoreBootstrapTests: XCTestCase {
         )
     }
 
-    func testV4ActiveGenerationUpgradesThroughInactiveV5AndV6Copies() throws {
+    func testV4ActiveGenerationUpgradesThroughInactiveV5AndV7Copies() throws {
         let layout = try makeLayout()
         let sourceGenerationID = UUID()
         let sourceStoreURL = layout.storeURL(for: sourceGenerationID)
@@ -353,7 +353,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "6.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "7.0.0")
         XCTAssertEqual(pointer.generationID, upgraded.generationID)
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         XCTAssertEqual(
@@ -376,7 +376,7 @@ final class StoreBootstrapTests: XCTestCase {
         )
     }
 
-    func testV4ToV5CrashBeforePointerPreservesSourceThenContinuesToV6() throws {
+    func testV4ToV5CrashBeforePointerPreservesSourceThenContinuesToV7() throws {
         let layout = try makeLayout()
         let sourceGenerationID = UUID()
         let sourceStoreURL = layout.storeURL(for: sourceGenerationID)
@@ -456,14 +456,14 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertNotEqual(resumed.generationID, interruptedJournal.targetGenerationID)
         XCTAssertEqual(activatedPointer.generationID, resumed.generationID)
-        XCTAssertEqual(activatedPointer.schemaVersion, "6.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "7.0.0")
         XCTAssertEqual(
             try durableStoreBundleHashes(at: sourceStoreURL),
             sourceBundleBefore
         )
     }
 
-    func testV4ToV5PreparingInterruptsReuseTargetThenContinuesToV6() throws {
+    func testV4ToV5PreparingInterruptsReuseTargetThenContinuesToV7() throws {
         for failpoint in [
             StoreBootstrapFailpoint.duringLegacyBundleCopyAfterMain,
             .afterGenerationPrepared,
@@ -523,7 +523,7 @@ final class StoreBootstrapTests: XCTestCase {
         }
     }
 
-    func testV5ToV6CrashBeforePointerPreservesSourceAndResumesSameTarget() throws {
+    func testV5ToV7CrashBeforePointerPreservesSourceAndResumesSameTarget() throws {
         let layout = try makeLayout()
         let source = try seedActiveV5Generation(in: layout)
         let bootstrapper = makeTestBootstrapper(layout: layout)
@@ -540,7 +540,7 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertEqual(interruptedPointer.schemaVersion, "5.0.0")
         XCTAssertEqual(interruptedJournal.sourceGenerationID, source.generationID)
         XCTAssertEqual(interruptedJournal.sourceSchemaVersion, "5.0.0")
-        XCTAssertEqual(interruptedJournal.targetSchemaVersion, "6.0.0")
+        XCTAssertEqual(interruptedJournal.targetSchemaVersion, "7.0.0")
         XCTAssertEqual(interruptedJournal.phase, .validated)
         XCTAssertEqual(
             try durableStoreBundleHashes(at: source.storeURL),
@@ -552,7 +552,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertEqual(resumed.generationID, targetID)
         XCTAssertEqual(activatedPointer.generationID, targetID)
-        XCTAssertEqual(activatedPointer.schemaVersion, "6.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "7.0.0")
         XCTAssertEqual(
             try durableStoreBundleHashes(at: source.storeURL),
             source.durableHashes
@@ -566,7 +566,406 @@ final class StoreBootstrapTests: XCTestCase {
         )
     }
 
-    func testV5ToV6PreparingInterruptsReuseSameTargetWithoutOrphans() throws {
+    func testV5ToV7CopiesAndAuditsAttachmentFilesBeforePointerActivation()
+        async throws
+    {
+        let layout = try makeLayout()
+        let source = try seedActiveV5Generation(in: layout)
+        let payload = Data("%PDF-1.7\nv5 attachment\n".utf8)
+        let metadata = try await addV5JourneyAttachment(
+            payload: payload,
+            generationID: source.generationID,
+            storeURL: source.storeURL,
+            layout: layout
+        )
+        let sourceBundleBefore = try durableStoreBundleHashes(
+            at: source.storeURL
+        )
+        let sourceFileURL = layout.generationDirectoryURL(
+            for: source.generationID
+        )
+        .appendingPathComponent("Files", isDirectory: true)
+        .appendingPathComponent(metadata.relativePath)
+        XCTAssertEqual(try Data(contentsOf: sourceFileURL), payload)
+
+        let opened = try makeTestBootstrapper(layout: layout).open()
+        let pointer = try GenerationPointerStore(layout: layout).read()
+        let targetFileURL = layout.generationDirectoryURL(
+            for: opened.generationID
+        )
+        .appendingPathComponent("Files", isDirectory: true)
+        .appendingPathComponent(metadata.relativePath)
+        let context = ModelContext(opened.container)
+        let attachmentID = metadata.attachmentID
+        let attachment = try XCTUnwrap(
+            context.fetch(
+                FetchDescriptor<AttachmentRecord>(
+                    predicate: #Predicate {
+                        $0.id == attachmentID
+                    }
+                )
+            ).first
+        )
+        let snapshot = try XCTUnwrap(AttachmentSnapshot(attachment))
+
+        XCTAssertEqual(pointer.schemaVersion, "7.0.0")
+        XCTAssertEqual(pointer.generationID, opened.generationID)
+        XCTAssertNotEqual(opened.generationID, source.generationID)
+        XCTAssertEqual(try Data(contentsOf: targetFileURL), payload)
+        XCTAssertEqual(try Data(contentsOf: sourceFileURL), payload)
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            sourceBundleBefore
+        )
+        XCTAssertNoThrow(
+            try AttachmentFileStore(
+                rootURL: layout.generationDirectoryURL(
+                    for: opened.generationID
+                )
+                .appendingPathComponent("Files", isDirectory: true)
+            )
+            .audit([snapshot])
+        )
+    }
+
+    func testV5ToV7RejectsAttachmentSymlinkBeforePointerActivation()
+        throws
+    {
+        let layout = try makeLayout()
+        let source = try seedActiveV5Generation(in: layout)
+        let originalPointer = try GenerationPointerStore(
+            layout: layout
+        ).read()
+        let filesURL = layout.generationDirectoryURL(
+            for: source.generationID
+        )
+        .appendingPathComponent("Files", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: filesURL,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.createSymbolicLink(
+            at: filesURL.appendingPathComponent("unsafe-link"),
+            withDestinationURL: source.storeURL
+        )
+        let sourceBundleBefore = try durableStoreBundleHashes(
+            at: source.storeURL
+        )
+
+        XCTAssertThrowsError(
+            try makeTestBootstrapper(layout: layout).open()
+        ) { error in
+            XCTAssertEqual(
+                error as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try GenerationPointerStore(layout: layout).read(),
+            originalPointer
+        )
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            sourceBundleBefore
+        )
+    }
+
+    func testV6EnabledReminderRequiresExplicitV7ResaveBeforeScheduling()
+        async throws
+    {
+        let layout = try makeLayout()
+        let source = try seedActiveV6GenerationWithEnabledReminder(
+            in: layout
+        )
+        let sourceBundleBefore = try durableStoreBundleHashes(
+            at: source.storeURL
+        )
+
+        let bootstrapper = makeTestBootstrapper(layout: layout)
+        do {
+            _ = try bootstrapper.open(
+                failAt: .afterGenerationPrepared
+            )
+            XCTFail("Expected the prepared-generation failpoint")
+        } catch let error as StoreBootstrapInterruption {
+            XCTAssertEqual(error, .injected)
+        } catch {
+            XCTFail(
+                "V6 source validation/copy failed before failpoint: \(error)"
+            )
+            throw error
+        }
+        let opened = try v6FixtureStep("resume V6 to V7 upgrade") {
+            try bootstrapper.open()
+        }
+        let pointer = try GenerationPointerStore(layout: layout).read()
+        let context = ModelContext(opened.container)
+        let countdownID = source.countdownID
+        let checkpoint = try XCTUnwrap(
+            context.fetch(
+                FetchDescriptor<CountdownV6AuditCheckpointRecord>(
+                    predicate: #Predicate {
+                        $0.countdownID == countdownID
+                    }
+                )
+            ).first
+        )
+        let state = try XCTUnwrap(
+            context.fetch(
+                FetchDescriptor<CountdownStateRecord>(
+                    predicate: #Predicate {
+                        $0.id == countdownID
+                    }
+                )
+            ).first
+        )
+        let expectedLatestEventID = state.latestEventID
+        let title = state.title
+        let gentleTitle = state.gentleTitle
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reader = AppReadActor(modelContainer: opened.container)
+        let blocked = try await reader.reminderPlanningSnapshot(
+            now: now,
+            displayTimeZoneIdentifier: "UTC"
+        )
+
+        XCTAssertEqual(pointer.schemaVersion, "7.0.0")
+        XCTAssertNotEqual(pointer.generationID, source.generationID)
+        XCTAssertEqual(
+            checkpoint.reminderAdmission,
+            .needsUserConfirmation
+        )
+        XCTAssertTrue(blocked.countdownHasEnabledIntent)
+        XCTAssertEqual(blocked.countdownID, source.countdownID)
+        XCTAssertTrue(blocked.countdownCandidates.isEmpty)
+        XCTAssertEqual(
+            blocked.countdownFailureCode,
+            "countdown-needs-confirmation"
+        )
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            sourceBundleBefore
+        )
+
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: now,
+            timeZoneIdentifier: "UTC",
+            provenance: .userEntered
+        )
+        _ = try await AppWriteActor(
+            modelContainer: opened.container
+        ).updateCountdown(
+            UpdateCountdownCommand(
+                operationID: UUID(),
+                eventID: UUID(),
+                countdownID: source.countdownID,
+                expectedLatestEventID: expectedLatestEventID,
+                title: title,
+                gentleTitle: gentleTitle,
+                targetDate: try CivilDateFact(
+                    year: 2030,
+                    month: 1,
+                    day: 15
+                ),
+                showInToday: true,
+                reminder: CountdownReminderInput(
+                    isEnabled: true,
+                    leadDays: 2,
+                    localHour: 9,
+                    localMinute: 30
+                ),
+                timestamp: timestamp
+            )
+        )
+        let admitted = try await reader.reminderPlanningSnapshot(
+            now: now,
+            displayTimeZoneIdentifier: "UTC"
+        )
+
+        XCTAssertTrue(admitted.countdownHasEnabledIntent)
+        XCTAssertEqual(admitted.countdownID, source.countdownID)
+        XCTAssertEqual(admitted.countdownCandidates.count, 1)
+        XCTAssertNil(admitted.countdownFailureCode)
+    }
+
+    func testV5ToV7PreservesFractionalCountdownFactsThroughReopen() throws {
+        let layout = try makeLayout()
+        let source = try seedActiveV5Generation(
+            in: layout,
+            includeFractionalCountdowns: true
+        )
+        let activeCountdownID = try XCTUnwrap(source.activeCountdownID)
+        let archivedCountdownID = try XCTUnwrap(source.archivedCountdownID)
+        let activeCreatedAt = try XCTUnwrap(source.activeCreatedAt)
+        let archivedAt = try XCTUnwrap(source.archivedAt)
+        let bootstrapper = makeTestBootstrapper(layout: layout)
+        var activatedGenerationID: UUID?
+
+        try autoreleasepool {
+            let opened = try bootstrapper.open()
+            activatedGenerationID = opened.generationID
+            let pointer = try GenerationPointerStore(layout: layout).read()
+            XCTAssertEqual(pointer.schemaVersion, "7.0.0")
+            XCTAssertEqual(pointer.generationID, opened.generationID)
+            let context = ModelContext(opened.container)
+            let states = try context.fetch(
+                FetchDescriptor<CountdownStateRecord>()
+            )
+            let activeState = try XCTUnwrap(
+                states.first { $0.id == activeCountdownID }
+            )
+            let archivedState = try XCTUnwrap(
+                states.first { $0.id == archivedCountdownID }
+            )
+            XCTAssertEqual(activeState.createdAt, activeCreatedAt)
+            XCTAssertEqual(activeState.updatedAt, activeCreatedAt)
+            XCTAssertEqual(archivedState.archivedAt, archivedAt)
+            XCTAssertEqual(archivedState.updatedAt, archivedAt)
+
+            let events = try context.fetch(
+                FetchDescriptor<CountdownLifecycleEventRecord>()
+            )
+            let activeEvent = try XCTUnwrap(
+                events.first { $0.countdownID == activeCountdownID }
+            )
+            let archivedEvent = try XCTUnwrap(
+                events.first { $0.countdownID == archivedCountdownID }
+            )
+            XCTAssertEqual(activeEvent.kind, .migratedSnapshot)
+            XCTAssertEqual(activeEvent.occurredAt, activeCreatedAt)
+            XCTAssertEqual(activeEvent.historicalTimestamp?.precision, .subsecond)
+            XCTAssertEqual(archivedEvent.kind, .migratedSnapshot)
+            XCTAssertEqual(archivedEvent.occurredAt, archivedAt)
+            XCTAssertEqual(
+                archivedEvent.historicalTimestamp?.precision,
+                .subsecond
+            )
+
+            let reminders = try context.fetch(
+                FetchDescriptor<CountdownReminderRuleRecord>()
+            )
+            XCTAssertEqual(
+                reminders.first {
+                    $0.countdownID == activeCountdownID
+                }?.updatedAt,
+                activeCreatedAt
+            )
+            XCTAssertEqual(
+                reminders.first {
+                    $0.countdownID == archivedCountdownID
+                }?.updatedAt,
+                archivedAt
+            )
+            let receipts = try context.fetch(
+                FetchDescriptor<OperationReceiptRecord>()
+            )
+            XCTAssertEqual(
+                receipts.first {
+                    $0.operationID == activeEvent.operationID
+                }?.committedAt,
+                activeCreatedAt
+            )
+            XCTAssertEqual(
+                receipts.first {
+                    $0.operationID == archivedEvent.operationID
+                }?.committedAt,
+                archivedAt
+            )
+            XCTAssertNoThrow(
+                try CountdownLifecycleRelationshipValidator.validate(
+                    in: context,
+                    failure: .corruptionSuspected
+                )
+            )
+        }
+
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            source.durableHashes
+        )
+        try autoreleasepool {
+            let reopened = try bootstrapper.open()
+            XCTAssertEqual(reopened.generationID, activatedGenerationID)
+            XCTAssertEqual(reopened.origin, .existingGeneration)
+            let context = ModelContext(reopened.container)
+            XCTAssertNoThrow(
+                try CountdownLifecycleRelationshipValidator.validate(
+                    in: context,
+                    failure: .corruptionSuspected
+                )
+            )
+            let states = try context.fetch(
+                FetchDescriptor<CountdownStateRecord>()
+            )
+            XCTAssertEqual(
+                states.first {
+                    $0.id == activeCountdownID
+                }?.createdAt,
+                activeCreatedAt
+            )
+            XCTAssertEqual(
+                states.first {
+                    $0.id == archivedCountdownID
+                }?.archivedAt,
+                archivedAt
+            )
+            let events = try context.fetch(
+                FetchDescriptor<CountdownLifecycleEventRecord>()
+            )
+            let activeEvent = try XCTUnwrap(
+                events.first { $0.countdownID == activeCountdownID }
+            )
+            let archivedEvent = try XCTUnwrap(
+                events.first { $0.countdownID == archivedCountdownID }
+            )
+            XCTAssertEqual(activeEvent.occurredAt, activeCreatedAt)
+            XCTAssertEqual(
+                activeEvent.historicalTimestamp?.precision,
+                .subsecond
+            )
+            XCTAssertEqual(archivedEvent.occurredAt, archivedAt)
+            XCTAssertEqual(
+                archivedEvent.historicalTimestamp?.precision,
+                .subsecond
+            )
+            let reminders = try context.fetch(
+                FetchDescriptor<CountdownReminderRuleRecord>()
+            )
+            XCTAssertEqual(
+                reminders.first {
+                    $0.countdownID == activeCountdownID
+                }?.updatedAt,
+                activeCreatedAt
+            )
+            XCTAssertEqual(
+                reminders.first {
+                    $0.countdownID == archivedCountdownID
+                }?.updatedAt,
+                archivedAt
+            )
+            let receipts = try context.fetch(
+                FetchDescriptor<OperationReceiptRecord>()
+            )
+            XCTAssertEqual(
+                receipts.first {
+                    $0.operationID == activeEvent.operationID
+                }?.committedAt,
+                activeCreatedAt
+            )
+            XCTAssertEqual(
+                receipts.first {
+                    $0.operationID == archivedEvent.operationID
+                }?.committedAt,
+                archivedAt
+            )
+        }
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            source.durableHashes
+        )
+    }
+
+    func testV5ToV7PreparingInterruptsReuseSameTargetWithoutOrphans() throws {
         for failpoint in [
             StoreBootstrapFailpoint.duringLegacyBundleCopyAfterMain,
             .afterGenerationPrepared,
@@ -675,7 +1074,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertEqual(opened.origin, .newInstall)
         XCTAssertEqual(pointer.generationID, opened.generationID)
-        XCTAssertEqual(pointer.schemaVersion, "6.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "7.0.0")
         XCTAssertEqual(opened.storeURL, layout.storeURL(for: opened.generationID))
         XCTAssertTrue(FileManager.default.fileExists(atPath: opened.storeURL.path))
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
@@ -696,8 +1095,9 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: layout.legacyStoreURL.path))
         XCTAssertNotEqual(opened.storeURL, layout.legacyStoreURL)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<HRTProfile>()), 1)
-        // V3 canonical facts plus the V4 receipt-ledger fact accompany legacy facts.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 5)
+        // Canonical/receipt-ledger facts plus the V7 integrity marker accompany
+        // the adopted legacy fact.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 6)
     }
 
     func testEmptyUnversionedLegacyStoreAdoptsReopensAndKeepsSourceUntouched() throws {
@@ -713,7 +1113,7 @@ final class StoreBootstrapTests: XCTestCase {
             let context = ModelContext(opened.container)
 
             XCTAssertEqual(opened.origin, .legacyAdoption)
-            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 2)
+            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 3)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<MigrationBackfillState>()), 1)
             firstDatasetID = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID
@@ -724,7 +1124,7 @@ final class StoreBootstrapTests: XCTestCase {
             let context = ModelContext(reopened.container)
 
             XCTAssertEqual(reopened.origin, .existingGeneration)
-            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 2)
+            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 3)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<MigrationBackfillState>()), 1)
             XCTAssertEqual(try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID, firstDatasetID)
@@ -766,8 +1166,8 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<RegimenVersion>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1)
-        // V6 adds Countdown state/event/reminder/receipt facts to the frozen fixture.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 21)
+        // V7 adds Countdown state/event/reminder/receipt plus integrity facts.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 23)
         XCTAssertEqual(
             try context.fetch(
                 FetchDescriptor<OperationReceiptRecord>(
@@ -1378,7 +1778,7 @@ final class StoreBootstrapTests: XCTestCase {
         }
     }
 
-    func testActiveV6GenerationRejectsCountdownStateEventReminderAndReceiptTampering()
+    func testActiveV7GenerationRejectsCountdownStateEventReminderAndReceiptTampering()
         throws
     {
         for tamper in CountdownTamper.allCases {
@@ -1457,6 +1857,59 @@ final class StoreBootstrapTests: XCTestCase {
                 originalPointer
             )
         }
+    }
+
+    func testActiveV7GenerationRejectsSelfConsistentCountdownStateWhoseLatestEventTimeDisagrees()
+        throws
+    {
+        let layout = try makeLayout()
+        try seedLegacyStore(
+            at: layout.legacyStoreURL,
+            includeCountdown: true
+        )
+        let bootstrapper = makeTestBootstrapper(layout: layout)
+        var originalPointer: GenerationPointer!
+        try autoreleasepool {
+            let opened = try bootstrapper.open()
+            originalPointer = try GenerationPointerStore(
+                layout: layout
+            ).read()
+            let context = ModelContext(opened.container)
+            let state = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<CountdownStateRecord>()
+                ).first
+            )
+            state.updatedAt = state.updatedAt.addingTimeInterval(60)
+            let stateID = state.id
+            let revision = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<RecordRevision>(
+                        predicate: #Predicate {
+                            $0.recordType == "CountdownStateRecord"
+                                && $0.recordID == stateID
+                        }
+                    )
+                ).first
+            )
+            revision.digestHex = try RecordDigestV1.sha256Hex(
+                recordType: "CountdownStateRecord",
+                recordID: state.id,
+                fields: CountdownDigestV1.state(state)
+            )
+            try context.save()
+        }
+
+        XCTAssertThrowsError(try bootstrapper.open()) { error in
+            XCTAssertEqual(
+                error as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try GenerationPointerStore(layout: layout).read(),
+            originalPointer
+        )
     }
 
     func testNestedProtectedDataFailureDuringMigrationKeepsItsClassification() throws {
@@ -1900,6 +2353,16 @@ final class StoreBootstrapTests: XCTestCase {
         let generationID: UUID
         let storeURL: URL
         let durableHashes: [String: String]
+        let activeCountdownID: UUID?
+        let archivedCountdownID: UUID?
+        let activeCreatedAt: Date?
+        let archivedAt: Date?
+    }
+
+    private struct V6SourceFixture {
+        let generationID: UUID
+        let storeURL: URL
+        let countdownID: UUID
     }
 
     private func seedActiveV4Generation(
@@ -1965,7 +2428,8 @@ final class StoreBootstrapTests: XCTestCase {
     }
 
     private func seedActiveV5Generation(
-        in layout: AppDataStoreLayout
+        in layout: AppDataStoreLayout,
+        includeFractionalCountdowns: Bool = false
     ) throws -> V5SourceFixture {
         let generationID = UUID()
         let storeURL = layout.storeURL(for: generationID)
@@ -1976,9 +2440,44 @@ final class StoreBootstrapTests: XCTestCase {
         var datasetID: UUID!
         var factCount = 0
         var revisionCount = 0
+        let activeCountdownID = includeFractionalCountdowns ? UUID() : nil
+        let archivedCountdownID = includeFractionalCountdowns ? UUID() : nil
+        let activeCreatedAt = includeFractionalCountdowns
+            ? Date(timeIntervalSince1970: 1_700_000_000.25)
+            : nil
+        let archivedAt = includeFractionalCountdowns
+            ? Date(timeIntervalSince1970: 1_700_086_400.75)
+            : nil
         try autoreleasepool {
             let container = try AppModelContainerFactory
                 .makePersonalTimelineContainer(at: storeURL)
+            let context = ModelContext(container)
+            if let activeCountdownID,
+               let archivedCountdownID,
+               let activeCreatedAt,
+               let archivedAt {
+                context.insert(
+                    CountdownRecord(
+                        id: activeCountdownID,
+                        title: "V5 亚秒当前项",
+                        targetDate: activeCreatedAt
+                            .addingTimeInterval(172_800),
+                        createdAt: activeCreatedAt
+                    )
+                )
+                context.insert(
+                    CountdownRecord(
+                        id: archivedCountdownID,
+                        title: "V5 亚秒归档项",
+                        targetDate: archivedAt
+                            .addingTimeInterval(-86_400),
+                        createdAt: archivedAt
+                            .addingTimeInterval(-172_800),
+                        archivedAt: archivedAt
+                    )
+                )
+                try context.save()
+            }
             _ = try LegacyV1Backfill.run(in: container)
             _ = try CoreTimeRegimenBackfill.run(
                 in: container,
@@ -1986,7 +2485,6 @@ final class StoreBootstrapTests: XCTestCase {
             )
             _ = try TodayExecutionBackfill.run(in: container)
             _ = try PersonalTimelineBackfill.run(in: container)
-            let context = ModelContext(container)
             datasetID = try XCTUnwrap(
                 context.fetch(FetchDescriptor<DatasetMetadata>()).first
             ).datasetID
@@ -2022,7 +2520,271 @@ final class StoreBootstrapTests: XCTestCase {
         return V5SourceFixture(
             generationID: generationID,
             storeURL: storeURL,
-            durableHashes: try durableStoreBundleHashes(at: storeURL)
+            durableHashes: try durableStoreBundleHashes(at: storeURL),
+            activeCountdownID: activeCountdownID,
+            archivedCountdownID: archivedCountdownID,
+            activeCreatedAt: activeCreatedAt,
+            archivedAt: archivedAt
+        )
+    }
+
+    private func addV5JourneyAttachment(
+        payload: Data,
+        generationID: UUID,
+        storeURL: URL,
+        layout: AppDataStoreLayout
+    ) async throws -> PreparedAttachmentMetadata {
+        let fileStore = AttachmentFileStore(
+            rootURL: layout.generationDirectoryURL(for: generationID)
+                .appendingPathComponent("Files", isDirectory: true)
+        )
+        let staged = try fileStore.stage(
+            data: payload,
+            attachmentID: UUID(),
+            originalFilename: "v5-report.pdf",
+            typeIdentifier: "com.adobe.pdf"
+        )
+        _ = try fileStore.commit(staged)
+        let metadata = PreparedAttachmentMetadata(staged)
+        let container = try AppModelContainerFactory
+            .makePersonalTimelineContainer(at: storeURL)
+        let writer = AppWriteActor(modelContainer: container)
+        try await writer.addJourneyEntry(
+            AddJourneyEntryCommand(
+                text: "V5 附件迁移",
+                kind: .moment,
+                occurredAt: Date(timeIntervalSince1970: 1_735_689_600),
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC",
+                committedAt: Date(timeIntervalSince1970: 1_735_689_601),
+                attachments: [metadata]
+            )
+        )
+        try fileStore.markMetadataCommitted(metadata)
+        return metadata
+    }
+
+    private func seedActiveV6GenerationWithEnabledReminder(
+        in layout: AppDataStoreLayout
+    ) throws -> V6SourceFixture {
+        let generationID = UUID()
+        let storeURL = layout.storeURL(for: generationID)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let countdownID = UUID()
+        var datasetID: UUID!
+        var factCount = 0
+        var revisionCount = 0
+        try autoreleasepool {
+            let container = try v6FixtureStep("open frozen V6") {
+                try AppModelContainerFactory
+                    .makeV6CountdownLifecycleContainer(at: storeURL)
+            }
+            let seedContext = ModelContext(container)
+            seedContext.insert(
+                CountdownRecord(
+                    id: countdownID,
+                    title: "V6 已启用提醒",
+                    targetDate: Date(
+                        timeIntervalSince1970: 1_900_000_000
+                    ),
+                    createdAt: Date(
+                        timeIntervalSince1970: 1_700_000_000.25
+                    )
+                )
+            )
+            try seedContext.save()
+            _ = try v6FixtureStep("legacy backfill") {
+                try LegacyV1Backfill.run(in: container)
+            }
+            _ = try v6FixtureStep("core backfill") {
+                try CoreTimeRegimenBackfill.run(
+                    in: container,
+                    assumedTimeZoneIdentifier: "UTC"
+                )
+            }
+            _ = try v6FixtureStep("today backfill") {
+                try TodayExecutionBackfill.run(in: container)
+            }
+            _ = try v6FixtureStep("timeline backfill") {
+                try PersonalTimelineBackfill.run(in: container)
+            }
+            _ = try v6FixtureStep("countdown backfill") {
+                try CountdownLifecycleBackfill.run(
+                    in: container,
+                    now: Date(timeIntervalSince1970: 1_750_000_000),
+                    includeIntegrityFacts: false
+                )
+            }
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+            let state = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<CountdownStateRecord>(
+                        predicate: #Predicate { $0.id == countdownID }
+                    )
+                ).first
+            )
+            let eventID = state.latestEventID
+            let event = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<CountdownLifecycleEventRecord>(
+                        predicate: #Predicate { $0.id == eventID }
+                    )
+                ).first
+            )
+            let reminder = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<CountdownReminderRuleRecord>(
+                        predicate: #Predicate {
+                            $0.countdownID == countdownID
+                        }
+                    )
+                ).first
+            )
+            let legacy = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<CountdownRecord>(
+                        predicate: #Predicate { $0.id == countdownID }
+                    )
+                ).first
+            )
+            let operationID = event.operationID
+            let receipt = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<OperationReceiptRecord>(
+                        predicate: #Predicate {
+                            $0.operationID == operationID
+                        }
+                    )
+                ).first
+            )
+            reminder.isEnabled = true
+            reminder.leadDays = 2
+            reminder.localHour = 9
+            reminder.localMinute = 30
+            receipt.commandDigest = try CountdownLifecycleBackfill
+                .migrationCommandDigest(
+                    source: legacy,
+                    state: state,
+                    event: event,
+                    reminder: reminder
+                )
+            try rewriteRevision(
+                in: context,
+                recordType: "CountdownReminderRuleRecord",
+                recordID: reminder.id,
+                fields: try CountdownDigestV1.reminder(reminder)
+            )
+            try rewriteRevision(
+                in: context,
+                recordType: "OperationReceiptRecord",
+                recordID: receipt.operationID,
+                fields: try TodayExecutionDigestV1
+                    .operationReceipt(receipt)
+            )
+            let ledger = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<OperationReceiptLedgerRecord>()
+                ).first
+            )
+            let receipts = try context.fetch(
+                FetchDescriptor<OperationReceiptRecord>()
+            )
+            ledger.receiptCount = receipts.count
+            ledger.receiptSetDigest = try TodayExecutionDigestV1
+                .receiptSetDigest(receipts)
+            try rewriteRevision(
+                in: context,
+                recordType: "OperationReceiptLedgerRecord",
+                recordID: TodayExecutionDigestV1.receiptLedgerID,
+                fields: TodayExecutionDigestV1
+                    .operationReceiptLedger(ledger)
+            )
+            try context.save()
+            try v6FixtureStep("V6 relationship validation") {
+                try CountdownLifecycleRelationshipValidator.validate(
+                    in: context,
+                    failure: .migrationFailed,
+                    includesIntegrityFacts: false
+                )
+            }
+            datasetID = try XCTUnwrap(
+                context.fetch(FetchDescriptor<DatasetMetadata>()).first
+            ).datasetID
+            revisionCount = try context.fetchCount(
+                FetchDescriptor<RecordRevision>()
+            )
+            factCount = revisionCount
+        }
+        try GenerationPointerStore(layout: layout).write(
+            GenerationPointer(
+                generationID: generationID,
+                schemaVersion: "6.0.0",
+                origin: .schemaUpgrade,
+                datasetID: datasetID,
+                minimumFactCount: factCount,
+                minimumRevisionCount: revisionCount
+            )
+        )
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: generationID,
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        _ = try StoreFileProtectionAuditor(
+            backupPolicy: .systemManaged,
+            verificationMode: .simulatorTestHarness
+        ).hardenAndInspect(
+            storeURL: storeURL,
+            resources: layout.protectionResources(
+                for: generationID
+            )
+        )
+        return V6SourceFixture(
+            generationID: generationID,
+            storeURL: storeURL,
+            countdownID: countdownID
+        )
+    }
+
+    private func v6FixtureStep<T>(
+        _ label: String,
+        _ body: () throws -> T
+    ) throws -> T {
+        do {
+            return try body()
+        } catch {
+            XCTFail("V6 fixture failed at \(label): \(error)")
+            throw error
+        }
+    }
+
+    private func rewriteRevision(
+        in context: ModelContext,
+        recordType: String,
+        recordID: UUID,
+        fields: [RecordDigestV1.Field]
+    ) throws {
+        let recordKey =
+            recordType + ":" + recordID.uuidString.lowercased()
+        let revision = try XCTUnwrap(
+            context.fetch(
+                FetchDescriptor<RecordRevision>(
+                    predicate: #Predicate {
+                        $0.recordKey == recordKey
+                    }
+                )
+            ).first
+        )
+        revision.digestHex = try RecordDigestV1.sha256Hex(
+            recordType: recordType,
+            recordID: recordID,
+            fields: fields
         )
     }
 

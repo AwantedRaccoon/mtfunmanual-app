@@ -6,11 +6,11 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 网站负责解释“这件事通常是什么”，App 负责帮助用户看见“这件事在我身上是怎样发生的”。完整知识内容仍由 [mtfbook.com](https://mtfbook.com/) 提供。
 
-> **当前状态（2026-07-24）**
+> **当前状态（2026-07-25）**
 >
 > - App 版本：`1.0`（build `1`）；`V2.5` 只是内部视觉迭代名。
 > - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3 与 Batch 5 已在 Simulator 与自动化范围内完成。Batch 4 尚未开始。
-> - 当前位置：Batch 3 已补齐 Countdown 完整生命周期、统一设备本地提醒、旧数据复核与时间线闭环，并通过全量自动化回归。真机通知、文件保护、系统备份恢复、最低设备性能与完整辅助技术人工矩阵仍保留到发布候选阶段。
+> - 当前位置：Batch 3 已补齐 Countdown 完整生命周期、统一设备本地提醒、旧数据复核与时间线闭环；2026-07-25 的完整复核修复了提醒 fail-closed、重复状态转换、历史时区、温和模式、读取错误、稳定分页和终态时间事件绑定缺口，并通过新的全量自动化回归。真机通知、文件保护、系统备份恢复、最低设备性能与完整辅助技术人工矩阵仍保留到发布候选阶段。
 > - GitHub 状态：Stage 0–3 与 Batch 5 阶段快照已进入 `origin/main`；它不是 GitHub Release。本次 Batch 3 闭环仍只在本地 `countdown-lifecycle` 分支，尚未推送或合并；任何后续推送与合并都需要维护者当次明确批准。
 > - 发布状态：尚未达到 App Store release-ready，也尚未开始发布前真机测试。
 
@@ -23,7 +23,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 - **Batch 0 — 合同冻结**：确认 App 1.0、iOS 17+、本地优先、无 App 主动联网、`.systemManaged` 系统备份边界，以及时间、执行、库存、化验和数据谱系的跨模块合同；
 - **Batch 1 — 数据安全底座**：实现 V1 → V2 bridge、generation copy/journal/pointer、幂等 backfill、revision/digest、Recovery Mode、读写 actor、有界查询和性能证据 harness；代码与 Simulator 自动化已完成，真机文件保护、系统备份恢复和最低设备性能仍是发布门禁；
 - **Batch 2 — 时间与方案版本核心**：实现 additive Schema V3、civil date、historical timestamp、草稿/封存方案、组成项与计划数据、当前/未来/历史解析、变更校样和历史记录关联。
-- **Batch 3 — 今日执行、Countdown 与本地提醒**：实现 additive Schema V4 与 V6、四类确定性 occurrence、append-only 执行事实与纠错、一次 snooze、完整 Countdown 生命周期、提醒偏好、覆盖投影和 UserNotifications 统一设备本地调度。
+- **Batch 3 — 今日执行、Countdown 与本地提醒**：实现 additive Schema V4、V6 与 V7、四类确定性 occurrence、append-only 执行事实与纠错、一次 snooze、完整 Countdown 生命周期、typed command 审计、提醒偏好、覆盖投影和 UserNotifications 统一设备本地调度。
 - **Batch 5 — 化验、状态、附件与统一时间线**：实现 additive Schema V5、结构化化验样本与结果、可版本化状态指标、本机私有附件存储、旧化验幂等回填，以及跨化验、状态、执行与方案的有界统一时间线；未加入 App 主动联网、云同步或第三方运行时依赖。
 
 ### Batch 3 本次阶段实现
@@ -37,9 +37,27 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 - **并发、系统时间与 Recovery**：调和采用单调请求序号和串行队列，旧请求不得覆盖新结果。App ready、回到前台、换日、显著时间变化和时区变化都会重读 Today 并调和提醒。Recovery Mode 会使在途工作失效，且只清理 `unmanual.exec.v1.` 与 `unmanual.countdown.v1.` 两类本 App 自有 request。
 - **数据完整性加固**：Schema V4 backfill 不创造执行事实，也不默认开启提醒。Canonical 时间编码在微秒精度上可失败检查，拒绝 NaN、无穷和超出 `Int64` 范围的时间；关系 validator 检查 occurrence、方案、receipt、event、override 与 coverage 之间的一致性。
 - **可用性与辅助功能**：Today 台账覆盖 loading、error、empty、review、saving 和 recorded 状态；动作防重入，纠错与提醒授权 sheet 可滚动且主操作在窄屏与大字号下可达。辅助文字改用通过 WCAG AA 的语义颜色令牌。
-- **Countdown 完整生命周期**：以 civil date 保存目标日，覆盖建立、修改、到期后继续计时、完成、归档、删除和原子替换；生命周期事件、revision、receipt、digest 与 opaque tombstone 保持可审计，删除后不保留标题等敏感载荷。
-- **旧数据复核与有界回看**：V6 幂等回填不会悄悄挑选多个旧当前目标；冲突记录进入可见复核区，解决前禁止再建立新目标。当前项、复核项和历史事件使用独立有界查询与分页，完成或归档的 Countdown 进入统一个人时间线。
+- **Countdown 完整生命周期**：以 civil date 保存目标日，覆盖建立、修改、到期后继续计时、完成、归档、删除和原子替换；生命周期事件、V7 typed command audit、revision、receipt、digest 与 opaque tombstone 保持可审计，删除后不保留标题等敏感载荷。
+- **旧数据复核与有界回看**：V6/V7 幂等回填不会悄悄挑选多个旧当前目标；冲突记录进入可见复核区，解决前禁止直接建立新目标，也禁止通过“删除并建立新的目标日”原子替换绕过门禁。V6 中已启用但缺少 typed command 来源的提醒在升级后停止调度，必须由用户在 V7 显式重新保存。当前项、复核项和历史事件使用独立有界查询与分页，完成或归档的 Countdown 进入统一个人时间线。
 - **统一提醒预算与可见覆盖**：执行提醒和 Countdown 共享 60 条保守预算，同时只管理各自拥有的 request 前缀，不删除其他 App 的通知。权限拒绝、系统设置、预算不足、DST 无效时间、调度失败和覆盖过期都会保存并显示，不再静默吞掉失败。
+
+### Batch 3 2026-07-25 完整复核
+
+三名全新只读调查者分别从提醒调度、生命周期数据与 SwiftUI/辅助功能角度重新检查当前源码。主审复核证据后补齐：
+
+- 任意提醒 add/remove/readback 失败都会清理全部本 App owned pending；清理无法确认时不会伪装成 disabled。过期调和不会刷新 Today，schedule 与 Countdown coverage 也会做状态/数量/错误码一致性校验；
+- “继续计算”在同一个 target 周期只能从待决定状态执行一次；改期会开启新的周期，新目标日到达后可再次继续计日，单纯改标题或提醒不会重置门禁。命令的 `today` 必须与历史时间的当地日期一致，目标日前伪造 continue 会被关系校验拒绝。内容编辑不再按当前时区重写 legacy target，历史事件显示使用记录时捕获的 civil time；
+- V6 已落盘模型保持冻结，完整性增强进入纯 additive V7。新写入由 typed command v2 audit 绑定私有标题 commitment、目标日、Today/提醒意图、事件时间与语义、前后 materialized facts、终态提醒快照和前序 audit 链；receipt 引用该 command digest。联合改写 state/event/legacy/reminder 并重算普通 revision 仍无法伪造合法命令。既有 V6 前缀使用诚实的 checkpoint，不伪装拥有历史 typed command；升级前已启用的提醒必须经过 V7 update/replace 才重新调度；
+- 设备时钟被校正后，后写事件的 wall-clock instant 可能早于创建时间；逻辑先后继续由 event 链与 local revision 决定，不会让一次成功编辑在下次启动时自发进入 Recovery。任意生命周期的未解决 legacy review 都在写层阻止新建目标，不能只依赖 UI 隐藏入口；台账未加载完时用“至少 N 项”说明分页数量；
+- Today、Countdown 编辑器与档案温和模式的读取错误不再被吞成空内容；Today 主投影或档案摘要读取失败时会隐藏依赖事实、伪空状态与导出操作，只保留错误和重试。档案摘要与温和模式错误彼此独立，保存偏好不会清掉仍存在的摘要错误。温和模式可在正式档案页切换，保存期间阻止跳到仍显示旧名称的页面，温和模式下新建或替换目标时不会先暴露原始标题字段，开启后可见文本与辅助功能树均不暴露原始标题；
+- 历史/复核分页改为由不可变排序键驱动的 `limit + 1` keyset cursor；每页查询保持有界，不再读取整张表或维护会话级全量 ID 集合，并以请求代次阻止旧首刷或旧分页覆盖新结果；
+- 最后一轮完整性复核进一步确认：任意 archived legacy review 仍未解决时，原子替换与直接新建一样会在事务前及事务内失败且零写入；历史详情读取失败会清除旧投影，只显示通用标题、错误与重试，不会继续暴露路由快照里的旧名称、日期、状态或提醒事实，也不会永久停在“读取中”。
+- 调和期间 foreign request 数量变化时，最终回读会重新冻结仍被允许的 authoritative request 前缀。只要有界收缩能把总数降到 60 条以内，就保留该前缀，并按 Schedule / Countdown 两个域分别报告 `limitedByBudget`、确认数量和首个未覆盖时间；不会因为它少于初始计划就误删全部 owned request。只有有界收缩仍无法满足总预算或回读不一致时才 fail closed。
+- 调和开始时总数已经超过 60 也会先区分 foreign 与 owned：59 条 foreign + 2 条匹配 owned 会保留第 1 条 authoritative owned，60 条 foreign + 1 条 owned 只清除 owned 并报告预算受限；foreign 本身超过预算才进入无法收敛的失败路径。V6 关系校验还会沿事件链找到最近一次真正建立或改变 target 的时区锚点，把 legacy `Date` 还原为 civil date，并把普通创建的 state / legacy `createdAt` 锚回 `.created` 根事件，拒绝同步重算 revision 的跨记录篡改。
+- 历史详情的完成/归档 civil time 由当前生命周期、latest event kind 与显式事件链接共同解析；`keepArchived` 后的 `.reviewResolved` 必须沿 `previousEventID` 使用真正归档的 predecessor。即使复核和归档恰好发生在同一 instant，也不会按时间相等误选复核事件的时区。
+- 后续独立迁移/完整性复核又发现并修复三类阻塞：completed lifecycle backfill marker 不再把首次迁移数量误当作永久基数；V6 模型不再被原位扩字段，V6 → V7 使用兼容的 SwiftData configuration 与 inactive generation；V5/V6 升级会复制并审计完整 `Files/` 树、拒绝 symlink，并在附件与 V7 完整性验证全部成功后才切换 pointer。
+
+本轮重新验证普通单元、集成与多尺寸渲染 `394/394`、完整 UI `28/28`，合计 `422/422`；Release-config 合同 `9/9` 与 generic iOS Simulator 无签名 Debug build 均通过。当前 V7 的完整 Release-config performance preflight 也通过 `1/1`，完成 1 次预热与 20 个正式样本；该结果只证明 harness 与证据链可完整执行，`acceptance = not-evaluated`，不冒充数值性能或真机门禁通过。
 
 ### Batch 5 本次阶段实现
 
@@ -71,12 +89,12 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 ## 最近验证
 
-2026-07-24 的最近一次 Simulator / 自动化基线：
+2026-07-25 的最近一次 Simulator / 自动化基线：
 
 - generic iOS Simulator 无签名 Debug build 通过；
-- 单元、集成、渲染与 UI 测试合计 `364/364` 通过，其中普通测试 `342/342`、UI 测试 `22/22`；
-- 当前 V6 源码的 Release 合同测试 `9/9` 通过，其中包含一轮真实五年 worker 正确性回归；
-- 最近一轮完整 Release-config Simulator performance preflight 来自进入 `main` 的 Batch 5 冻结源码：`1/1` 通过，完成 1 次预热与 20 个正式样本，测试体 291.580 秒、测试阶段 293.975 秒。当前 V6 源码只重跑了上述 Release 合同，尚未重跑完整 20 样本 performance preflight；既有结果也只证明 harness 可完整执行，`acceptance = not-evaluated`，数值阈值与跨设备冻结 fixture 仍未确定；
+- 单元、集成、渲染与 UI 测试合计 `422/422` 通过，其中普通测试 `394/394`、UI 测试 `28/28`；
+- 当前 V7 源码的 Release 合同测试 `9/9` 通过，其中包含一轮真实五年 worker 正确性回归；
+- 当前 V7 源码的完整 Release-config Simulator performance preflight 为 `1/1`，完成 1 次预热与 20 个正式样本。该结果只证明 harness 与证据记录在当前源码上完整运行；`acceptance = not-evaluated`，数值阈值与跨设备冻结 fixture 仍未确定，不能称为最低设备或发布性能通过；
 - 隐私清单已声明 App 容器文件元数据与用户明确选择文件元数据的 Required Reason API 用途，并通过 plist 语法检查；最终 Archive privacy report 仍属于发布门禁；
 - 渲染矩阵覆盖 320×568、390×844、430×932、768×1024、844×390 横屏，以及 320×568 最大辅助字号场景；Countdown 最大辅助字号页面另通过触控区域、元素说明、文字裁切与语义自动审计；
 - 自动渲染测试只验证冻结尺寸下能生成非空、高对比的画面；完整 VoiceOver、外接键盘、键盘遮挡、安全区和减少动态效果仍需要人工设备矩阵，不能由截图测试替代。

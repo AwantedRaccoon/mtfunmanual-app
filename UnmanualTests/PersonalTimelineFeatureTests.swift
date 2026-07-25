@@ -2309,7 +2309,7 @@ final class PersonalTimelineFeatureTests: XCTestCase {
         let container = try preparedContainer()
         let writer = AppWriteActor(modelContainer: container)
         let reader = AppReadActor(modelContainer: container)
-        let target = try CivilDateFact(year: 2026, month: 7, day: 24)
+        let target = try CivilDateFact(year: 2026, month: 3, day: 26)
         let base = Date(timeIntervalSince1970: 1_774_521_600)
 
         let completedID = UUID()

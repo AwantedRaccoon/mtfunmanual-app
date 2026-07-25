@@ -55,6 +55,7 @@ struct ReminderPlanningSnapshot: Equatable, Sendable {
     let countdownHasEnabledIntent: Bool
     let countdownID: UUID?
     let countdownResolutionFailed: Bool
+    let countdownFailureCode: String?
 
     init(
         candidates: [LocalReminderCandidate],
@@ -62,7 +63,8 @@ struct ReminderPlanningSnapshot: Equatable, Sendable {
         countdownCandidates: [CountdownReminderCandidate] = [],
         countdownHasEnabledIntent: Bool = false,
         countdownID: UUID? = nil,
-        countdownResolutionFailed: Bool = false
+        countdownResolutionFailed: Bool = false,
+        countdownFailureCode: String? = nil
     ) {
         self.candidates = candidates
         self.hasEnabledIntent = hasEnabledIntent
@@ -70,6 +72,7 @@ struct ReminderPlanningSnapshot: Equatable, Sendable {
         self.countdownHasEnabledIntent = countdownHasEnabledIntent
         self.countdownID = countdownID
         self.countdownResolutionFailed = countdownResolutionFailed
+        self.countdownFailureCode = countdownFailureCode
     }
 }
 
@@ -166,7 +169,8 @@ extension AppReadActor {
                 countdownPlanning.hasEnabledIntent,
             countdownID: countdownPlanning.countdownID,
             countdownResolutionFailed:
-                countdownPlanning.resolutionFailed
+                countdownPlanning.resolutionFailed,
+            countdownFailureCode: countdownPlanning.failureCode
         )
     }
 
@@ -177,7 +181,8 @@ extension AppReadActor {
         candidates: [CountdownReminderCandidate],
         hasEnabledIntent: Bool,
         countdownID: UUID?,
-        resolutionFailed: Bool
+        resolutionFailed: Bool,
+        failureCode: String?
     ) {
         let activeValue = CountdownLifecycle.active.rawValue
         var stateDescriptor = FetchDescriptor<CountdownStateRecord>(
@@ -193,7 +198,7 @@ extension AppReadActor {
         guard let state = active.first,
               let targetDate = state.targetDate,
               let lifecycle = state.lifecycle else {
-            return ([], false, nil, false)
+            return ([], false, nil, false, nil)
         }
         let countdownID = state.id
         var reminderDescriptor = FetchDescriptor<CountdownReminderRuleRecord>(
@@ -207,6 +212,19 @@ extension AppReadActor {
             throw AppDataFailure.corruptionSuspected
         }
         let hasEnabledIntent = reminder.isEnabled
+        if reminder.isEnabled,
+           !(try CountdownIntegrityValidator.reminderIsAdmitted(
+               in: modelContext,
+               countdownID: state.id
+           )) {
+            return (
+                [],
+                true,
+                state.id,
+                false,
+                "countdown-needs-confirmation"
+            )
+        }
         do {
             let candidate = try CountdownReminderResolver.resolve(
                 countdownID: state.id,
@@ -226,10 +244,17 @@ extension AppReadActor {
                 candidate.map { [$0] } ?? [],
                 hasEnabledIntent,
                 state.id,
-                false
+                false,
+                nil
             )
         } catch is CountdownReminderResolutionError {
-            return ([], hasEnabledIntent, state.id, hasEnabledIntent)
+            return (
+                [],
+                hasEnabledIntent,
+                state.id,
+                hasEnabledIntent,
+                hasEnabledIntent ? "countdown-local-time-invalid" : nil
+            )
         }
     }
 

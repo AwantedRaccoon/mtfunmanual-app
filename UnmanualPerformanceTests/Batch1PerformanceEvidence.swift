@@ -154,7 +154,7 @@ struct Batch1FixtureCounts: Codable, Equatable, Sendable {
         journeyEntries: 7_300,
         labRecords: 1_200,
         migrationIssues: 0,
-        revisions: 23_353
+        revisions: 23_414
     )
 
     let profiles: Int
@@ -243,11 +243,28 @@ struct Batch1V6CountdownCounts: Codable, Equatable, Sendable {
     }
 }
 
-enum Batch1V6FoundationContract {
+struct Batch1V7CountdownIntegrityCounts: Codable, Equatable, Sendable {
+    static let expected = Batch1V7CountdownIntegrityCounts(
+        commandAudits: 60,
+        v6Checkpoints: 0,
+        integrityBackfillStates: 1
+    )
+
+    let commandAudits: Int
+    let v6Checkpoints: Int
+    let integrityBackfillStates: Int
+
+    var canonicalFacts: Int {
+        commandAudits + v6Checkpoints + integrityBackfillStates
+    }
+}
+
+enum Batch1V7FoundationContract {
     static let activatedFactCount = Batch1FixtureCounts.expected.legacyFacts
         + Batch1V3CompanionCounts.expected.facts
         + Batch1V5PersonalTimelineCounts.expected.canonicalFacts
-        + Batch1V6CountdownCounts.expected.canonicalFacts + 1
+        + Batch1V6CountdownCounts.expected.canonicalFacts
+        + Batch1V7CountdownIntegrityCounts.expected.canonicalFacts + 1
     static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions
     // Updating the existing receipt-ledger revision consumes one additional
     // local-revision sequence value without increasing the revision count.

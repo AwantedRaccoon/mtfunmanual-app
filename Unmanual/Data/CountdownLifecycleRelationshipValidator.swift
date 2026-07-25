@@ -4,7 +4,8 @@ import SwiftData
 enum CountdownLifecycleRelationshipValidator {
     static func validate(
         in context: ModelContext,
-        failure: AppDataFailure
+        failure: AppDataFailure,
+        includesIntegrityFacts: Bool = true
     ) throws {
         let backfills = try context.fetch(
             FetchDescriptor<CountdownLifecycleBackfillState>()
@@ -23,13 +24,15 @@ enum CountdownLifecycleRelationshipValidator {
         guard coverage.count == 1,
               coverage[0].coverageKey
                 == CountdownNotificationCoverageRecord.fixedKey,
-              coverage[0].status != nil,
-              coverage[0].desiredCount >= 0,
-              coverage[0].confirmedPendingCount >= 0,
-              coverage[0].confirmedPendingCount <= coverage[0].desiredCount,
+              let coverageStatus = coverage[0].status,
               coverage[0].observedAt.timeIntervalSince1970.isFinite,
-              coverage[0].scheduledFireAt?.timeIntervalSince1970.isFinite
-                != false else {
+              CountdownNotificationCoverageRecord.isConsistent(
+                  status: coverageStatus,
+                  scheduledFireAt: coverage[0].scheduledFireAt,
+                  desiredCount: coverage[0].desiredCount,
+                  confirmedPendingCount: coverage[0].confirmedPendingCount,
+                  lastErrorCode: coverage[0].lastErrorCode
+              ) else {
             throw failure
         }
 
@@ -68,6 +71,7 @@ enum CountdownLifecycleRelationshipValidator {
               events.allSatisfy({ event in
                   stateByID[event.countdownID] != nil
                       && event.kind != nil
+                      && validatesEventPayload(event)
                       && event.historicalTimestamp != nil
                       && event.occurredAt.timeIntervalSince1970.isFinite
                       && event.previousEventID != event.id
@@ -83,10 +87,16 @@ enum CountdownLifecycleRelationshipValidator {
             eventByID: eventByID,
             failure: failure
         )
+        try validateReplacementLinks(
+            statesByID: stateByID,
+            events: events,
+            failure: failure
+        )
         guard states.allSatisfy({
             validatesLatestEvent(
                 for: $0,
-                event: eventByID[$0.latestEventID]
+                event: eventByID[$0.latestEventID],
+                eventByID: eventByID
             )
         }) else {
             throw failure
@@ -109,10 +119,15 @@ enum CountdownLifecycleRelationshipValidator {
               reminderByCountdownID.count == states.count,
               Set(reminderByCountdownID.keys) == Set(stateByID.keys),
               reminders.allSatisfy({ reminder in
-                  reminder.ruleKey == CountdownReminderRuleRecord.key(
+                  guard let state = stateByID[reminder.countdownID],
+                        let latestEvent = eventByID[
+                            state.latestEventID
+                        ] else {
+                      return false
+                  }
+                  return reminder.ruleKey == CountdownReminderRuleRecord.key(
                       countdownID: reminder.countdownID
                   )
-                      && stateByID[reminder.countdownID] != nil
                       && (0...365).contains(reminder.leadDays)
                       && (0...23).contains(reminder.localHour)
                       && (0...59).contains(reminder.localMinute)
@@ -120,9 +135,25 @@ enum CountdownLifecycleRelationshipValidator {
                       && reminder.contentVersion == "neutralV1"
                       && reminder.updatedAt.timeIntervalSince1970.isFinite
                       && (
-                          stateByID[reminder.countdownID]?.lifecycle == .active
+                          state.lifecycle == .active
                               || !reminder.isEnabled
                       )
+                      && (
+                          state.lifecycle != .deleted
+                              || (
+                                  !reminder.isEnabled
+                                      && reminder.leadDays == 0
+                                      && reminder.localHour == 9
+                                      && reminder.localMinute == 0
+                                      && reminder.timeZoneBehavior
+                                        == .floatingLocalV1
+                                      && reminder.contentVersion
+                                        == "neutralV1"
+                              )
+                      )
+                      && latestEvent.operationID
+                        == reminder.lastOperationID
+                      && state.updatedAt == reminder.updatedAt
               }) else {
             throw failure
         }
@@ -133,7 +164,18 @@ enum CountdownLifecycleRelationshipValidator {
             keyedBy: \.id,
             failure: failure
         )
-        guard legacy.allSatisfy({ stateByID[$0.id]?.lifecycle != .deleted }),
+        guard legacy.allSatisfy({ value in
+                  guard let state = stateByID[value.id],
+                        state.lifecycle != .deleted else {
+                      return false
+                  }
+                  return value.title == state.title
+                      && value.gentleTitle == state.gentleTitle
+                      && value.createdAt == state.createdAt
+                      && value.continuesCountingUp
+                        == (state.overdueMode == .countingUp)
+                      && value.archivedAt == state.archivedAt
+              }),
               states.allSatisfy({ state in
                   if state.lifecycle == .deleted {
                       return legacyByID[state.id] == nil
@@ -142,6 +184,12 @@ enum CountdownLifecycleRelationshipValidator {
               }) else {
             throw failure
         }
+        try validateLegacyAnchors(
+            statesByID: stateByID,
+            legacy: legacy,
+            eventByID: eventByID,
+            failure: failure
+        )
 
         let receipts = try context.fetch(FetchDescriptor<OperationReceiptRecord>())
         let receiptByOperationID = try AppDataIndex.checkedUniqueMap(
@@ -153,14 +201,6 @@ enum CountdownLifecycleRelationshipValidator {
             $0.resultRecordType == "CountdownLifecycleEventRecord"
         }
         guard countdownReceipts.count == events.count,
-              events.allSatisfy({ event in
-                  guard let receipt = receiptByOperationID[event.operationID] else {
-                      return false
-                  }
-                  return receipt.resultRecordType
-                      == "CountdownLifecycleEventRecord"
-                      && receipt.resultRecordID == event.id
-              }),
               countdownReceipts.allSatisfy({ receipt in
                   receipt.commandDigest.count == 64
                       && receipt.commandDigest.allSatisfy(\.isHexDigit)
@@ -170,14 +210,116 @@ enum CountdownLifecycleRelationshipValidator {
               }) else {
             throw failure
         }
+        for event in events {
+            guard let receipt = receiptByOperationID[event.operationID],
+                  receipt.resultRecordType
+                    == "CountdownLifecycleEventRecord",
+                  receipt.resultRecordID == event.id else {
+                throw failure
+            }
+        }
+        if includesIntegrityFacts {
+            try CountdownIntegrityValidator.validate(
+                in: context,
+                states: states,
+                events: events,
+                remindersByCountdownID: reminderByCountdownID,
+                legacyByID: legacyByID,
+                receiptsByOperationID: receiptByOperationID,
+                failure: failure
+            )
+        } else {
+            for event in events where event.kind == .migratedSnapshot {
+                guard let state = stateByID[event.countdownID] else {
+                    throw failure
+                }
+                guard state.latestEventID == event.id else { continue }
+                guard let legacy = legacyByID[event.countdownID],
+                      let reminder = reminderByCountdownID[event.countdownID],
+                      receiptByOperationID[event.operationID]?
+                        .commandDigest == (
+                          try CountdownLifecycleBackfill
+                            .migrationCommandDigest(
+                                source: legacy,
+                                state: state,
+                                event: event,
+                                reminder: reminder
+                            )
+                      ) else {
+                    throw failure
+                }
+            }
+        }
+    }
+
+    private static func validateLegacyAnchors(
+        statesByID: [UUID: CountdownStateRecord],
+        legacy: [CountdownRecord],
+        eventByID: [UUID: CountdownLifecycleEventRecord],
+        failure: AppDataFailure
+    ) throws {
+        for legacyRecord in legacy {
+            guard let state = statesByID[legacyRecord.id],
+                  let canonicalTarget = state.targetDate else {
+                throw failure
+            }
+            var cursor: UUID? = state.latestEventID
+            var targetAnchor: CountdownLifecycleEventRecord?
+            var root: CountdownLifecycleEventRecord?
+            while let eventID = cursor {
+                guard let event = eventByID[eventID],
+                      event.countdownID == state.id else {
+                    throw failure
+                }
+                if targetAnchor == nil,
+                   event.previousEventID == nil
+                    || event.oldTargetDate != event.newTargetDate {
+                    targetAnchor = event
+                }
+                if event.previousEventID == nil {
+                    root = event
+                    break
+                }
+                cursor = event.previousEventID
+            }
+            guard let targetAnchor,
+                  targetAnchor.newTargetDate == canonicalTarget,
+                  let timeZone = TimeZone(
+                      identifier: targetAnchor.timeZoneIdentifier
+                  ) else {
+                throw failure
+            }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = timeZone
+            let components = calendar.dateComponents(
+                [.year, .month, .day],
+                from: legacyRecord.targetDate
+            )
+            guard let year = components.year,
+                  let month = components.month,
+                  let day = components.day,
+                  let legacyTarget = try? CivilDateFact(
+                      year: year,
+                      month: month,
+                      day: day
+                  ),
+                  legacyTarget == canonicalTarget else {
+                throw failure
+            }
+            if root?.kind == .created {
+                guard state.createdAt == root?.occurredAt,
+                      legacyRecord.createdAt == root?.occurredAt else {
+                    throw failure
+                }
+            }
+        }
     }
 
     private static func validatesState(_ state: CountdownStateRecord) -> Bool {
         guard let lifecycle = state.lifecycle,
               state.overdueMode != nil,
               state.createdAt.timeIntervalSince1970.isFinite,
-              state.updatedAt.timeIntervalSince1970.isFinite,
-              state.createdAt <= state.updatedAt else {
+              state.updatedAt.timeIntervalSince1970.isFinite else {
             return false
         }
         switch lifecycle {
@@ -195,7 +337,9 @@ enum CountdownLifecycleRelationshipValidator {
                 && state.completedAt?.timeIntervalSince1970.isFinite == true
                 && state.archivedAt?.timeIntervalSince1970.isFinite == true
                 && state.deletedAt == nil
+                && state.overdueMode == .awaitingDecision
                 && !state.showInToday
+                && !state.requiresReview
                 && hasValidTerminalReminderSnapshot(state)
         case .archived:
             return state.targetDate != nil
@@ -204,16 +348,72 @@ enum CountdownLifecycleRelationshipValidator {
                 && state.archivedAt?.timeIntervalSince1970.isFinite == true
                 && state.deletedAt == nil
                 && !state.showInToday
+                && (
+                    state.requiresReview
+                        || state.overdueMode == .awaitingDecision
+                )
                 && hasValidTerminalReminderSnapshot(state)
         case .deleted:
             return state.targetDate == nil
                 && state.title.isEmpty
                 && state.gentleTitle == nil
                 && state.completedAt == nil
+                && state.archivedAt == nil
                 && state.deletedAt?.timeIntervalSince1970.isFinite == true
+                && state.overdueMode == .awaitingDecision
                 && !state.showInToday
                 && !state.requiresReview
                 && hasNoTerminalReminderSnapshot(state)
+        }
+    }
+
+    private static func validatesEventPayload(
+        _ event: CountdownLifecycleEventRecord
+    ) -> Bool {
+        guard let kind = event.kind else { return false }
+        switch kind {
+        case .created:
+            return event.previousEventID == nil
+                && event.oldTargetDate == nil
+                && event.newTargetDate != nil
+                && event.replacementCountdownID == nil
+        case .migratedSnapshot:
+            return event.previousEventID == nil
+                && event.oldTargetDate == nil
+                && event.newTargetDate != nil
+                && event.replacementCountdownID == nil
+        case .edited:
+            return event.previousEventID != nil
+                && event.oldTargetDate != nil
+                && event.newTargetDate != nil
+                && event.replacementCountdownID == nil
+        case .visibilityChanged,
+             .reminderChanged,
+             .continuedCountingUp:
+            return event.previousEventID != nil
+                && event.oldTargetDate != nil
+                && event.newTargetDate == event.oldTargetDate
+                && event.replacementCountdownID == nil
+        case .reviewResolved:
+            return event.previousEventID != nil
+                && event.oldTargetDate != nil
+                && event.newTargetDate == event.oldTargetDate
+                && event.replacementCountdownID == nil
+        case .completed, .archived:
+            return event.previousEventID != nil
+                && event.oldTargetDate != nil
+                && event.newTargetDate == event.oldTargetDate
+                && event.replacementCountdownID == nil
+        case .deleted:
+            return event.previousEventID != nil
+                && event.oldTargetDate != nil
+                && event.newTargetDate == nil
+                && event.replacementCountdownID == nil
+        case .replaced:
+            return event.previousEventID != nil
+                && event.oldTargetDate != nil
+                && event.newTargetDate == nil
+                && event.replacementCountdownID != nil
         }
     }
 
@@ -263,29 +463,168 @@ enum CountdownLifecycleRelationshipValidator {
             }
             var visited: Set<UUID> = []
             var cursor: UUID? = state.latestEventID
+            var reverseOrderedChain: [CountdownLifecycleEventRecord] = []
             while let eventID = cursor {
                 guard visited.insert(eventID).inserted,
                       let event = eventByID[eventID],
                       event.countdownID == state.id else {
                     throw failure
                 }
+                reverseOrderedChain.append(event)
                 cursor = event.previousEventID
             }
             guard visited.count == chain.count else { throw failure }
+            let terminalKinds: Set<CountdownLifecycleEventKind> = [
+                .completed,
+                .archived,
+                .deleted,
+                .replaced
+            ]
+            guard chain.allSatisfy({
+                guard let kind = $0.kind,
+                      terminalKinds.contains(kind) else {
+                    return true
+                }
+                return $0.id == state.latestEventID
+            }) else {
+                throw failure
+            }
+
+            var replayTarget: CivilDateFact?
+            var replayModeIsKnown = false
+            var didContinueForCurrentTarget = false
+            for event in reverseOrderedChain.reversed() {
+                if let previousEventID = event.previousEventID {
+                    guard let previous = eventByID[previousEventID],
+                          event.oldTargetDate == previous.newTargetDate,
+                          event.oldTargetDate == replayTarget else {
+                        throw failure
+                    }
+                } else {
+                    guard event.oldTargetDate == nil,
+                          event.kind == .created
+                            || event.kind == .migratedSnapshot else {
+                        throw failure
+                    }
+                }
+
+                switch event.kind {
+                case .created:
+                    replayTarget = event.newTargetDate
+                    replayModeIsKnown = true
+                    didContinueForCurrentTarget = false
+                case .migratedSnapshot:
+                    replayTarget = event.newTargetDate
+                    replayModeIsKnown = false
+                    didContinueForCurrentTarget = false
+                case .edited:
+                    if event.newTargetDate != replayTarget {
+                        replayModeIsKnown = true
+                        didContinueForCurrentTarget = false
+                    }
+                    replayTarget = event.newTargetDate
+                case .continuedCountingUp:
+                    guard let target = event.newTargetDate,
+                          let timestamp = event.historicalTimestamp,
+                          !didContinueForCurrentTarget,
+                          timestamp.localDate >= target else {
+                        throw failure
+                    }
+                    replayModeIsKnown = true
+                    didContinueForCurrentTarget = true
+                case .completed:
+                    guard let target = event.newTargetDate,
+                          let timestamp = event.historicalTimestamp,
+                          timestamp.localDate >= target else {
+                        throw failure
+                    }
+                    replayModeIsKnown = true
+                    didContinueForCurrentTarget = false
+                case .archived:
+                    replayTarget = event.newTargetDate
+                    replayModeIsKnown = true
+                    didContinueForCurrentTarget = false
+                case .deleted, .replaced:
+                    replayTarget = nil
+                case .visibilityChanged,
+                     .reminderChanged,
+                     .reviewResolved:
+                    replayTarget = event.newTargetDate
+                case nil:
+                    throw failure
+                }
+            }
+            if replayModeIsKnown,
+               state.lifecycle != .deleted {
+                let expectedMode: CountdownOverdueMode =
+                    didContinueForCurrentTarget
+                        ? .countingUp
+                        : .awaitingDecision
+                guard state.overdueMode == expectedMode else {
+                    throw failure
+                }
+            }
+        }
+    }
+
+    private static func validateReplacementLinks(
+        statesByID: [UUID: CountdownStateRecord],
+        events: [CountdownLifecycleEventRecord],
+        failure: AppDataFailure
+    ) throws {
+        let eventsByCountdown = Dictionary(grouping: events, by: \.countdownID)
+        let replacementEvents = events.filter { $0.kind == .replaced }
+        let replacementTargets = replacementEvents.compactMap(
+            \.replacementCountdownID
+        )
+        guard Set(replacementTargets).count == replacementTargets.count else {
+            throw failure
+        }
+        for event in replacementEvents {
+            guard let replacementCountdownID =
+                    event.replacementCountdownID,
+                  replacementCountdownID != event.countdownID,
+                  let oldState = statesByID[event.countdownID],
+                  oldState.lifecycle == .deleted,
+                  oldState.latestEventID == event.id,
+                  let replacementState =
+                    statesByID[replacementCountdownID],
+                  let replacementRoot =
+                    eventsByCountdown[replacementCountdownID]?.first(
+                        where: { $0.previousEventID == nil }
+                    ),
+                  replacementRoot.kind == .created,
+                  replacementRoot.replacementCountdownID == nil,
+                  replacementRoot.occurredAt == event.occurredAt,
+                  replacementRoot.historicalTimestamp
+                    == event.historicalTimestamp,
+                  replacementState.createdAt
+                    == replacementRoot.occurredAt,
+                  event.operationID == CoreTimeRegimenBackfill.stableUUID(
+                      for: "countdown-replace-delete-operation:"
+                          + replacementRoot.operationID.uuidString
+                            .lowercased()
+                  ) else {
+                throw failure
+            }
         }
     }
 
     private static func validatesLatestEvent(
         for state: CountdownStateRecord,
-        event: CountdownLifecycleEventRecord?
+        event: CountdownLifecycleEventRecord?,
+        eventByID: [UUID: CountdownLifecycleEventRecord]
     ) -> Bool {
         guard let lifecycle = state.lifecycle,
-              let kind = event?.kind else {
+              let event,
+              let kind = event.kind,
+              event.occurredAt == state.updatedAt,
+              event.newTargetDate == state.targetDate else {
             return false
         }
         switch lifecycle {
         case .active:
-            return [
+            let kindIsValid = [
                 .migratedSnapshot,
                 .created,
                 .edited,
@@ -294,14 +633,38 @@ enum CountdownLifecycleRelationshipValidator {
                 .reviewResolved,
                 .continuedCountingUp
             ].contains(kind)
+            return kindIsValid
+                && (!state.requiresReview || kind == .migratedSnapshot)
+                && hasNoTerminalReminderSnapshot(state)
         case .completed:
             return kind == .completed
+                && state.completedAt == event.occurredAt
+                && state.archivedAt == event.occurredAt
+                && hasValidTerminalReminderSnapshot(state)
         case .archived:
-            return kind == .archived
-                || kind == .migratedSnapshot
-                || kind == .reviewResolved
+            let kindIsValid = state.requiresReview
+                ? kind == .migratedSnapshot
+                : kind == .archived
+                    || kind == .migratedSnapshot
+                    || kind == .reviewResolved
+            guard kindIsValid else { return false }
+            let archivalEvent: CountdownLifecycleEventRecord?
+            if kind == .reviewResolved,
+               let previousEventID = event.previousEventID {
+                archivalEvent = eventByID[previousEventID]
+            } else {
+                archivalEvent = event
+            }
+            guard let archivalEvent,
+                  archivalEvent.kind == .archived
+                    || archivalEvent.kind == .migratedSnapshot else {
+                return false
+            }
+            return state.archivedAt == archivalEvent.occurredAt
+                && hasValidTerminalReminderSnapshot(state)
         case .deleted:
-            return kind == .deleted || kind == .replaced
+            return (kind == .deleted || kind == .replaced)
+                && state.deletedAt == event.occurredAt
         }
     }
 }

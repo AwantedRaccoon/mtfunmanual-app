@@ -14,6 +14,8 @@ struct TodayView: View {
     @State private var snapshot = TodaySnapshot.empty
     @State private var coreRegimenOverview = CoreRegimenOverviewSnapshot.empty
     @State private var executionSnapshot = TodayExecutionSnapshot.empty
+    @State private var contentIsLoading = true
+    @State private var contentErrorMessage: String?
     @State private var executionIsLoading = true
     @State private var executionErrorMessage: String?
     @State private var actionErrorMessage: String?
@@ -49,6 +51,9 @@ struct TodayView: View {
                     selectedTab = .journey
                 },
                 journeyAction: { selectedTab = .journey },
+                contentIsLoading: contentIsLoading,
+                contentErrorMessage: contentErrorMessage,
+                contentRetryAction: { Task { await refresh() } },
                 executionSnapshot: executionSnapshot,
                 executionIsLoading: executionIsLoading,
                 executionErrorMessage: executionErrorMessage,
@@ -124,29 +129,52 @@ struct TodayView: View {
     private func refresh() async {
         let request = contentRefreshGate.begin()
         guard let appReadActor else {
+            if contentRefreshGate.isCurrent(request) {
+                clearContentAfterReadFailure(
+                    "本地资料尚未准备好，请稍后重试。"
+                )
+                contentIsLoading = false
+            }
             await refreshExecution()
             return
         }
+        contentIsLoading = true
+        defer {
+            if contentRefreshGate.isCurrent(request) {
+                contentIsLoading = false
+            }
+        }
         let now = Date()
         let displayTimeZoneIdentifier = TimeZone.autoupdatingCurrent.identifier
-        if let updated = try? await appReadActor.todaySnapshot() {
+        do {
+            let today = try HistoricalTimestamp.captured(
+                instant: now,
+                timeZoneIdentifier: displayTimeZoneIdentifier
+            ).localDate
+            let updated = try await appReadActor.todaySnapshot()
             guard contentRefreshGate.isCurrent(request) else { return }
             snapshot = updated
-        }
-        if let updated = try? await appReadActor.latestLabTimelineItem() {
+            latestLabItem = try await appReadActor.latestLabTimelineItem()
             guard contentRefreshGate.isCurrent(request) else { return }
-            latestLabItem = updated
-        }
-        if let today = try? HistoricalTimestamp.captured(
-            instant: now,
-            timeZoneIdentifier: displayTimeZoneIdentifier
-        ).localDate,
-        let updated = try? await appReadActor.coreRegimenOverview(asOf: today) {
+            coreRegimenOverview = try await appReadActor
+                .coreRegimenOverview(asOf: today)
             guard contentRefreshGate.isCurrent(request) else { return }
-            coreRegimenOverview = updated
+            contentErrorMessage = nil
+        } catch {
+            guard contentRefreshGate.isCurrent(request) else { return }
+            clearContentAfterReadFailure(
+                "今天页资料没有通过完整性检查。这里不会继续显示旧内容，也不会把错误当成空记录。"
+            )
         }
         guard contentRefreshGate.isCurrent(request) else { return }
         await refreshExecution()
+    }
+
+    private func clearContentAfterReadFailure(_ message: String) {
+        snapshot = .empty
+        latestLabItem = nil
+        coreRegimenOverview = .empty
+        contentErrorMessage = message
     }
 
     private func refreshExecution() async {
