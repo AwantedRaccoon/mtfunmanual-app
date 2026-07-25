@@ -11,7 +11,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 > - App 版本：`1.0`（build `1`）；`V2.5` 只是内部视觉迭代名。
 > - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3 与 Batch 5 已在 Simulator 与自动化范围内完成。Batch 4 尚未开始。
 > - 当前位置：Batch 3 已补齐 Countdown 完整生命周期、统一设备本地提醒、旧数据复核与时间线闭环；2026-07-25 的完整复核修复了提醒 fail-closed、重复状态转换、历史时区、温和模式、读取错误、稳定分页和终态时间事件绑定缺口，并通过新的全量自动化回归。真机通知、文件保护、系统备份恢复、最低设备性能与完整辅助技术人工矩阵仍保留到发布候选阶段。
-> - GitHub 状态：Stage 0–3 与 Batch 5 阶段快照已进入 `origin/main`；它不是 GitHub Release。本次 Batch 3 闭环仍只在本地 `countdown-lifecycle` 分支，尚未推送或合并；任何后续推送与合并都需要维护者当次明确批准。
+> - GitHub 状态：Stage 0–3、Batch 5 与本次 Batch 3 Countdown 完整闭环阶段快照均已进入 `origin/main`；它们是阶段报告，不是 GitHub Release。任何后续推送与合并仍需要维护者当次明确批准。
 > - 发布状态：尚未达到 App Store release-ready，也尚未开始发布前真机测试。
 
 ## 我们在哪里
@@ -28,7 +28,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 ### Batch 3 本次阶段实现
 
-提交 `b4e6b10` 与 `7ceb86a` 完成“今日执行 + 设备本地提醒”基础闭环；当前本地 `countdown-lifecycle` 分支已经补齐 Countdown 完整状态机与统一提醒调度，尚未推送或合并。
+提交 `b4e6b10` 与 `7ceb86a` 完成“今日执行 + 设备本地提醒”基础闭环；`2867b83` 补齐 Countdown 完整状态机与统一提醒调度，`3ae9a60` 经完整独立审查加固 V7 完整性、旧库迁移和附件 generation copy。这些变更已作为阶段报告进入 `main`。
 
 - **确定性计划派生**：按 sealed 方案生成 daily-times、weekly、every-N-days 和 one-off occurrence；统一 canonical key、civil date/time、方案半开区间、fixed/floating 时区、DST gap/overlap 和 fail-closed 容量上限。
 - **Append-only 执行事实**：可记录“已使用”或“本次跳过”；未操作不制造事实，修改通过追加 correction 完成。`operationID` + canonical digest 保证幂等，冲突 replay 零写入失败，事实、revision、receipt 与 ledger 同事务可审计。
@@ -61,11 +61,15 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 ### Batch 5 本次阶段实现
 
-本次进入 `main` 的提交日志：
+已进入 `main` 的阶段提交日志：
 
+- `b4e6b10` — `feat: add today execution and local reminders`：实现今日执行与设备本地提醒基础闭环；
+- `7ceb86a` — `fix: harden today execution and reminders`：修复提醒覆盖、并发与错误可见性；
 - `2e18332` — `docs: summarize Batch 3 implementation`：补齐 Batch 3 已实现范围与未完成边界；
 - `2993027` — `feat: add labs status attachments and timeline`：落地 Schema V5、化验、状态、附件与统一个人时间线；
-- `d342ee7` — `feat: harden labs status attachments and timeline`：闭环附件事务、Recovery、预览 lease、时间线并发与 V4 → V5 中断迁移。
+- `d342ee7` — `feat: harden labs status attachments and timeline`：闭环附件事务、Recovery、预览 lease、时间线并发与 V4 → V5 中断迁移；
+- `2867b83` — `feat: complete countdown lifecycle`：完成 Countdown 生命周期、复核、时间线与统一提醒调度；
+- `3ae9a60` — `fix: harden countdown lifecycle integrity`：冻结 V6、引入 additive V7 typed command audit，并闭环 V5/V6 → V7 与附件迁移门禁。
 
 - **结构化化验**：`LabDefinition`、`LabSample` 与 `LabResult` 分离；保留用户原始名称、代码、数值、单位、参考范围和上下文，同时使用独立规范化值支持确定性排序与验证。旧化验按稳定映射幂等回填，不改写旧事实。
 - **状态记录**：指标定义、观察值、历史时间和附件元数据同一事务提交；新增指标与首次观察不会留下半成品。指标可以归档并释放活跃槽位，既有观察的历史快照继续可读。
@@ -123,7 +127,7 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 
 “源码可以提交到 GitHub”和“App 可以上架”是两件事：
 
-- **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告以及 Batch 5 的化验、状态、附件与统一时间线已经进入 `origin/main`。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
+- **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告、Batch 5 的化验/状态/附件/统一时间线，以及本次 Batch 3 Countdown 完整闭环均已进入 `origin/main`。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
 - **App Store**：当前不 ready。除 Batch 4、6–9 的产品能力外，仍需完成真机、签名 Release Candidate、发行主体/地区、隐私与医疗分类、内容授权等发布门禁；
 - 任何 `git push`、TestFlight 上传或 App Store 提交都需要当次明确授权，不由本地构建或测试自动触发。
 
