@@ -5,6 +5,9 @@
 - 适用版本：App 1.0
 - 关联产品范围：[MTF不全书 App 产品规划方案 1.0](../product/MTF不全书-App-产品规划方案-1.0.md)
 - 前置决策：[0001：iOS 首发技术方向](0001-ios-technical-direction.md)
+- 部分被取代：[0009：库存从 App 1.0 后置](0009-inventory-deferred-from-app-1.0.md)
+
+> **库存范围修订（2026-07-25）**：ADR 0009 已把库存、lot ledger、库存扣减和库存测试从 App 1.0 范围及发布门禁移除。本文库存相关条款只保留为历史设计记录；时间、执行、化验、数据谱系、无运行时网络和其他发行门禁继续有效。
 
 ## 目的
 
@@ -141,7 +144,7 @@
 | 上架地区与法律实体 | 产品负责人未确认 | App Store 提交、医疗/健康应用主体审查 | 发布硬化之前 |
 | Files / iCloud Drive 结论 | 需 App Review/法律确认或可靠 provider 限制 | 含健康数据的 JSON/package/CSV/PDF 导入导出 | 报告与完整备份发布之前 |
 | catalog 来源授权与复核责任 | 尚无已审核 seed、再分发许可或责任人 | Release 药品目录、内容仓库 | 方案目录进入 Release 前 |
-| 库存默认 lot policy | 产品负责人未选择 | 自动库存扣减的默认 UX | 库存实现前 |
+| 库存默认 lot policy | 已由 ADR 0009 后置，不再是 App 1.0 门禁 | 未来库存若重新立项，必须重新决策 | 已移出 App 1.0 |
 | record digest v1 canonical spec | 工程需产出测试向量并评审 | JSON v2、完整备份和冲突检测 | 数据安全底座/备份实现前 |
 | 医疗分析 App Review 分类 | 需发行与法律复核 | 确定性方案分析的发布 | 分析接入 Release 前 |
 

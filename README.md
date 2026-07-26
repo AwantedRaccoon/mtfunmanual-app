@@ -9,7 +9,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 > **当前状态（2026-07-25）**
 >
 > - App 版本：`1.0`（build `1`）；`V2.5` 只是内部视觉迭代名。
-> - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3 与 Batch 5 已在 Simulator 与自动化范围内完成。Batch 4 尚未开始。
+> - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3 与 Batch 5 已在 Simulator 与自动化范围内完成。Batch 4 库存已决定不进入 App 1.0，保留阶段编号但后置为需求验证项。
 > - 当前位置：Batch 3 已补齐 Countdown 完整生命周期、统一设备本地提醒、旧数据复核与时间线闭环；2026-07-25 的完整复核修复了提醒 fail-closed、重复状态转换、历史时区、温和模式、读取错误、稳定分页和终态时间事件绑定缺口，并通过新的全量自动化回归。真机通知、文件保护、系统备份恢复、最低设备性能与完整辅助技术人工矩阵仍保留到发布候选阶段。
 > - GitHub 状态：Stage 0–3、Batch 5 与本次 Batch 3 Countdown 完整闭环阶段快照均已进入 `origin/main`；它们是阶段报告，不是 GitHub Release。任何后续推送与合并仍需要维护者当次明确批准。
 > - 发布状态：尚未达到 App Store release-ready，也尚未开始发布前真机测试。
@@ -20,7 +20,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 五个已启动阶段的当前进展是：
 
-- **Batch 0 — 合同冻结**：确认 App 1.0、iOS 17+、本地优先、无 App 主动联网、`.systemManaged` 系统备份边界，以及时间、执行、库存、化验和数据谱系的跨模块合同；
+- **Batch 0 — 合同冻结**：确认 App 1.0、iOS 17+、本地优先、无 App 主动联网、`.systemManaged` 系统备份边界，以及时间、执行、化验和数据谱系的跨模块合同；当时冻结的库存安全合同保留为历史边界，但不再构成 App 1.0 的实现范围；
 - **Batch 1 — 数据安全底座**：实现 V1 → V2 bridge、generation copy/journal/pointer、幂等 backfill、revision/digest、Recovery Mode、读写 actor、有界查询和性能证据 harness；代码与 Simulator 自动化已完成，真机文件保护、系统备份恢复和最低设备性能仍是发布门禁；
 - **Batch 2 — 时间与方案版本核心**：实现 additive Schema V3、civil date、historical timestamp、草稿/封存方案、组成项与计划数据、当前/未来/历史解析、变更校样和历史记录关联。
 - **Batch 3 — 今日执行、Countdown 与本地提醒**：实现 additive Schema V4、V6 与 V7、四类确定性 occurrence、append-only 执行事实与纠错、一次 snooze、完整 Countdown 生命周期、typed command 审计、提醒偏好、覆盖投影和 UserNotifications 统一设备本地调度。
@@ -89,7 +89,19 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 - 1.0 采用系统管理备份：App 不主动上传或实时同步，iOS 可能按用户设置将 App 数据纳入系统备份；
 - iPhone 与 iPad 原生 SwiftUI 界面，最低支持 iOS 17。
 
-尚未实现的主要能力包括：库存与 lot ledger、应用锁、最近任务遮挡、全 App 数据删除/重置、Readable JSON v2、安全恢复、PDF/CSV/完整备份、正式药品目录、公共内容包和确定性分析。README 不把这些能力描述成已经完成。
+库存与 lot ledger 已明确移出 App 1.0。App 1.0 继续使用 Batch 3 已实现的“封存方案 → 今日事项 → 中性设备本地提醒”，不要求用户维护批次、余量、开封日或有效期；库存不再是 App Store 发布阻塞项。若未来用户研究证明存在足够需求，将重新立项并建立新的产品与架构决策。
+
+尚未实现或尚未闭环的主要能力包括：
+
+- 正式首次使用引导，以及 HRT 暂停、恢复和多周期管理；
+- 化验趋势、冻结单位换算规则，以及化验/状态父记录的纠错与删除；
+- 应用锁、最近任务遮挡、完整关联删除预览、全 App 数据删除/重置和 generation 清理合同；
+- 正式就诊摘要、PDF/CSV、Readable JSON v2、安全恢复和含附件的完整备份；
+- 经许可与人工复核的正式药品目录、构建期公共内容包、离线资料搜索与收藏；
+- 带来源、适用边界和规则版本的确定性方案分析；
+- 真机通知、文件保护、系统备份恢复、最低设备性能、完整辅助技术人工矩阵，以及签名 Archive、隐私/医疗分类、内容授权等发布门禁。
+
+档案页已有部分上述能力的结构预览，JSON v1 导入/导出和 Files/PDF 附件导入也只在 DEBUG 提供原型；它们不是正式发布能力。
 
 ## 最近验证
 
@@ -107,7 +119,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 ## Roadmap
 
-Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生命周期与统一提醒由 ADR 0008 冻结；其余项目在对应 ADR 接受前仍是路线图，不是已经实现的工程事实。
+Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生命周期与统一提醒由 ADR 0008 冻结。ADR 0009 已正式将库存从 App 1.0 后置；Batch 4 保留编号以维持既有文档和阶段引用稳定，不再构成 1.0 实现或发布门禁。其余项目在对应 ADR 接受前仍是路线图，不是已经实现的工程事实。
 
 | 阶段 | 状态 | 目标 |
 | --- | --- | --- |
@@ -115,7 +127,7 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 | Batch 1 | 本地实现完成；真机门禁延期 | 数据安全、迁移、恢复与性能证据底座 |
 | Batch 2 | 已完成（Simulator / 自动化范围） | 时间事实与方案版本核心 |
 | **Batch 3** | **已完成（Simulator / 自动化范围）** | 今日执行、Countdown 完整生命周期与统一设备本地提醒 |
-| Batch 4 | 计划中 | 库存闭环 |
+| Batch 4 | 已移出 App 1.0；后置验证 | 库存与 lot ledger 仅在真实需求得到验证后重新立项 |
 | **Batch 5** | **已完成（Simulator / 自动化范围）** | 化验、状态、附件与统一时间线 |
 | Batch 6 | 计划中 | 隐私与数据控制 |
 | Batch 7 | 计划中 | 报告与完整备份 |
@@ -128,7 +140,7 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 “源码可以提交到 GitHub”和“App 可以上架”是两件事：
 
 - **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告、Batch 5 的化验/状态/附件/统一时间线，以及本次 Batch 3 Countdown 完整闭环均已进入 `origin/main`。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
-- **App Store**：当前不 ready。除 Batch 4、6–9 的产品能力外，仍需完成真机、签名 Release Candidate、发行主体/地区、隐私与医疗分类、内容授权等发布门禁；
+- **App Store**：当前不 ready。仍需完成尚未闭环的首用、周期和化验能力，Batch 6–9 的产品能力，以及真机、签名 Release Candidate、发行主体/地区、隐私与医疗分类、内容授权等发布门禁；库存不再是 1.0 发布前置条件；
 - 任何 `git push`、TestFlight 上传或 App Store 提交都需要当次明确授权，不由本地构建或测试自动触发。
 
 ## 产品原则
@@ -216,7 +228,7 @@ docs/              产品、视觉与技术决策
 project.yml        XcodeGen 工程定义
 ```
 
-当前公开进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与基础本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，化验、状态、附件与个人时间线见 [ADR 0007](docs/architecture/0007-labs-status-attachments-and-personal-timeline.md)，Countdown 生命周期与统一本地提醒见 [ADR 0008](docs/architecture/0008-countdown-lifecycle-and-unified-local-reminders.md)，工程约束见 [AGENTS.md](AGENTS.md)。
+当前公开进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与基础本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，化验、状态、附件与个人时间线见 [ADR 0007](docs/architecture/0007-labs-status-attachments-and-personal-timeline.md)，Countdown 生命周期与统一本地提醒见 [ADR 0008](docs/architecture/0008-countdown-lifecycle-and-unified-local-reminders.md)，库存后置决策见 [ADR 0009](docs/architecture/0009-inventory-deferred-from-app-1.0.md)，工程约束见 [AGENTS.md](AGENTS.md)。
 
 ## 参与贡献
 

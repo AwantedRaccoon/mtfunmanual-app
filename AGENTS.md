@@ -4,8 +4,8 @@
 
 - 本文件适用于 `mtf-app/` 的整个目录树；更深层的 `AGENTS.md` 可以为子模块补充更具体的规则。
 - 用户在当前任务中的明确要求高于本文件。规则冲突时，优先遵守更具体、离目标文件更近的规则。
-- 本项目已确定先做 iOS 原生版本：SwiftUI + SwiftData，最低 iOS 17.0，同时支持 iPhone 与 iPad。首发功能仍以 `docs/product/` 中的规划为准；不要把未确认细节伪装成既定决定。
-- 本地后端的时间、执行、库存、化验、数据谱系、无网络与发行门禁以 `docs/architecture/0002-batch-0-contract-freeze.md` 为准；`foragent/` 中的方案和副本不是工程事实源。
+- 本项目已确定先做 iOS 原生版本：SwiftUI + SwiftData，最低 iOS 17.0，同时支持 iPhone 与 iPad。首发功能以 `docs/product/` 中的规划及其已接受 ADR 修订为准；不要把未确认细节伪装成既定决定。
+- 本地后端的时间、执行、化验、数据谱系、无网络与发行门禁以 `docs/architecture/0002-batch-0-contract-freeze.md` 为准；库存已由 `docs/architecture/0009-inventory-deferred-from-app-1.0.md` 明确移出 App 1.0，不得继续当作 1.0 实现或发布门禁。`foragent/` 中的方案和副本不是工程事实源。
 - 当项目变大时，把架构、产品和视觉细节移入 `docs/`，让根 `AGENTS.md` 保持为入口地图和不可越界合同。
 
 ## 项目定位
