@@ -154,7 +154,7 @@ struct Batch1FixtureCounts: Codable, Equatable, Sendable {
         journeyEntries: 7_300,
         labRecords: 1_200,
         migrationIssues: 0,
-        revisions: 25_819
+        revisions: 25_822
     )
 
     let profiles: Int
@@ -360,6 +360,39 @@ enum Batch1V10FoundationContract {
     static let nextLocalRevision =
         Batch1V9FoundationContract.nextLocalRevision + 1
     static let quickWriteAddedFactCount = 2
+    static let postQuickWriteRevisionCount =
+        activatedRevisionCount + quickWriteAddedFactCount
+    static let postQuickWriteNextLocalRevision = nextLocalRevision + 1
+}
+
+enum Batch1V11FoundationContract {
+    // V11 adds the privacy-control singleton and its completed backfill marker.
+    // They share one reserved migration revision and do not rewrite V10 facts.
+    static let activatedFactCount =
+        Batch1V10FoundationContract.activatedFactCount + 2
+    static let activatedRevisionCount =
+        Batch1V10FoundationContract.activatedRevisionCount + 2
+    static let nextLocalRevision =
+        Batch1V10FoundationContract.nextLocalRevision + 1
+    static let quickWriteAddedFactCount =
+        Batch1V10FoundationContract.quickWriteAddedFactCount
+    static let postQuickWriteRevisionCount =
+        activatedRevisionCount + quickWriteAddedFactCount
+    static let postQuickWriteNextLocalRevision = nextLocalRevision + 1
+}
+
+enum Batch1V12FoundationContract {
+    // V12 adds the completed data-control backfill marker. The empty initial
+    // tombstone set adds no user-deletion rows and consumes one migration
+    // revision without rewriting V11 facts.
+    static let activatedFactCount =
+        Batch1V11FoundationContract.activatedFactCount + 1
+    static let activatedRevisionCount =
+        Batch1V11FoundationContract.activatedRevisionCount + 1
+    static let nextLocalRevision =
+        Batch1V11FoundationContract.nextLocalRevision + 1
+    static let quickWriteAddedFactCount =
+        Batch1V11FoundationContract.quickWriteAddedFactCount
     static let postQuickWriteRevisionCount =
         activatedRevisionCount + quickWriteAddedFactCount
     static let postQuickWriteNextLocalRevision = nextLocalRevision + 1

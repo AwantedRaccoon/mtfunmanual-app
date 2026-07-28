@@ -1648,6 +1648,75 @@ final class ParentRecordLifecycleTests: XCTestCase {
         XCTAssertTrue(trend.points.isEmpty)
     }
 
+    func testDeletingLatestLabFallsBackToEarlierActiveSample()
+        async throws {
+        let first = try await makeLabFixture()
+        let writer = AppWriteActor(
+            modelContainer: first.container
+        )
+        let reader = AppReadActor(
+            modelContainer: first.container
+        )
+        let newerID = UUID()
+        _ = try await writer.createLabSample(
+            CreateLabSampleCommand(
+                operationID: UUID(),
+                sampleID: newerID,
+                timestamp: try timestamp(instant: 300),
+                newDefinitions: [],
+                results: [
+                    LabResultInput(
+                        itemDefinitionID:
+                            first.definitionID,
+                        rawValueOriginal: "20",
+                        unitOriginal: "mg/L"
+                    )
+                ]
+            )
+        )
+        let before = try await reader.coreRegimenOverview(
+            asOf: try CivilDateFact(
+                year: 2026,
+                month: 7,
+                day: 28
+            )
+        )
+        XCTAssertEqual(before.latestLabSample?.id, newerID)
+
+        let impact = try await reader
+            .parentRecordDeletionImpact(
+                type: .labSample,
+                id: newerID
+            )
+        _ = try await writer.deleteParentRecord(
+            DeleteParentRecordCommand(
+                parentType: .labSample,
+                parentID: newerID,
+                expectedHead: impact.expectedHead,
+                expectedImpactDigest:
+                    impact.impactDigest,
+                attachments: []
+            )
+        )
+
+        let after = try await reader.coreRegimenOverview(
+            asOf: try CivilDateFact(
+                year: 2026,
+                month: 7,
+                day: 28
+            )
+        )
+        XCTAssertEqual(
+            after.latestLabSample?.id,
+            first.sampleID
+        )
+        XCTAssertEqual(
+            after.latestLabSample?.results.first?
+                .rawValueOriginal,
+            "10"
+        )
+    }
+
     func testDeleteImpactFailsClosedWhenAttachmentsChange()
         async throws {
         let fixture = try await makeLabFixture()

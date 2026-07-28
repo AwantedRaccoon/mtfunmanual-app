@@ -121,6 +121,10 @@ extension AppWriteActor {
     func addAttachmentMetadata(
         _ command: AddAttachmentMetadataCommand
     ) throws -> AttachmentCommitResult {
+        try ensureDataControlAttachmentOwnerIsWritable(
+            ownerType: command.ownerType,
+            ownerID: command.ownerID
+        )
         let normalized = try normalizedAttachment(command)
         let digest = try AttachmentDigestV1.command(command)
         if let replay = try attachmentReplay(command.operationID, digest: digest) {
@@ -132,6 +136,10 @@ extension AppWriteActor {
         do {
             var result: AttachmentCommitResult?
             try modelContext.transaction {
+                try ensureDataControlAttachmentOwnerIsWritable(
+                    ownerType: command.ownerType,
+                    ownerID: command.ownerID
+                )
                 if let replay = try attachmentReplay(command.operationID, digest: digest) {
                     result = replay
                     return
@@ -184,6 +192,9 @@ extension AppWriteActor {
     func deleteAttachment(
         _ command: DeleteAttachmentCommand
     ) throws -> AttachmentDeletionResult {
+        try ensureDataControlAttachmentIsWritable(
+            command.attachmentID
+        )
         guard command.committedAt.timeIntervalSince1970.isFinite else {
             throw PersonalTimelineWriteFailure.invalidInput
         }
@@ -210,6 +221,9 @@ extension AppWriteActor {
         do {
             var result: AttachmentDeletionResult?
             try modelContext.transaction {
+                try ensureDataControlAttachmentIsWritable(
+                    command.attachmentID
+                )
                 if let replay = try attachmentDeletionReplay(
                     operationID: command.operationID,
                     digest: digest

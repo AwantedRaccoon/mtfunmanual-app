@@ -493,6 +493,9 @@ actor AppWriteActor {
     }
 
     func addJourneyEntry(_ command: AddJourneyEntryCommand) throws {
+        try ensureDataControlJourneyEntryIsWritable(
+            command.recordID
+        )
         let cleanText = command.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let recordID = command.recordID
         guard !cleanText.isEmpty else { throw AppWriteFailure.invalidInput }
@@ -513,6 +516,9 @@ actor AppWriteActor {
 
         do {
             try modelContext.transaction {
+                try ensureDataControlJourneyEntryIsWritable(
+                    recordID
+                )
                 var duplicateDescriptor = FetchDescriptor<JourneyEntry>(
                     predicate: #Predicate { $0.id == recordID }
                 )
@@ -1110,6 +1116,9 @@ enum FactDigestV1 {
 
 struct AppDataWriter: Sendable {
     private let storage: AppWriteActor
+    private let dataControlCoordinator: AppDataControlCoordinator
+    private let sessionReleaseProbe:
+        AppDataSessionReleaseProbe?
     private let verifyStoreProtection: @Sendable () async -> Bool
     private let onProtectionFailure: @Sendable () async -> Void
     private let onReminderInputsChanged:
@@ -1117,379 +1126,620 @@ struct AppDataWriter: Sendable {
 
     init(
         storage: AppWriteActor,
+        dataControlCoordinator: AppDataControlCoordinator =
+            AppDataControlCoordinator(generationID: UUID()),
         verifyStoreProtection: @escaping @Sendable () async -> Bool,
         onProtectionFailure: @escaping @Sendable () async -> Void,
+        sessionReleaseProbe:
+            AppDataSessionReleaseProbe? = nil,
         onReminderInputsChanged:
             @escaping @Sendable (ReminderCoverageInvalidationResult) async -> Void = { _ in }
     ) {
         self.storage = storage
+        self.dataControlCoordinator = dataControlCoordinator
+        self.sessionReleaseProbe = sessionReleaseProbe
         self.verifyStoreProtection = verifyStoreProtection
         self.onProtectionFailure = onProtectionFailure
         self.onReminderInputsChanged = onReminderInputsChanged
     }
 
     func setStartDate(_ command: SetStartDateCommand) async throws {
-        try await storage.setStartDate(command)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage.setStartDate(command)
+            await revalidateProtectionAfterCommit()
+        }
     }
 
     func createHrtJourney(
         _ command: CreateHrtJourneyCommand
     ) async throws -> HrtJourneyMutationResult {
-        let result = try await storage.createHrtJourney(command)
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage
+                .ensureDataControlHrtJourneyIsWritable()
+            let result = try await storage.createHrtJourney(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func correctHrtJourneyFirstStart(
         _ command: CorrectHrtJourneyFirstStartCommand
     ) async throws -> HrtJourneyMutationResult {
-        let result = try await storage.correctHrtJourneyFirstStart(
-            command
-        )
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage
+                .ensureDataControlHrtJourneyIsWritable()
+            let result = try await storage
+                .correctHrtJourneyFirstStart(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func pauseHrtJourney(
         _ command: PauseHrtJourneyCommand
     ) async throws -> HrtJourneyMutationResult {
-        let result = try await storage.pauseHrtJourney(command)
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage
+                .ensureDataControlHrtJourneyIsWritable()
+            let result = try await storage.pauseHrtJourney(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func resumeHrtJourney(
         _ command: ResumeHrtJourneyCommand
     ) async throws -> HrtJourneyMutationResult {
-        let result = try await storage.resumeHrtJourney(command)
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage
+                .ensureDataControlHrtJourneyIsWritable()
+            let result = try await storage.resumeHrtJourney(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func setGentleMode(_ command: SetGentleModeCommand) async throws {
-        try await storage.setGentleMode(command)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage.setGentleMode(command)
+            await revalidateProtectionAfterCommit()
+        }
+    }
+
+    func setAppLock(
+        _ command: SetAppLockCommand
+    ) async throws -> SetAppLockResult {
+        try await withMutationLease {
+            let result = try await storage.setAppLock(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
     }
 
     func updateOnboardingProgress(
         _ command: UpdateOnboardingProgressCommand
     ) async throws -> OnboardingProgressResult {
-        let result = try await storage.updateOnboardingProgress(command)
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            let result = try await storage.updateOnboardingProgress(
+                command
+            )
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func completeOnboarding(
         _ command: CompleteOnboardingCommand
     ) async throws -> CompleteOnboardingResult {
-        let result = try await storage.completeOnboarding(command)
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            let result = try await storage.completeOnboarding(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func saveCountdown(_ command: SaveCountdownCommand) async throws {
-        try await storage.saveCountdown(command)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage.saveCountdown(command)
+            await revalidateProtectionAfterCommit()
+        }
     }
 
     func createCountdown(
         _ command: CreateCountdownCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.createCountdown(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID: result.countdownID
-            )
+        try await withMutationLease {
+            let result = try await storage.createCountdown(command)
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID: result.countdownID
+                )
+            }
+            return result
         }
-        return result
     }
 
     func updateCountdown(
         _ command: UpdateCountdownCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.updateCountdown(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID: result.countdownID
-            )
+        try await withMutationLease {
+            let result = try await storage.updateCountdown(command)
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID: result.countdownID
+                )
+            }
+            return result
         }
-        return result
     }
 
     func resolveCountdownReview(
         _ command: ResolveCountdownReviewCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.resolveCountdownReview(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID:
-                    command.resolution == .keepAsCurrent
-                        ? result.countdownID
-                        : nil
+        try await withMutationLease {
+            let result = try await storage.resolveCountdownReview(
+                command
             )
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID:
+                        command.resolution == .keepAsCurrent
+                            ? result.countdownID
+                            : nil
+                )
+            }
+            return result
         }
-        return result
     }
 
     func continueCountdown(
         _ command: ContinueCountdownCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.continueCountdown(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID: result.countdownID
-            )
+        try await withMutationLease {
+            let result = try await storage.continueCountdown(command)
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID: result.countdownID
+                )
+            }
+            return result
         }
-        return result
     }
 
     func completeCountdown(
         _ command: CompleteCountdownCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.completeCountdown(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID: nil
-            )
+        try await withMutationLease {
+            let result = try await storage.completeCountdown(command)
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID: nil
+                )
+            }
+            return result
         }
-        return result
     }
 
     func archiveCountdown(
         _ command: ArchiveCountdownCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.archiveCountdown(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID: nil
-            )
+        try await withMutationLease {
+            let result = try await storage.archiveCountdown(command)
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID: nil
+                )
+            }
+            return result
         }
-        return result
     }
 
     func deleteCountdown(
         _ command: DeleteCountdownCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.deleteCountdown(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID: nil
-            )
+        try await withMutationLease {
+            let result = try await storage.deleteCountdown(command)
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID: nil
+                )
+            }
+            return result
         }
-        return result
     }
 
     func replaceCountdown(
         _ command: ReplaceCountdownCommand
     ) async throws -> CountdownMutationResult {
-        let result = try await storage.replaceCountdown(command)
-        if result.didApply {
-            await countdownReminderInputsDidChange(
-                at: command.committedAt,
-                countdownID: result.countdownID
-            )
+        try await withMutationLease {
+            let result = try await storage.replaceCountdown(command)
+            if result.didApply {
+                await countdownReminderInputsDidChange(
+                    at: command.committedAt,
+                    countdownID: result.countdownID
+                )
+            }
+            return result
         }
-        return result
     }
 
     func addJourneyEntry(_ command: AddJourneyEntryCommand) async throws {
-        try await storage.addJourneyEntry(command)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage.ensureDataControlJourneyEntryIsWritable(
+                command.recordID
+            )
+            try await storage.addJourneyEntry(command)
+            await revalidateProtectionAfterCommit()
+        }
     }
 
 #if DEBUG
     func createRegimenVersion(_ command: CreateRegimenVersionCommand) async throws {
-        try await storage.createRegimenVersion(command)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage.createRegimenVersion(command)
+            await revalidateProtectionAfterCommit()
+        }
     }
 #endif
 
     func saveRegimenDraft(_ command: SaveRegimenDraftCommand) async throws {
-        try await storage.saveRegimenDraft(command)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage
+                .ensureDataControlRegimenLineageIsWritable(
+                    recordID: command.recordID
+                )
+            try await storage.saveRegimenDraft(command)
+            await revalidateProtectionAfterCommit()
+        }
     }
 
     func previewRegimenChange(draftID: UUID) async throws -> RegimenChangePreview {
-        try await storage.previewRegimenChange(draftID: draftID)
+        try await dataControlCoordinator.withReadLease {
+            try await storage
+                .ensureDataControlRegimenVersionIsWritable(draftID)
+            return try await storage.previewRegimenChange(
+                draftID: draftID
+            )
+        }
     }
 
     func sealRegimenDraft(_ command: SealRegimenDraftCommand) async throws {
-        try await storage.sealRegimenDraft(command)
-        let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-        await onReminderInputsChanged(
-            .schedule(coverageWasInvalidated: didInvalidateCoverage)
-        )
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage
+                .ensureDataControlRegimenVersionIsWritable(
+                    command.draftID
+                )
+            try await storage.sealRegimenDraft(command)
+            let didInvalidateCoverage =
+                await invalidateReminderCoverage(
+                    at: command.committedAt
+                )
+            await onReminderInputsChanged(
+                .schedule(
+                    coverageWasInvalidated: didInvalidateCoverage
+                )
+            )
+            await revalidateProtectionAfterCommit()
+        }
     }
 
     func saveLabImport(_ command: SaveLabImportCommand) async throws -> Int {
-        let count = try await storage.saveLabImport(command)
-        await revalidateProtectionAfterCommit()
-        return count
+        try await withMutationLease {
+            let count = try await storage.saveLabImport(command)
+            await revalidateProtectionAfterCommit()
+            return count
+        }
     }
 
     func createLabSample(
         _ command: CreateLabSampleCommand
     ) async throws -> LabSampleCommitResult {
-        let result = try await storage.createLabSample(command)
-        if result.didCreate { await revalidateProtectionAfterCommit() }
-        return result
+        try await withMutationLease {
+            let result = try await storage.createLabSample(command)
+            if result.didCreate {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
     }
 
     func createStatusMetric(
         _ command: CreateStatusMetricCommand
     ) async throws -> StatusMetricCommitResult {
-        let result = try await storage.createStatusMetric(command)
-        if result.didCreate { await revalidateProtectionAfterCommit() }
-        return result
+        try await withMutationLease {
+            let result = try await storage.createStatusMetric(command)
+            if result.didCreate {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
     }
 
     func recordStatusObservation(
         _ command: RecordStatusObservationCommand
     ) async throws -> StatusObservationCommitResult {
-        let result = try await storage.recordStatusObservation(command)
-        if result.didCreate { await revalidateProtectionAfterCommit() }
-        return result
+        try await withMutationLease {
+            let result = try await storage
+                .recordStatusObservation(command)
+            if result.didCreate {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
     }
 
     func correctLabSample(
         _ command: CorrectLabSampleCommand
     ) async throws -> ParentRecordMutationResult {
-        let result = try await storage.correctLabSample(command)
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            let result = try await storage.correctLabSample(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func correctStatusObservation(
         _ command: CorrectStatusObservationCommand
     ) async throws -> ParentRecordMutationResult {
-        let result = try await storage.correctStatusObservation(command)
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            let result = try await storage.correctStatusObservation(
+                command
+            )
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func deleteParentRecord(
         _ command: DeleteParentRecordCommand,
         failureInjection: AppWriteFailureInjection? = nil
     ) async throws -> ParentRecordMutationResult {
-        let result = try await storage.deleteParentRecord(
-            command,
-            failureInjection: failureInjection
-        )
-        if result.didApply {
-            await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            let result = try await storage.deleteParentRecord(
+                command,
+                failureInjection: failureInjection
+            )
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func validateParentRecordDeletionImpact(
         _ impact: ParentRecordDeletionImpact
     ) async throws {
-        try await storage.validateParentRecordDeletionImpact(impact)
+        try await dataControlCoordinator.withReadLease {
+            try await storage.validateParentRecordDeletionImpact(impact)
+        }
     }
 
     func archiveStatusMetric(
         _ command: ArchiveStatusMetricCommand
     ) async throws -> StatusMetricArchiveResult {
-        let result = try await storage.archiveStatusMetric(command)
-        if result.didArchive { await revalidateProtectionAfterCommit() }
-        return result
+        try await withMutationLease {
+            let result = try await storage.archiveStatusMetric(command)
+            if result.didArchive {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
     }
 
     func addAttachmentMetadata(
         _ command: AddAttachmentMetadataCommand
     ) async throws -> AttachmentCommitResult {
-        let result = try await storage.addAttachmentMetadata(command)
-        if result.didCreate { await revalidateProtectionAfterCommit() }
-        return result
+        try await withMutationLease {
+            try await storage
+                .ensureDataControlAttachmentOwnerIsWritable(
+                    ownerType: command.ownerType,
+                    ownerID: command.ownerID
+                )
+            let result = try await storage.addAttachmentMetadata(
+                command
+            )
+            if result.didCreate {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
     }
 
     func deleteAttachment(
         _ command: DeleteAttachmentCommand
     ) async throws -> AttachmentDeletionResult {
-        let result = try await storage.deleteAttachment(command)
-        if result.didDelete { await revalidateProtectionAfterCommit() }
-        return result
+        try await withMutationLease {
+            try await storage.ensureDataControlAttachmentIsWritable(
+                command.attachmentID
+            )
+            let result = try await storage.deleteAttachment(command)
+            if result.didDelete {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
     }
 
     func commitAdministration(
         _ command: CommitAdministrationCommand
     ) async throws -> AdministrationCommitResult {
-        let result = try await storage.commitAdministration(command)
-        if result.didCreate {
-            let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-            await onReminderInputsChanged(
-                .schedule(coverageWasInvalidated: didInvalidateCoverage)
+        try await withMutationLease {
+            try await storage.ensureDataControlOccurrenceIsWritable(
+                command.occurrence
             )
-            await revalidateProtectionAfterCommit()
+            let result = try await storage.commitAdministration(
+                command
+            )
+            if result.didCreate {
+                let didInvalidateCoverage =
+                    await invalidateReminderCoverage(
+                        at: command.committedAt
+                    )
+                await onReminderInputsChanged(
+                    .schedule(
+                        coverageWasInvalidated:
+                            didInvalidateCoverage
+                    )
+                )
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func setReminderPreference(
         _ command: SetReminderPreferenceCommand
     ) async throws -> ReminderPreferenceResult {
-        let result = try await storage.setReminderPreference(command)
-        if result.didApply {
-            let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-            await onReminderInputsChanged(
-                .schedule(coverageWasInvalidated: didInvalidateCoverage)
+        try await withMutationLease {
+            try await storage.ensureDataControlScheduleRuleIsWritable(
+                command.scheduleRuleID
             )
-            await revalidateProtectionAfterCommit()
+            let result = try await storage.setReminderPreference(
+                command
+            )
+            if result.didApply {
+                let didInvalidateCoverage =
+                    await invalidateReminderCoverage(
+                        at: command.committedAt
+                    )
+                await onReminderInputsChanged(
+                    .schedule(
+                        coverageWasInvalidated:
+                            didInvalidateCoverage
+                    )
+                )
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func applyReminderOverride(
         _ command: ApplyReminderOverrideCommand
     ) async throws -> ReminderOverrideResult {
-        let result = try await storage.applyReminderOverride(command)
-        if result.didCreate {
-            let didInvalidateCoverage = await invalidateReminderCoverage(at: command.committedAt)
-            await onReminderInputsChanged(
-                .schedule(coverageWasInvalidated: didInvalidateCoverage)
+        try await withMutationLease {
+            try await storage.ensureDataControlOccurrenceIsWritable(
+                command.occurrence
             )
-            await revalidateProtectionAfterCommit()
+            let result = try await storage.applyReminderOverride(
+                command
+            )
+            if result.didCreate {
+                let didInvalidateCoverage =
+                    await invalidateReminderCoverage(
+                        at: command.committedAt
+                    )
+                await onReminderInputsChanged(
+                    .schedule(
+                        coverageWasInvalidated:
+                            didInvalidateCoverage
+                    )
+                )
+                await revalidateProtectionAfterCommit()
+            }
+            return result
         }
-        return result
     }
 
     func updateNotificationCoverage(
         _ observation: LocalReminderReconciliationObservation
     ) async throws {
-        try await storage.updateNotificationCoverage(observation)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage.updateNotificationCoverage(observation)
+            await revalidateProtectionAfterCommit()
+        }
     }
 
     func updateUnifiedNotificationCoverage(
         _ observation: LocalReminderReconciliationObservation
     ) async throws {
-        try await storage.updateUnifiedNotificationCoverage(observation)
-        await revalidateProtectionAfterCommit()
+        try await withMutationLease {
+            try await storage.updateUnifiedNotificationCoverage(
+                observation
+            )
+            await revalidateProtectionAfterCommit()
+        }
+    }
+
+    func dataControlDeletionPlan(
+        _ request: DataControlDeletionPlanRequest
+    ) async throws -> DataControlDeletionPlan {
+        try await dataControlCoordinator.withReadLease {
+            try await storage.dataControlDeletionPlan(request)
+        }
+    }
+
+    func commitDataControlDeletion(
+        impact: DeletionImpact,
+        command: DeleteDataControlTargetCommand,
+        activeGenerationID: UUID
+    ) async throws -> DataControlDeletionWriteResult {
+        try await withMutationLease {
+            let result = try await storage.commitDataControlDeletion(
+                impact: impact,
+                command: command,
+                activeGenerationID: activeGenerationID
+            )
+            await revalidateProtectionAfterCommit()
+            return result
+        }
+    }
+
+    func replayCommittedDataControlDeletion(
+        impact: DeletionImpact,
+        command: DeleteDataControlTargetCommand,
+        activeGenerationID: UUID
+    ) async throws -> DataControlDeletionWriteResult? {
+        try await dataControlCoordinator.withReadLease {
+            try await storage
+                .replayCommittedDataControlDeletion(
+                    impact: impact,
+                    command: command,
+                    activeGenerationID:
+                        activeGenerationID
+                )
+        }
+    }
+
+    func dataControlAttachmentRecoveryEvidence()
+        async throws
+        -> DataControlAttachmentRecoveryEvidence {
+        try await dataControlCoordinator.withReadLease {
+            try await storage
+                .dataControlAttachmentRecoveryEvidence()
+        }
+    }
+
+    func dataControlTerminalOverlay()
+        async throws -> DataControlTerminalOverlay {
+        try await dataControlCoordinator.withReadLease {
+            try await storage.dataControlTerminalOverlay()
+        }
     }
 
     private func revalidateProtectionAfterCommit() async {
@@ -1497,6 +1747,12 @@ struct AppDataWriter: Sendable {
             await onProtectionFailure()
             return
         }
+    }
+
+    private func withMutationLease<Output: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> Output
+    ) async throws -> Output {
+        try await dataControlCoordinator.withMutationLease(operation)
     }
 
     private func invalidateReminderCoverage(at observedAt: Date) async -> Bool {

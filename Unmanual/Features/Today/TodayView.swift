@@ -5,6 +5,8 @@ import UIKit
 struct TodayView: View {
     @Environment(\.appReadActor) private var appReadActor
     @Environment(\.appDataWriter) private var appDataWriter
+    @Environment(\.appDataControlCoordinator)
+    private var appDataControlCoordinator
     @Environment(\.localReminderRuntime) private var reminderRuntime
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -323,12 +325,16 @@ struct TodayView: View {
                     if requestAuthorization {
                         await reminderRuntime.requestAuthorizationAndReconcile(
                             reader: appReadActor,
-                            writer: appDataWriter
+                            writer: appDataWriter,
+                            dataControlCoordinator:
+                                appDataControlCoordinator
                         )
                     } else {
                         await reminderRuntime.reconcile(
                             reader: appReadActor,
-                            writer: appDataWriter
+                            writer: appDataWriter,
+                            dataControlCoordinator:
+                                appDataControlCoordinator
                         )
                     }
                 }
@@ -344,7 +350,9 @@ struct TodayView: View {
         if let appReadActor, let appDataWriter, let reminderRuntime {
             await reminderRuntime.reconcile(
                 reader: appReadActor,
-                writer: appDataWriter
+                writer: appDataWriter,
+                dataControlCoordinator:
+                    appDataControlCoordinator
             )
         }
         await refreshExecution()

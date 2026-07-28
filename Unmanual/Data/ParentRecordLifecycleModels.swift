@@ -24,6 +24,20 @@ enum ParentRecordLifecycle: String, Codable, Equatable, Sendable {
     case deleted
 }
 
+struct ParentRecordTerminalOverlay: Equatable, Sendable {
+    let labSampleIDs: Set<UUID>
+    let statusObservationIDs: Set<UUID>
+
+    static let empty = ParentRecordTerminalOverlay(
+        labSampleIDs: [],
+        statusObservationIDs: []
+    )
+
+    var isEmpty: Bool {
+        labSampleIDs.isEmpty && statusObservationIDs.isEmpty
+    }
+}
+
 enum ParentRecordMutationEventKind: String, Codable, Equatable, Sendable {
     case migratedSnapshot
     case createdSnapshot

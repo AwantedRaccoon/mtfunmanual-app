@@ -43,7 +43,7 @@ final class Batch1PerformanceContractTests: XCTestCase {
         XCTAssertTrue(contract.thresholdNanoseconds.isEmpty)
     }
 
-    func testFiveYearExpectedCountsIncludeV10ParentLifecycleFacts() {
+    func testFiveYearExpectedCountsIncludeV12DataControlFacts() {
         XCTAssertEqual(Batch1FixtureCounts.legacySourceExpected.revisions, 8_585)
         XCTAssertEqual(Batch1FixtureCounts.legacySourceExpected.legacyFacts, 8_585)
         XCTAssertEqual(Batch1V3CompanionCounts.expected.facts, 9_727)
@@ -61,7 +61,7 @@ final class Batch1PerformanceContractTests: XCTestCase {
             1
         )
         XCTAssertEqual(Batch1V7CountdownIntegrityCounts.expected.canonicalFacts, 61)
-        XCTAssertEqual(Batch1FixtureCounts.expected.revisions, 25_819)
+        XCTAssertEqual(Batch1FixtureCounts.expected.revisions, 25_822)
         XCTAssertEqual(Batch1V7FoundationContract.activatedFactCount, 23_414)
         XCTAssertEqual(Batch1V7FoundationContract.activatedRevisionCount, 23_414)
         XCTAssertEqual(Batch1V7FoundationContract.nextLocalRevision, 17_417)
@@ -128,10 +128,50 @@ final class Batch1PerformanceContractTests: XCTestCase {
             Batch1V10FoundationContract.postQuickWriteNextLocalRevision,
             17_421
         )
+        XCTAssertEqual(
+            Batch1V11FoundationContract.activatedFactCount,
+            25_821
+        )
+        XCTAssertEqual(
+            Batch1V11FoundationContract.activatedRevisionCount,
+            25_821
+        )
+        XCTAssertEqual(
+            Batch1V11FoundationContract.nextLocalRevision,
+            17_421
+        )
+        XCTAssertEqual(
+            Batch1V11FoundationContract.postQuickWriteRevisionCount,
+            25_823
+        )
+        XCTAssertEqual(
+            Batch1V11FoundationContract.postQuickWriteNextLocalRevision,
+            17_422
+        )
+        XCTAssertEqual(
+            Batch1V12FoundationContract.activatedFactCount,
+            25_822
+        )
+        XCTAssertEqual(
+            Batch1V12FoundationContract.activatedRevisionCount,
+            25_822
+        )
+        XCTAssertEqual(
+            Batch1V12FoundationContract.nextLocalRevision,
+            17_422
+        )
+        XCTAssertEqual(
+            Batch1V12FoundationContract.postQuickWriteRevisionCount,
+            25_824
+        )
+        XCTAssertEqual(
+            Batch1V12FoundationContract.postQuickWriteNextLocalRevision,
+            17_423
+        )
     }
 
     @MainActor
-    func testOneFiveYearIterationExercisesV10FoundationAndQuickWriteContracts() async throws {
+    func testOneFiveYearIterationExercisesV12FoundationAndQuickWriteContracts() async throws {
         let applicationSupport = try XCTUnwrap(
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         )

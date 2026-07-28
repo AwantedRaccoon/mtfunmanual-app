@@ -5,6 +5,8 @@ struct OnboardingReminderSetupView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appDataWriter) private var appDataWriter
     @Environment(\.appReadActor) private var appReadActor
+    @Environment(\.appDataControlCoordinator)
+    private var appDataControlCoordinator
     @Environment(\.localReminderRuntime) private var reminderRuntime
     @Environment(AppTheme.self) private var theme
 
@@ -190,12 +192,16 @@ struct OnboardingReminderSetupView: View {
                     _ = await reminderRuntime
                         .requestAuthorizationAndReconcile(
                             reader: appReadActor,
-                            writer: appDataWriter
+                            writer: appDataWriter,
+                            dataControlCoordinator:
+                                appDataControlCoordinator
                         )
                 } else {
                     await reminderRuntime.reconcile(
                         reader: appReadActor,
-                        writer: appDataWriter
+                        writer: appDataWriter,
+                        dataControlCoordinator:
+                            appDataControlCoordinator
                     )
                 }
                 let refreshed = try await appReadActor

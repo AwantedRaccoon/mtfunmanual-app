@@ -1,2 +1,3 @@
 "CFBundleDisplayName" = "不全书";
 "CFBundleName" = "不全书";
+"NSFaceIDUsageDescription" = "用于解锁本机资料。";

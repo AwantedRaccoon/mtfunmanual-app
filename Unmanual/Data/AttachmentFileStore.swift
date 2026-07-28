@@ -817,6 +817,178 @@ struct AttachmentFileStore: Sendable {
         }
     }
 
+    func dataInventoryCategorySnapshots(
+        observations: [DataInventoryAttachmentObservation]
+    ) throws -> [DataInventoryCategorySnapshot] {
+        try validateProtectedDirectory(at: rootURL)
+        try validateProtectedDirectory(at: attachmentRoot)
+        try validateProtectedDirectory(at: stagingRoot)
+        try validateProtectedDirectory(at: trashRoot)
+
+        let observationsByID = Dictionary(
+            grouping: observations,
+            by: { $0.attachment.id }
+        )
+        guard observationsByID.values.allSatisfy({ $0.count == 1 }) else {
+            throw AttachmentFileStoreFailure.integrityMismatch
+        }
+        let active = observations.filter { $0.deletedAt == nil }
+        let deleted = observations.filter { $0.deletedAt != nil }
+        guard active.allSatisfy({ $0.deleteOperationID == nil }),
+              deleted.allSatisfy({ $0.deleteOperationID != nil }) else {
+            throw AttachmentFileStoreFailure.integrityMismatch
+        }
+
+        let journalEntries = try FileManager.default.contentsOfDirectory(
+            at: stagingRoot,
+            includingPropertiesForKeys: [
+                .isDirectoryKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey
+            ],
+            options: []
+        )
+        let journalURLs = journalEntries.filter {
+            $0.pathExtension == "json"
+        }
+        var journalsByOperationID: [UUID: Journal] = [:]
+        for url in journalURLs {
+            let journal = try decodedJournal(at: url)
+            guard journalsByOperationID.updateValue(
+                journal,
+                forKey: journal.operationID
+            ) == nil else {
+                throw AttachmentFileStoreFailure.inconsistentJournal
+            }
+        }
+        let stagingDirectories = journalEntries.filter {
+            $0.pathExtension.isEmpty
+        }
+        for directory in stagingDirectories {
+            try validateProtectedDirectory(at: directory)
+            guard let operationID = UUID(
+                uuidString: directory.lastPathComponent
+            ),
+            directory.lastPathComponent
+                == operationID.uuidString.lowercased(),
+            journalsByOperationID[operationID] != nil else {
+                throw AttachmentFileStoreFailure.inconsistentJournal
+            }
+            let children = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: []
+            )
+            guard children.isEmpty
+                    || (children.count == 1
+                        && children[0].lastPathComponent == "payload") else {
+                throw AttachmentFileStoreFailure.inconsistentJournal
+            }
+            if let payload = children.first {
+                try validateRegularProtectedFile(at: payload)
+            }
+        }
+        guard journalEntries.count
+                == journalURLs.count + stagingDirectories.count else {
+            throw AttachmentFileStoreFailure.inconsistentJournal
+        }
+
+        let trashDirectories = try FileManager.default.contentsOfDirectory(
+            at: trashRoot,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        for directory in trashDirectories {
+            try validateProtectedDirectory(at: directory)
+            guard let operationID = UUID(
+                uuidString: directory.lastPathComponent
+            ),
+            directory.lastPathComponent
+                == operationID.uuidString.lowercased(),
+            let journal = journalsByOperationID[operationID],
+            journal.action == .deleteFile else {
+                throw AttachmentFileStoreFailure.inconsistentJournal
+            }
+            let children = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: []
+            )
+            guard children.count == 1,
+                  children[0].lastPathComponent == "payload" else {
+                throw AttachmentFileStoreFailure.inconsistentJournal
+            }
+            try validateRegularProtectedFile(at: children[0])
+        }
+
+        // A ready AppDataSession has already replayed every attachment
+        // transaction. A newly appearing journal means a concurrent mutation
+        // crossed this observation; retain its typed validation above, then
+        // fail closed instead of publishing a mixed DB/file snapshot.
+        guard journalsByOperationID.isEmpty,
+              stagingDirectories.isEmpty,
+              trashDirectories.isEmpty else {
+            throw AttachmentFileStoreFailure.recoveryRequired
+        }
+
+        let activeSnapshots = active.map(\.attachment)
+        try audit(activeSnapshots)
+        try validateFinalAttachmentTree(
+            committedAttachmentIDs: Set(activeSnapshots.map(\.id))
+        )
+        var activeFiles: [DataInventoryRegularFileSnapshot] = []
+        var seenPaths = Set<String>()
+        var seenInodes = Set<String>()
+        for attachment in activeSnapshots {
+            let url = try auditedFileURL(for: attachment)
+            let relativePath = "Files/" + attachment.relativePath
+            let attributes = try FileManager.default.attributesOfItem(
+                atPath: url.path
+            )
+            if let device = attributes[.systemNumber],
+               let inode = attributes[.systemFileNumber] {
+                guard seenInodes.insert("\(device):\(inode)").inserted else {
+                    throw AttachmentFileStoreFailure.integrityMismatch
+                }
+            }
+            guard seenPaths.insert(relativePath).inserted else {
+                throw AttachmentFileStoreFailure.integrityMismatch
+            }
+            let snapshot = try DataInventoryRegularFileAudit.snapshot(
+                at: url,
+                relativePath: relativePath,
+                requiresSystemManagedProtection: true
+            )
+            guard snapshot.byteCount == attachment.byteCount,
+                  snapshot.sha256Hex == attachment.sha256Hex else {
+                throw AttachmentFileStoreFailure.integrityMismatch
+            }
+            activeFiles.append(snapshot)
+        }
+        return [
+            DataInventoryCategorySnapshot(
+                key: "files.attachments.active",
+                kind: .fileTree,
+                payload: .regularFiles(activeFiles)
+            ),
+            DataInventoryCategorySnapshot(
+                key: "files.attachments.journal",
+                kind: .fileTree,
+                payload: .regularFiles([])
+            ),
+            DataInventoryCategorySnapshot(
+                key: "files.attachments.staging",
+                kind: .fileTree,
+                payload: .regularFiles([])
+            ),
+            DataInventoryCategorySnapshot(
+                key: "files.attachments.trash",
+                kind: .fileTree,
+                payload: .regularFiles([])
+            )
+        ]
+    }
+
     func auditedFileURL(for attachment: AttachmentSnapshot) throws -> URL {
         guard AttachmentPathFacts.isOpaquePath(
             attachment.relativePath,
@@ -1316,6 +1488,7 @@ final class AttachmentMutationRecoveryLatch: @unchecked Sendable {
 actor AttachmentMutationService {
     private let writer: AppDataWriter
     private let fileStore: AttachmentFileStore
+    private let dataControlCoordinator: AppDataControlCoordinator
     private let ioQueue: AttachmentBlockingIOQueue
     private let recoveryLatch: AttachmentMutationRecoveryLatch
     private let onRecoveryRequired: @Sendable () async -> Void
@@ -1323,16 +1496,21 @@ actor AttachmentMutationService {
     private var mutationLeaseHeld = false
     private var deletingAttachmentIDs: Set<UUID> = []
     private var previewingAttachmentIDs: Set<UUID> = []
+    private var previewCoordinatorLeases:
+        [UUID: AppDataControlCoordinator.AttachmentPreviewLease] = [:]
 
     init(
         writer: AppDataWriter,
         fileStore: AttachmentFileStore,
+        dataControlCoordinator: AppDataControlCoordinator =
+            AppDataControlCoordinator(generationID: UUID()),
         recoveryLatch: AttachmentMutationRecoveryLatch =
             AttachmentMutationRecoveryLatch(),
         onRecoveryRequired: @escaping @Sendable () async -> Void
     ) {
         self.writer = writer
         self.fileStore = fileStore
+        self.dataControlCoordinator = dataControlCoordinator
         self.ioQueue = AttachmentBlockingIOQueue()
         self.recoveryLatch = recoveryLatch
         self.onRecoveryRequired = onRecoveryRequired
@@ -1460,6 +1638,20 @@ actor AttachmentMutationService {
         committedAt: Date = Date(),
         writeFailureInjection: AppWriteFailureInjection? = nil
     ) async throws -> ParentRecordMutationResult {
+        try await dataControlCoordinator.withAttachmentLease {
+            try await self.deleteParentRecordUnderDataControlLease(
+                impact: impact,
+                committedAt: committedAt,
+                writeFailureInjection: writeFailureInjection
+            )
+        }
+    }
+
+    private func deleteParentRecordUnderDataControlLease(
+        impact: ParentRecordDeletionImpact,
+        committedAt: Date,
+        writeFailureInjection: AppWriteFailureInjection?
+    ) async throws -> ParentRecordMutationResult {
         guard !recoveryLatch.isInvalidated else {
             throw AttachmentMutationFailure.recoveryRequired
         }
@@ -1566,14 +1758,25 @@ actor AttachmentMutationService {
     }
 
     func beginPreview(_ attachment: AttachmentSnapshot) async throws -> URL {
+        let coordinatorLease = try await dataControlCoordinator
+            .beginAttachmentPreviewLease()
         guard !recoveryLatch.isInvalidated else {
+            await dataControlCoordinator.endAttachmentPreviewLease(
+                coordinatorLease
+            )
             throw AttachmentMutationFailure.recoveryRequired
         }
         guard !deletingAttachmentIDs.contains(attachment.id),
               previewingAttachmentIDs.isEmpty else {
+            await dataControlCoordinator.endAttachmentPreviewLease(
+                coordinatorLease
+            )
             throw AttachmentMutationFailure.mutationInProgress
         }
         guard acquireMutationLease() else {
+            await dataControlCoordinator.endAttachmentPreviewLease(
+                coordinatorLease
+            )
             throw AttachmentMutationFailure.mutationInProgress
         }
         defer { releaseMutationLease() }
@@ -1584,11 +1787,18 @@ actor AttachmentMutationService {
             }
             guard !recoveryLatch.isInvalidated else {
                 previewingAttachmentIDs.remove(attachment.id)
+                await dataControlCoordinator
+                    .endAttachmentPreviewLease(coordinatorLease)
                 throw AttachmentMutationFailure.recoveryRequired
             }
+            previewCoordinatorLeases[attachment.id] =
+                coordinatorLease
             return url
         } catch {
             previewingAttachmentIDs.remove(attachment.id)
+            await dataControlCoordinator.endAttachmentPreviewLease(
+                coordinatorLease
+            )
             if error as? AttachmentMutationFailure == .recoveryRequired {
                 throw error
             }
@@ -1597,11 +1807,28 @@ actor AttachmentMutationService {
         }
     }
 
-    func endPreview(attachmentID: UUID) {
+    func endPreview(attachmentID: UUID) async {
         previewingAttachmentIDs.remove(attachmentID)
+        if let lease = previewCoordinatorLeases.removeValue(
+            forKey: attachmentID
+        ) {
+            await dataControlCoordinator.endAttachmentPreviewLease(
+                lease
+            )
+        }
     }
 
     func deleteAttachment(_ attachment: AttachmentSnapshot) async throws {
+        try await dataControlCoordinator.withAttachmentLease {
+            try await self.deleteAttachmentUnderDataControlLease(
+                attachment
+            )
+        }
+    }
+
+    private func deleteAttachmentUnderDataControlLease(
+        _ attachment: AttachmentSnapshot
+    ) async throws {
         guard !recoveryLatch.isInvalidated else {
             throw AttachmentMutationFailure.recoveryRequired
         }
@@ -1680,6 +1907,31 @@ actor AttachmentMutationService {
     }
 
     private func commit<Output: Sendable>(
+        attachmentDrafts: [AttachmentDraft],
+        databaseWrite: @escaping @Sendable (
+            [PreparedAttachmentMetadata]
+        ) async throws -> Output
+    ) async throws -> Output {
+        do {
+            return try await dataControlCoordinator
+                .withAttachmentLease {
+                    try await self
+                        .commitUnderDataControlLease(
+                            attachmentDrafts:
+                                attachmentDrafts,
+                            databaseWrite: databaseWrite
+                        )
+                }
+        } catch {
+            if recoveryLatch.isInvalidated {
+                throw AttachmentMutationFailure
+                    .recoveryRequired
+            }
+            throw error
+        }
+    }
+
+    private func commitUnderDataControlLease<Output: Sendable>(
         attachmentDrafts: [AttachmentDraft],
         databaseWrite: @escaping @Sendable (
             [PreparedAttachmentMetadata]

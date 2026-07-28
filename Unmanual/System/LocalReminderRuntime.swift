@@ -47,10 +47,37 @@ final class LocalReminderRuntime {
 
     @discardableResult
     func reconcile(
-        reader: AppReadActor,
+        reader: any AppReminderPlanningReader,
         writer: AppDataWriter,
+        dataControlCoordinator: AppDataControlCoordinator? = nil,
         now: Date? = nil,
         displayTimeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier
+    ) async -> Bool {
+        if let dataControlCoordinator {
+            return (try? await dataControlCoordinator
+                .withReminderReconciliationLease {
+                    await self.reconcileUnderLease(
+                        reader: reader,
+                        writer: writer,
+                        now: now,
+                        displayTimeZoneIdentifier:
+                            displayTimeZoneIdentifier
+                    )
+                }) ?? false
+        }
+        return await reconcileUnderLease(
+            reader: reader,
+            writer: writer,
+            now: now,
+            displayTimeZoneIdentifier: displayTimeZoneIdentifier
+        )
+    }
+
+    private func reconcileUnderLease(
+        reader: any AppReminderPlanningReader,
+        writer: AppDataWriter,
+        now: Date?,
+        displayTimeZoneIdentifier: String
     ) async -> Bool {
         let sequence = allocateRequestSequence()
         let epoch = reconciliationEpoch
@@ -240,10 +267,45 @@ final class LocalReminderRuntime {
 
     @discardableResult
     func requestAuthorizationAndReconcile(
-        reader: AppReadActor,
+        reader: any AppReminderPlanningReader,
         writer: AppDataWriter,
+        dataControlCoordinator: AppDataControlCoordinator? = nil,
         now: Date? = nil,
         displayTimeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier
+    ) async -> LocalReminderAuthorizationResult {
+        if let dataControlCoordinator {
+            do {
+                return try await dataControlCoordinator
+                    .withReminderReconciliationLease {
+                        await self
+                            .requestAuthorizationAndReconcileUnderLease(
+                                reader: reader,
+                                writer: writer,
+                                now: now,
+                                displayTimeZoneIdentifier:
+                                    displayTimeZoneIdentifier
+                            )
+                    }
+            } catch {
+                return LocalReminderAuthorizationResult(
+                    outcome: .suspended,
+                    reconciliationSettled: false
+                )
+            }
+        }
+        return await requestAuthorizationAndReconcileUnderLease(
+            reader: reader,
+            writer: writer,
+            now: now,
+            displayTimeZoneIdentifier: displayTimeZoneIdentifier
+        )
+    }
+
+    private func requestAuthorizationAndReconcileUnderLease(
+        reader: any AppReminderPlanningReader,
+        writer: AppDataWriter,
+        now: Date?,
+        displayTimeZoneIdentifier: String
     ) async -> LocalReminderAuthorizationResult {
         let epoch = reconciliationEpoch
         guard !isSuspendedForRecovery else {
@@ -456,7 +518,7 @@ final class LocalReminderRuntime {
     }
 
     private struct ReconciliationRequest {
-        let reader: AppReadActor
+        let reader: any AppReminderPlanningReader
         let writer: AppDataWriter
         let now: Date
         let displayTimeZoneIdentifier: String

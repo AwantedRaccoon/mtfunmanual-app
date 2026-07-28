@@ -137,6 +137,7 @@ extension AppWriteActor {
         _ command: CreateHrtJourneyCommand,
         failureInjection: AppWriteFailureInjection? = nil
     ) throws -> HrtJourneyMutationResult {
+        try ensureDataControlHrtJourneyIsWritable()
         let note = try normalizedHrtJourneyNote(command.note)
         try validateHrtTransitionDate(
             command.startDate,
@@ -160,6 +161,7 @@ extension AppWriteActor {
         do {
             var result: HrtJourneyMutationResult?
             try modelContext.transaction {
+                try ensureDataControlHrtJourneyIsWritable()
                 try validateHrtLifecycleIntegrity()
                 if let replay = try hrtJourneyReplay(
                     operationID: command.operationID,
@@ -243,6 +245,7 @@ extension AppWriteActor {
         _ command: PauseHrtJourneyCommand,
         failureInjection: AppWriteFailureInjection? = nil
     ) throws -> HrtJourneyMutationResult {
+        try ensureDataControlHrtJourneyIsWritable()
         let note = try normalizedHrtJourneyNote(command.note)
         try validateHrtTransitionDate(
             command.pauseDate,
@@ -266,6 +269,7 @@ extension AppWriteActor {
         do {
             var result: HrtJourneyMutationResult?
             try modelContext.transaction {
+                try ensureDataControlHrtJourneyIsWritable()
                 try validateHrtLifecycleIntegrity()
                 if let replay = try hrtJourneyReplay(
                     operationID: command.operationID,
@@ -329,6 +333,7 @@ extension AppWriteActor {
         _ command: CorrectHrtJourneyFirstStartCommand,
         failureInjection: AppWriteFailureInjection? = nil
     ) throws -> HrtJourneyMutationResult {
+        try ensureDataControlHrtJourneyIsWritable()
         let note = try normalizedHrtJourneyNote(command.note)
         try validateHrtTransitionDate(
             command.correctedStartDate,
@@ -352,6 +357,7 @@ extension AppWriteActor {
         do {
             var result: HrtJourneyMutationResult?
             try modelContext.transaction {
+                try ensureDataControlHrtJourneyIsWritable()
                 try validateHrtLifecycleIntegrity()
                 if let replay = try hrtJourneyReplay(
                     operationID: command.operationID,
@@ -433,6 +439,7 @@ extension AppWriteActor {
         _ command: ResumeHrtJourneyCommand,
         failureInjection: AppWriteFailureInjection? = nil
     ) throws -> HrtJourneyMutationResult {
+        try ensureDataControlHrtJourneyIsWritable()
         let note = try normalizedHrtJourneyNote(command.note)
         try validateHrtTransitionDate(
             command.resumeDate,
@@ -456,6 +463,7 @@ extension AppWriteActor {
         do {
             var result: HrtJourneyMutationResult?
             try modelContext.transaction {
+                try ensureDataControlHrtJourneyIsWritable()
                 try validateHrtLifecycleIntegrity()
                 if let replay = try hrtJourneyReplay(
                     operationID: command.operationID,

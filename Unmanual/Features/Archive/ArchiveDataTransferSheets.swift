@@ -7,25 +7,14 @@ import UniformTypeIdentifiers
 struct ArchiveDataExportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppTheme.self) private var theme
-    @Query(sort: \HRTProfile.startDate) private var profiles: [HRTProfile]
-    @Query(sort: \CountdownRecord.targetDate, order: .reverse) private var countdowns: [CountdownRecord]
-    @Query(sort: \JourneyEntry.occurredAt, order: .reverse) private var entries: [JourneyEntry]
-    @Query(sort: \LabRecord.sampledAt, order: .reverse) private var labRecords: [LabRecord]
-    @Query(sort: \RegimenVersion.startedAt, order: .reverse) private var regimens: [RegimenVersion]
+    @Environment(\.appReadActor) private var appReadActor
 
-    @State private var document: AppDataBackupDocument?
+    @State private var backup: AppDataBackup?
+    @State private var document:
+        AppDataBackupDocument?
+    @State private var isLoading = true
     @State private var isExporting = false
     @State private var statusMessage: String?
-
-    private var backup: AppDataBackup {
-        AppDataBackupService.makeBackup(
-            profiles: profiles,
-            countdowns: countdowns,
-            entries: entries,
-            labRecords: labRecords,
-            regimens: regimens
-        )
-    }
 
     var body: some View {
         NavigationStack {
@@ -36,26 +25,68 @@ struct ArchiveDataExportSheet: View {
                 detail: "生成开发期结构副本；它不是完整或安全备份，也没有通过 Files/iCloud 发行门禁。",
                 cancel: dismiss.callAsFunction
             ) {
-                ArchiveTransferManifest(backup: backup, mode: .export)
+                if isLoading {
+                    V25FieldSurface(
+                        "正在核对",
+                        note: "先确认当前资料没有终态删除，再准备旧版开发副本。"
+                    ) {
+                        ProgressView()
+                            .tint(theme.indigo)
+                    }
+                } else if let backup {
+                    ArchiveTransferManifest(
+                        backup: backup,
+                        mode: .export
+                    )
 
-                V25SectionHeader(title: "结构副本范围", detail: "共 \(backup.totalRecordCount) 条")
-                ArchiveTransferSummary(backup: backup)
+                    V25SectionHeader(
+                        title: "结构副本范围",
+                        detail:
+                            "共 \(backup.totalRecordCount) 条"
+                    )
+                    ArchiveTransferSummary(backup: backup)
 
-                V25FieldSurface(
-                    "文件说明",
-                    note: "Files 位置可能包含 iCloud Drive 或第三方提供方；这里只用于开发数据。"
-                ) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("JSON · 格式版本 \(backup.schemaVersion)")
+                    V25FieldSurface(
+                        "文件说明",
+                        note: "Files 位置可能包含 iCloud Drive 或第三方提供方；这里只用于开发数据。"
+                    ) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(
+                                "JSON · 格式版本 \(backup.schemaVersion)"
+                            )
                             .font(.body.weight(.black))
-                        Text("包含记录原文、日期、单位和方案关联；不包含账号或设备标识。")
+                            Text(
+                                "包含记录原文、日期、单位和方案关联；不包含账号或设备标识。"
+                            )
                             .font(.caption)
-                            .foregroundStyle(theme.secondaryText)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(
+                                theme.secondaryText
+                            )
+                            .fixedSize(
+                                horizontal: false,
+                                vertical: true
+                            )
+                        }
+                    }
+                } else {
+                    V25FieldSurface(
+                        "旧版导出已停用",
+                        note: statusMessage
+                            ?? "无法证明导出内容已应用当前删除设置。这里不会读取或生成旧版结构副本。"
+                    ) {
+                        Text(
+                            "Readable JSON v2 与完整备份属于 Batch 7；在正式恢复合同完成前，不会用旧原型绕过逻辑删除。"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(
+                            horizontal: false,
+                            vertical: true
+                        )
                     }
                 }
 
-                if let statusMessage {
+                if backup != nil, let statusMessage {
                     Text(statusMessage)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.mossText)
@@ -63,15 +94,22 @@ struct ArchiveDataExportSheet: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                V25SaveBar(
-                    title: "生成试验 JSON",
-                    isEnabled: backup.totalRecordCount > 0,
-                    accessibilityIdentifier: "archive.export.generate",
-                    action: prepareExport
-                )
+                if let backup {
+                    V25SaveBar(
+                        title: "生成试验 JSON",
+                        isEnabled:
+                            backup.totalRecordCount > 0,
+                        accessibilityIdentifier:
+                            "archive.export.generate",
+                        action: prepareExport
+                    )
+                }
             }
         }
         .tint(theme.indigo)
+        .task {
+            await loadBackup()
+        }
         .fileExporter(
             isPresented: $isExporting,
             document: document,
@@ -89,10 +127,35 @@ struct ArchiveDataExportSheet: View {
 
     private func prepareExport() {
         do {
+            guard let backup else { return }
             document = try AppDataBackupDocument(backup: backup)
             isExporting = true
         } catch {
             statusMessage = "暂时无法生成备份，请稍后再试。"
+        }
+    }
+
+    private func loadBackup() async {
+        isLoading = true
+        defer { isLoading = false }
+        guard let appReadActor else {
+            backup = nil
+            statusMessage =
+                "本地资料尚未准备好，旧版结构副本保持停用。"
+            return
+        }
+        do {
+            backup = try await appReadActor
+                .developmentBackup()
+            statusMessage = nil
+        } catch DataControlDeletionFailure.targetDeleted {
+            backup = nil
+            statusMessage =
+                "当前资料含有逻辑删除记录。旧版 JSON v1 无法证明不会恢复已删除原文，因此已停用。"
+        } catch {
+            backup = nil
+            statusMessage =
+                "资料没有通过完整性检查，旧版结构副本保持停用。"
         }
     }
 

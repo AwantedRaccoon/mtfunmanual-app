@@ -53,6 +53,9 @@ extension AppWriteActor {
     func setReminderPreference(
         _ command: SetReminderPreferenceCommand
     ) throws -> ReminderPreferenceResult {
+        try ensureDataControlScheduleRuleIsWritable(
+            command.scheduleRuleID
+        )
         let digest = try TodayExecutionDigestV1.reminderPreferenceCommand(command)
         if let replay = try reminderPreferenceReplay(
             operationID: command.operationID,
@@ -108,6 +111,9 @@ extension AppWriteActor {
         do {
             var result: ReminderPreferenceResult?
             try modelContext.transaction {
+                try ensureDataControlScheduleRuleIsWritable(
+                    command.scheduleRuleID
+                )
                 if let replay = try reminderPreferenceReplay(
                     operationID: command.operationID,
                     digest: digest
@@ -185,6 +191,9 @@ extension AppWriteActor {
     func applyReminderOverride(
         _ command: ApplyReminderOverrideCommand
     ) throws -> ReminderOverrideResult {
+        try ensureDataControlOccurrenceIsWritable(
+            command.occurrence
+        )
         let digest = try TodayExecutionDigestV1.reminderOverrideCommand(command)
         if let replay = try reminderOverrideReplay(
             operationID: command.operationID,
@@ -214,6 +223,9 @@ extension AppWriteActor {
         do {
             var result: ReminderOverrideResult?
             try modelContext.transaction {
+                try ensureDataControlOccurrenceIsWritable(
+                    command.occurrence
+                )
                 if let replay = try reminderOverrideReplay(
                     operationID: command.operationID,
                     digest: digest

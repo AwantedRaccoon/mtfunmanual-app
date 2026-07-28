@@ -237,11 +237,9 @@ struct RegimenVersionEditor: View {
                     provenance: .userEntered
                 ).localDate
                 let previousVersionID = editingDraft?.previousVersionID
-                    ?? overview.allVersions
+                    ?? overview.lineageAnchors
                         .filter {
-                            $0.editState == .sealed
-                                && !$0.requiresReview
-                                && $0.effectiveStartDate < effectiveDate
+                            $0.effectiveStartDate < effectiveDate
                         }
                         .sorted {
                             $0.effectiveStartDate != $1.effectiveStartDate

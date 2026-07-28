@@ -15,6 +15,10 @@ struct AppShellView: View {
     @State private var selectedTab: AppTab = .today
     @State private var pendingJourneyItem: PersonalTimelineItem?
 
+    init(initialTab: AppTab = .today) {
+        _selectedTab = State(initialValue: initialTab)
+    }
+
     var body: some View {
         Group {
             switch selectedTab {
@@ -43,9 +47,19 @@ struct AppShellView: View {
             V25TabBar(selection: $selectedTab)
         }
         .onReceive(NotificationCenter.default.publisher(for: .unmanualOpenToday)) { _ in
-            selectedTab = .today
+            openDeferredDestination()
         }
+        .onAppear { openDeferredDestination() }
         .accessibilityIdentifier("app.shell")
+    }
+
+    private func openDeferredDestination() {
+        switch DeferredAppNavigationQueue.shared.consume() {
+        case .today:
+            selectedTab = .today
+        case nil:
+            break
+        }
     }
 }
 

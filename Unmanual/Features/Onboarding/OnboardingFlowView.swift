@@ -215,7 +215,7 @@ struct OnboardingFlowView: View {
             disclosure(
                 title: "当前保护边界",
                 text:
-                    "当前没有 App Lock，也没有最近任务预览遮挡。温和模式只替换部分敏感措辞；关闭 App 不会删除记录，也不等于无痕。"
+                    "最近任务预览会使用不透明遮挡；你也可以稍后在“档案”中主动启用 App Lock。温和模式只替换部分敏感措辞；关闭 App 不会删除记录，也不等于无痕。"
             )
             setupPersistenceNote
         } actions: {

@@ -44,6 +44,9 @@ extension AppWriteActor {
     }
 
     func saveRegimenDraft(_ command: SaveRegimenDraftCommand) throws {
+        try ensureDataControlRegimenLineageIsWritable(
+            recordID: command.recordID
+        )
         let normalized = try normalize(command)
         modelContext.autosaveEnabled = false
         let preflightExisting = try fetchCoreRegimen(id: command.recordID)
@@ -63,6 +66,9 @@ extension AppWriteActor {
 
         do {
             try modelContext.transaction {
+                try ensureDataControlRegimenLineageIsWritable(
+                    recordID: command.recordID
+                )
                 let existing = try fetchCoreRegimen(id: command.recordID)
                 if let existing, existing.editState != .draft {
                     throw AppWriteFailure.staleRecord
@@ -215,6 +221,9 @@ extension AppWriteActor {
     }
 
     func sealRegimenDraft(_ command: SealRegimenDraftCommand) throws {
+        try ensureDataControlRegimenVersionIsWritable(
+            command.draftID
+        )
         guard let draft = try fetchCoreRegimen(id: command.draftID),
               draft.editState == .draft,
               let start = draft.effectiveStartDate else {
@@ -236,6 +245,14 @@ extension AppWriteActor {
             excluding: draft.id
         )
         try validateSealedTimeline(adding: draft)
+        let preflightWriteSet = try regimenSealWriteSet(
+            adding: draft,
+            after: start
+        )
+        try ensureDataControlRegimenSealWriteSetIsWritable(
+            draftID: draft.id,
+            writeSet: preflightWriteSet
+        )
 
         modelContext.autosaveEnabled = false
         let reservation = try reserveRevision(committedAt: command.committedAt)
@@ -245,10 +262,21 @@ extension AppWriteActor {
 
         do {
             try modelContext.transaction {
+                try ensureDataControlRegimenVersionIsWritable(
+                    command.draftID
+                )
                 guard let transactionDraft = try fetchCoreRegimen(id: command.draftID),
                       transactionDraft.editState == .draft else {
                     throw AppWriteFailure.staleRecord
                 }
+                let writeSet = try regimenSealWriteSet(
+                    adding: transactionDraft,
+                    after: start
+                )
+                try ensureDataControlRegimenSealWriteSetIsWritable(
+                    draftID: transactionDraft.id,
+                    writeSet: writeSet
+                )
                 transactionDraft.editState = .sealed
                 try upsertRevision(
                     recordType: "RegimenPlanVersionRecord",
@@ -258,15 +286,7 @@ extension AppWriteActor {
                     committedAt: command.committedAt
                 )
 
-                let sealedSuccessor = try immediateSealedSuccessor(
-                    after: start,
-                    excluding: transactionDraft.id
-                )
-                for successor in try versionsWhosePredecessorChanges(
-                    after: start,
-                    through: sealedSuccessor?.effectiveStartDate,
-                    excluding: transactionDraft.id
-                ) where successor.previousVersionID != transactionDraft.id {
+                for successor in writeSet.successors {
                     successor.previousVersionID = transactionDraft.id
                     try upsertRevision(
                         recordType: "RegimenPlanVersionRecord",
@@ -277,28 +297,27 @@ extension AppWriteActor {
                     )
                 }
 
-                let timeline = try sealedTimeline()
-                for historical in try boundedHistoricalTimes() {
-                    guard let timestamp = historical.historicalTimestamp else {
-                        throw AppWriteFailure.invalidInput
-                    }
-                    let association = association(in: timeline, on: timestamp.localDate)
-                    if historical.resolvedRegimenVersionID != association.id
-                        || historical.associationStateRawValue != association.state.rawValue {
-                        historical.resolvedRegimenVersionID = association.id
-                        historical.associationStateRawValue = association.state.rawValue
-                        try upsertRevision(
-                            recordType: "HistoricalTimeRecord",
-                            recordID: CoreTimeRegimenBackfill.stableUUID(for: historical.recordKey),
-                            fields: try CoreFactDigestV1.historicalTime(historical),
-                            reservation: reservation,
-                            committedAt: command.committedAt
-                        )
-                    }
+                for mutation in writeSet.historicalAssociations {
+                    let historical = mutation.historical
+                    historical.resolvedRegimenVersionID =
+                        mutation.association.id
+                    historical.associationStateRawValue =
+                        mutation.association.state.rawValue
+                    try upsertRevision(
+                        recordType: "HistoricalTimeRecord",
+                        recordID: CoreTimeRegimenBackfill.stableUUID(
+                            for: historical.recordKey
+                        ),
+                        fields: try CoreFactDigestV1.historicalTime(
+                            historical
+                        ),
+                        reservation: reservation,
+                        committedAt: command.committedAt
+                    )
                     try synchronizeAssociationIssue(
                         sourceRecordType: historical.sourceRecordType,
                         sourceRecordID: historical.sourceRecordID,
-                        state: association.state,
+                        state: mutation.association.state,
                         detectedAt: command.committedAt
                     )
                 }
@@ -352,6 +371,91 @@ extension AppWriteActor {
     private struct AssociationResult {
         let id: UUID?
         let state: HistoricalAssociationState
+    }
+
+    private struct RegimenAssociationMutation {
+        let historical: HistoricalTimeRecord
+        let association: AssociationResult
+    }
+
+    private struct RegimenSealWriteSet {
+        let successors: [RegimenPlanVersionRecord]
+        let historicalAssociations: [RegimenAssociationMutation]
+    }
+
+    private func regimenSealWriteSet(
+        adding draft: RegimenPlanVersionRecord,
+        after start: CivilDateFact
+    ) throws -> RegimenSealWriteSet {
+        let sealedSuccessor = try immediateSealedSuccessor(
+            after: start,
+            excluding: draft.id
+        )
+        let successors = try versionsWhosePredecessorChanges(
+            after: start,
+            through: sealedSuccessor?.effectiveStartDate,
+            excluding: draft.id
+        ).filter {
+            $0.previousVersionID != draft.id
+        }
+
+        var proposedTimeline = try sealedTimeline().filter {
+            $0.id != draft.id
+        }
+        proposedTimeline.append(
+            RegimenTimelineVersion(
+                id: draft.id,
+                start: start,
+                end: nil,
+                editState: .sealed,
+                requiresReview: false
+            )
+        )
+        let historicalAssociations = try boundedHistoricalTimes()
+            .compactMap { historical
+                -> RegimenAssociationMutation? in
+                guard let timestamp =
+                    historical.historicalTimestamp else {
+                    throw AppWriteFailure.invalidInput
+                }
+                let proposed = association(
+                    in: proposedTimeline,
+                    on: timestamp.localDate
+                )
+                guard historical.resolvedRegimenVersionID
+                        != proposed.id
+                    || historical.associationStateRawValue
+                        != proposed.state.rawValue else {
+                    return nil
+                }
+                return RegimenAssociationMutation(
+                    historical: historical,
+                    association: proposed
+                )
+            }
+        return RegimenSealWriteSet(
+            successors: successors,
+            historicalAssociations: historicalAssociations
+        )
+    }
+
+    private func ensureDataControlRegimenSealWriteSetIsWritable(
+        draftID: UUID,
+        writeSet: RegimenSealWriteSet
+    ) throws {
+        try ensureDataControlRegimenVersionIsWritable(draftID)
+        for successor in writeSet.successors {
+            try ensureDataControlRegimenVersionIsWritable(
+                successor.id
+            )
+        }
+        for mutation in writeSet.historicalAssociations {
+            try ensureDataControlHistoricalAssociationIsWritable(
+                mutation.historical,
+                proposedRegimenVersionID:
+                    mutation.association.id
+            )
+        }
     }
 
     private func normalize(_ command: SaveRegimenDraftCommand) throws -> NormalizedRegimenDraft {

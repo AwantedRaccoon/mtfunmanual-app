@@ -518,6 +518,12 @@ actor Batch1PerformanceWorker {
         let parentRecordStates = try context.fetch(
             FetchDescriptor<ParentRecordLifecycleBackfillState>()
         )
+        let dataControlStates = try context.fetch(
+            FetchDescriptor<DataControlBackfillState>()
+        )
+        let dataControlTombstoneCount = try context.fetchCount(
+            FetchDescriptor<DataControlDeletionTombstoneRecord>()
+        )
         let pointer = try GenerationPointerStore(layout: layout).read()
         guard metadata.count == 1,
               states.count == 1,
@@ -552,14 +558,18 @@ actor Batch1PerformanceWorker {
                   == Batch1V10ParentRecordCounts.expected,
               parentRecordStates.first?.sourceSchemaVersion == "9.0.0",
               parentRecordStates.first?.completedAt != nil,
+              dataControlStates.count == 1,
+              dataControlStates.first?.source == .bootstrapV12,
+              dataControlStates.first?.completedAt != nil,
+              dataControlTombstoneCount == 0,
               metadata.first?.nextLocalRevision
-                  == Batch1V10FoundationContract.nextLocalRevision,
+                  == Batch1V12FoundationContract.nextLocalRevision,
               pointer.origin == .legacyAdoption,
-              pointer.schemaVersion == "10.0.0",
+              pointer.schemaVersion == "12.0.0",
               pointer.minimumFactCount
-                  == Batch1V10FoundationContract.activatedFactCount,
+                  == Batch1V12FoundationContract.activatedFactCount,
               pointer.minimumRevisionCount
-                  == Batch1V10FoundationContract.activatedRevisionCount,
+                  == Batch1V12FoundationContract.activatedRevisionCount,
               pointer.datasetID == metadata.first?.datasetID else {
             throw WorkerError.invalidFoundationMetadata(
                 [
@@ -575,6 +585,7 @@ actor Batch1PerformanceWorker {
                     "hrtJourneyState=\(hrtJourneyStates.count):\(hrtJourneyStates.first?.sourceSchemaVersion ?? "nil"):\(hrtJourneyStates.first?.completedAt != nil)",
                     "parentRecords=\(parentRecordCounts)",
                     "parentRecordState=\(parentRecordStates.count):\(parentRecordStates.first?.sourceSchemaVersion ?? "nil"):\(parentRecordStates.first?.completedAt != nil)",
+                    "dataControl=\(dataControlStates.count):\(dataControlStates.first?.sourceRawValue ?? "nil"):\(dataControlStates.first?.completedAt != nil):\(dataControlTombstoneCount)",
                     "next=\(metadata.first?.nextLocalRevision.description ?? "nil")",
                     "origin=\(pointer.origin.rawValue)",
                     "schema=\(pointer.schemaVersion)",
@@ -626,10 +637,10 @@ actor Batch1PerformanceWorker {
               try context.fetchCount(FetchDescriptor<JourneyEntry>()) == 7_301,
               try context.fetchCount(FetchDescriptor<HistoricalTimeRecord>()) == 9_701,
               try context.fetchCount(FetchDescriptor<RecordRevision>())
-                  == Batch1V10FoundationContract.postQuickWriteRevisionCount,
+                  == Batch1V12FoundationContract.postQuickWriteRevisionCount,
               revision?.recordKey == "JourneyEntry:" + recordID.uuidString.lowercased(),
               revision?.localRevision
-                  == Batch1V10FoundationContract.nextLocalRevision,
+                  == Batch1V12FoundationContract.nextLocalRevision,
               revision?.datasetID == metadata?.datasetID,
               revision?.digestVersion == RecordDigestV1.version,
               revision?.digestHex.isEmpty == false,
@@ -638,14 +649,14 @@ actor Batch1PerformanceWorker {
               historical?.instant == committedAt,
               historical?.associationStateRawValue == HistoricalAssociationState.resolved.rawValue,
               historicalRevision?.localRevision
-                  == Batch1V10FoundationContract.nextLocalRevision,
+                  == Batch1V12FoundationContract.nextLocalRevision,
               historicalRevision?.datasetID == metadata?.datasetID,
               historicalRevision?.digestVersion == RecordDigestV1.version,
               historicalRevision?.digestHex.isEmpty == false,
               historicalRevision?.committedAt == committedAt,
               metadata?.lastCommittedAt == committedAt,
               metadata?.nextLocalRevision
-                  == Batch1V10FoundationContract
+                  == Batch1V12FoundationContract
                       .postQuickWriteNextLocalRevision else {
             throw WorkerError.quickWriteNotReadable
         }

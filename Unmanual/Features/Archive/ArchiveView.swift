@@ -5,6 +5,8 @@ struct ArchiveView: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.appReadActor) private var appReadActor
     @Environment(\.appDataWriter) private var appDataWriter
+    @Environment(\.appPrivacyCoordinator)
+    private var appPrivacyCoordinator
 
     @State private var destination: ArchiveDestination?
     @State private var snapshot = AppArchiveSnapshot.empty
@@ -16,6 +18,11 @@ struct ArchiveView: View {
     @State private var isLoadingGentleMode = true
     @State private var isSavingGentleMode = false
     @State private var gentleModeErrorMessage: String?
+    @State private var privacySnapshot: PrivacyControlSnapshot?
+    @State private var isLoadingAppLock = true
+    @State private var isChangingAppLock = false
+    @State private var appLockAvailabilityMessage: String?
+    @State private var appLockErrorMessage: String?
     @State private var onboardingPresentation:
         ArchiveOnboardingPresentation?
     @State private var onboardingErrorMessage: String?
@@ -73,6 +80,14 @@ struct ArchiveView: View {
                     isLoadingGentleMode: isLoadingGentleMode,
                     isSavingGentleMode: isSavingGentleMode,
                     gentleModeAction: setGentleMode,
+                    appLockEnabled:
+                        privacySnapshot?.appLockEnabled == true,
+                    appLockIsAvailable:
+                        privacySnapshot != nil
+                            && appLockAvailabilityMessage == nil,
+                    isLoadingAppLock: isLoadingAppLock,
+                    isChangingAppLock: isChangingAppLock,
+                    appLockAction: changeAppLock,
                     setupAction: openOnboardingSettings,
                     storageAction: { destination = .localStorage },
                     deleteAction: { destination = .deleteAndReset }
@@ -84,6 +99,23 @@ struct ArchiveView: View {
                         .padding(.top, 10)
                         .accessibilityIdentifier(
                             "archive.gentleModeError"
+                        )
+                }
+                if let appLockErrorMessage {
+                    Text(appLockErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(theme.vermilionText)
+                        .padding(.top, 10)
+                        .accessibilityIdentifier(
+                            "archive.appLockError"
+                        )
+                } else if let appLockAvailabilityMessage {
+                    Text(appLockAvailabilityMessage)
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .padding(.top, 10)
+                        .accessibilityIdentifier(
+                            "archive.appLockAvailability"
                         )
                 }
                 if let onboardingErrorMessage {
@@ -144,6 +176,10 @@ struct ArchiveView: View {
         .sheet(item: $destination) { destination in
             Group {
                 switch destination {
+                case .localStorage:
+                    ArchiveLocalStorageSheet()
+                case .deleteAndReset:
+                    ArchiveDataControlSheet()
 #if DEBUG
                 case .rawExport:
                     ArchiveDataExportSheet()
@@ -164,9 +200,12 @@ struct ArchiveView: View {
         archiveIsAvailable = false
         isLoadingGentleMode = true
         gentleModeIsAvailable = false
+        isLoadingAppLock = true
+        privacySnapshot = nil
         defer {
             archiveIsLoading = false
             isLoadingGentleMode = false
+            isLoadingAppLock = false
         }
         guard let appReadActor else {
             snapshot = .empty
@@ -175,6 +214,8 @@ struct ArchiveView: View {
                 "本地档案尚未准备好，请稍后重新打开此页。"
             gentleModeErrorMessage =
                 "本地资料尚未准备好，温和模式没有改变。"
+            appLockErrorMessage =
+                "本地资料尚未准备好，App Lock 没有改变。"
             return
         }
         do {
@@ -196,6 +237,17 @@ struct ArchiveView: View {
         } catch {
             gentleModeErrorMessage =
                 "温和模式状态没有通过完整性检查。"
+        }
+        do {
+            privacySnapshot = try await appReadActor
+                .privacyControlSnapshot()
+            appLockAvailabilityMessage =
+                appPrivacyCoordinator?.availabilityMessage()
+            appLockErrorMessage = nil
+        } catch {
+            privacySnapshot = nil
+            appLockErrorMessage =
+                "App Lock 状态没有通过完整性检查。"
         }
     }
 
@@ -247,6 +299,71 @@ struct ArchiveView: View {
                 onboardingPresentation = nil
                 onboardingErrorMessage =
                     "首次设置状态没有通过完整性检查。"
+            }
+        }
+    }
+
+    private func changeAppLock() {
+        guard !isChangingAppLock,
+              let privacySnapshot,
+              let appPrivacyCoordinator,
+              let appDataWriter,
+              let generationID = appPrivacyCoordinator.generationID else {
+            appLockErrorMessage =
+                "本地资料尚未准备好，App Lock 没有改变。"
+            return
+        }
+        let desiredValue = !privacySnapshot.appLockEnabled
+        isChangingAppLock = true
+        appLockErrorMessage = nil
+        Task {
+            defer { isChangingAppLock = false }
+            do {
+                let grant = try await appPrivacyCoordinator
+                    .authorizeSettingChange(
+                        reason: desiredValue
+                            ? "启用 App Lock"
+                            : "关闭 App Lock"
+                    )
+                guard grant.generationID == generationID else {
+                    throw AppPrivacyCoordinatorFailure.staleRequest
+                }
+                let result = try await appDataWriter.setAppLock(
+                    SetAppLockCommand(
+                        operationID: grant.operationID,
+                        expectedLocalRevision:
+                            privacySnapshot.localRevision,
+                        expectedDigestHex:
+                            privacySnapshot.digestHex,
+                        isEnabled: desiredValue
+                    )
+                )
+                try appPrivacyCoordinator.acceptCommitted(
+                    result.snapshot,
+                    generationID: generationID
+                )
+                self.privacySnapshot = result.snapshot
+                appLockAvailabilityMessage =
+                    appPrivacyCoordinator.availabilityMessage()
+                NotificationCenter.default.post(
+                    name: .unmanualLocalDataChanged,
+                    object: nil
+                )
+            } catch let failure as AppPrivacyCoordinatorFailure {
+                switch failure {
+                case .unavailable:
+                    appLockErrorMessage =
+                        "请先在系统设置中启用设备密码，再更改 App Lock。"
+                case .authenticationFailed:
+                    appLockErrorMessage =
+                        "设备认证没有完成，App Lock 没有改变。"
+                case .staleRequest:
+                    appLockErrorMessage =
+                        "本地资料已经变化，请重新读取后再试。"
+                }
+            } catch {
+                appLockErrorMessage =
+                    "App Lock 没有改变；本地资料可能已在另一处更新。"
             }
         }
     }
@@ -542,6 +659,11 @@ private struct ArchiveControlLedger: View {
     let isLoadingGentleMode: Bool
     let isSavingGentleMode: Bool
     let gentleModeAction: (Bool) -> Void
+    let appLockEnabled: Bool
+    let appLockIsAvailable: Bool
+    let isLoadingAppLock: Bool
+    let isChangingAppLock: Bool
+    let appLockAction: () -> Void
     let setupAction: () -> Void
     let storageAction: () -> Void
     let deleteAction: () -> Void
@@ -552,6 +674,11 @@ private struct ArchiveControlLedger: View {
         isLoadingGentleMode: Bool,
         isSavingGentleMode: Bool,
         gentleModeAction: @escaping (Bool) -> Void,
+        appLockEnabled: Bool,
+        appLockIsAvailable: Bool,
+        isLoadingAppLock: Bool,
+        isChangingAppLock: Bool,
+        appLockAction: @escaping () -> Void,
         setupAction: @escaping () -> Void,
         storageAction: @escaping () -> Void,
         deleteAction: @escaping () -> Void
@@ -561,6 +688,11 @@ private struct ArchiveControlLedger: View {
         self.isLoadingGentleMode = isLoadingGentleMode
         self.isSavingGentleMode = isSavingGentleMode
         self.gentleModeAction = gentleModeAction
+        self.appLockEnabled = appLockEnabled
+        self.appLockIsAvailable = appLockIsAvailable
+        self.isLoadingAppLock = isLoadingAppLock
+        self.isChangingAppLock = isChangingAppLock
+        self.appLockAction = appLockAction
         self.setupAction = setupAction
         self.storageAction = storageAction
         self.deleteAction = deleteAction
@@ -629,6 +761,26 @@ private struct ArchiveControlLedger: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("archive.gentleMode")
             ArchiveLedgerRow(
+                title: "App Lock",
+                detail:
+                    "使用 Face ID、Touch ID 或设备密码打开本地资料；"
+                        + "不会改变温和模式或系统备份。",
+                status: isLoadingAppLock
+                    ? "正在读取"
+                    : isChangingAppLock
+                    ? "正在认证"
+                    : appLockEnabled
+                    ? "已开启"
+                    : "已关闭",
+                color: theme.mustard,
+                accessibilityIdentifier: "archive.appLock",
+                isDisabled:
+                    isLoadingAppLock
+                        || isChangingAppLock
+                        || !appLockIsAvailable,
+                action: appLockAction
+            )
+            ArchiveLedgerRow(
                 title: "首次设置与提醒",
                 detail: "重新查看开始日、方案、提醒和 Countdown；不会重置完成状态。",
                 status: "可再次修改",
@@ -676,6 +828,7 @@ private struct ArchiveLedgerRow: View {
     let status: String
     let color: Color
     let accessibilityIdentifier: String
+    var isDisabled: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -714,7 +867,9 @@ private struct ArchiveLedgerRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(V25PressStyle())
+        .disabled(isDisabled)
         .accessibilityIdentifier(accessibilityIdentifier)
+        .accessibilityValue(status)
     }
 }
 
@@ -832,6 +987,386 @@ private enum ArchiveDestination: String, Identifiable {
         case .unitConversion: "输入数值与单位，查看并保存换算结果。"
         case .knowledgeSearch: "App 只提供场景入口；文章正文、来源和更新仍由 mtfbook.com 承担。"
         }
+    }
+}
+
+private struct ArchiveLocalStorageSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppTheme.self) private var theme
+    @Environment(\.dataInventoryService)
+    private var dataInventoryService
+
+    @State private var manifest: DataInventoryManifest?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+
+    var body: some View {
+        V25EditorPage(
+            register: "LOCAL / PRIVACY",
+            eyebrow: "档案附页",
+            title: "本地存储说明",
+            detail:
+                "逐项核对 App 能读取的本机资料，也说明 App 无法枚举的外部副本。",
+            cancel: dismiss.callAsFunction
+        ) {
+            if isLoading {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("正在核对本机资料")
+                        .font(.body.weight(.bold))
+                    Text("会检查资料库、附件、保留的历史版本和通知记录。")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, minHeight: 180)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(
+                    "archive.localStorage.loading"
+                )
+            } else if let manifest {
+                manifestContent(manifest)
+            } else {
+                unavailableContent
+            }
+        }
+        .interactiveDismissDisabled(isLoading)
+        .task { await loadManifest() }
+    }
+
+    @ViewBuilder
+    private func manifestContent(
+        _ manifest: DataInventoryManifest
+    ) -> some View {
+        let isComplete = manifest.completeness == .complete
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Rectangle()
+                    .fill(isComplete ? theme.moss : theme.vermilion)
+                    .frame(width: 5)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(isComplete ? "清单核对完整" : "清单尚未完整")
+                        .font(.headline.weight(.black))
+                    Text(
+                        isComplete
+                            ? "以下数量来自同一次本机核对。"
+                            : "有一项或多项没有通过核对；这里不会把失败显示成零，删除与重置入口保持不可执行。"
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "核对时间："
+                            + manifest.capturedAt.formatted(
+                                date: .abbreviated,
+                                time: .shortened
+                            )
+                    )
+                    .font(theme.utility(10))
+                    .foregroundStyle(theme.secondaryText)
+                }
+            }
+            .padding(14)
+            .background(theme.paper)
+            .overlay {
+                Rectangle().stroke(
+                    isComplete ? theme.moss : theme.vermilion,
+                    lineWidth: 2
+                )
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(
+                "archive.localStorage.integrity"
+            )
+
+            categorySection(
+                title: "资料库与保留审计",
+                detail:
+                    "当前事实、历史修订、纠错、收据与控制记录",
+                categories: manifest.categories.filter {
+                    $0.kind == .database
+                }
+            )
+            categorySection(
+                title: "附件与事务痕迹",
+                detail:
+                    "App 私有目录中的 active、staging、trash 与 journal",
+                categories: manifest.categories.filter {
+                    $0.kind == .fileTree
+                }
+            )
+            categorySection(
+                title: "资料库世代",
+                detail:
+                    "active 与所有保留的 inactive generation；App 1.0 不自动清理旧世代",
+                categories: manifest.categories.filter {
+                    $0.kind == .generation
+                }
+            )
+            categorySection(
+                title: "通知投影",
+                detail:
+                    "只统计 unmanual.exec.v1. 与 unmanual.countdown.v1.；其他 App 的通知不会纳入",
+                categories: manifest.categories.filter {
+                    $0.kind == .notification
+                }
+            )
+            categorySection(
+                title: "存储控制",
+                detail:
+                    "当前 pointer、迁移记录与保留的 legacy 文件",
+                categories: manifest.categories.filter {
+                    $0.kind == .control
+                }
+            )
+
+            V25SectionHeader(
+                title: "App 无法枚举的边界",
+                detail: "不等于零，也不受 App 内删除控制"
+            )
+            VStack(spacing: 0) {
+                ForEach(manifest.unmanagedBoundaries, id: \.key) {
+                    boundary in
+                    inventoryRow(
+                        title: boundaryTitle(boundary.key),
+                        detail: boundaryDetail(boundary.key),
+                        value: "无法枚举",
+                        isFailure: false
+                    )
+                }
+            }
+            .overlay {
+                Rectangle().stroke(theme.indigo, lineWidth: 1.5)
+            }
+
+            if !isComplete {
+                Button("重新核对") {
+                    Task { await loadManifest() }
+                }
+                .font(.body.weight(.black))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .foregroundStyle(theme.paper)
+                .background(theme.indigo)
+                .buttonStyle(V25PressStyle())
+                .accessibilityIdentifier(
+                    "archive.localStorage.retry"
+                )
+            }
+            Text(SystemBackupDisclosure.systemBackupBoundary)
+                .font(.caption)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            V25PrivacyFooter(
+                text:
+                    "系统备份由设备设置管理；Photos、Files、分享、截图和已导出的副本离开 App 后，不再受 App 内保护。App 1.0 不会主动上传或同步这份清单。"
+            )
+            .accessibilityIdentifier("archive.preview.footer")
+        }
+    }
+
+    private func categorySection(
+        title: String,
+        detail: String,
+        categories: [DataInventoryCategory]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            V25SectionHeader(title: title, detail: detail)
+            VStack(spacing: 0) {
+                ForEach(categories, id: \.key) { category in
+                    let failed = category.status == .failed
+                    inventoryRow(
+                        title: categoryTitle(category.key),
+                        detail: failed
+                            ? "没有通过完整性核对；未显示部分结果。"
+                            : categoryDetail(category),
+                        value: failed
+                            ? "需重试"
+                            : countLabel(category.itemCount),
+                        isFailure: failed
+                    )
+                }
+            }
+            .overlay {
+                Rectangle().stroke(theme.indigo, lineWidth: 1.5)
+            }
+        }
+    }
+
+    private func inventoryRow(
+        title: String,
+        detail: String,
+        value: String,
+        isFailure: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Rectangle()
+                .fill(isFailure ? theme.vermilion : theme.blue)
+                .frame(width: 4, height: 42)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.body.weight(.black))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Text(value)
+                .font(theme.utility(10))
+                .foregroundStyle(
+                    isFailure
+                        ? theme.vermilionText
+                        : theme.indigoDeep
+                )
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 72)
+        .background(theme.paper)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.indigo).frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var unavailableContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("暂时无法生成可信清单")
+                .font(.headline.weight(.black))
+                .accessibilityIdentifier(
+                    "archive.localStorage.unavailable"
+                )
+            Text(
+                errorMessage
+                    ?? "本地资料尚未准备好；这里不会用估算值代替。"
+            )
+            .font(.subheadline)
+            .foregroundStyle(theme.secondaryText)
+            .fixedSize(horizontal: false, vertical: true)
+            Button("重新核对") {
+                Task { await loadManifest() }
+            }
+            .font(.body.weight(.black))
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .foregroundStyle(theme.paper)
+            .background(theme.indigo)
+            .buttonStyle(V25PressStyle())
+            .accessibilityIdentifier(
+                "archive.localStorage.retry"
+            )
+            Text(SystemBackupDisclosure.systemBackupBoundary)
+                .font(.caption)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            V25PrivacyFooter(
+                text:
+                    "核对失败时，删除与重置入口保持不可执行；现有资料不会被自动删除。"
+            )
+            .accessibilityIdentifier("archive.preview.footer")
+        }
+        .padding(16)
+        .background(theme.rose.opacity(0.28))
+        .overlay {
+            Rectangle().stroke(theme.vermilion, lineWidth: 2)
+        }
+    }
+
+    private func loadManifest() async {
+        isLoading = true
+        manifest = nil
+        errorMessage = nil
+        defer { isLoading = false }
+        guard let dataInventoryService else {
+            errorMessage =
+                "当前资料会话没有可用的本地清单读取器。"
+            return
+        }
+        do {
+            let loaded = try await dataInventoryService.manifest()
+            guard !Task.isCancelled else { return }
+            manifest = loaded
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage =
+                "本地资料没有通过同一次完整核对，请稍后重试。"
+        }
+    }
+
+    private func countLabel(_ count: Int64?) -> String {
+        guard let count else { return "未确认" }
+        return "\(count) 项"
+    }
+
+    private func categoryDetail(
+        _ category: DataInventoryCategory
+    ) -> String {
+        var parts = [
+            "保留审计 \(category.retainedSensitiveCount ?? 0) 项"
+        ]
+        if let byteCount = category.byteCount {
+            parts.append(
+                ByteCountFormatter.string(
+                    fromByteCount: byteCount,
+                    countStyle: .file
+                )
+            )
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func categoryTitle(_ key: String) -> String {
+        let titles: [String: String] = [
+            "db.attachments": "附件 metadata",
+            "db.audit": "历史、收据与审计",
+            "db.countdown": "Countdown",
+            "db.execution": "执行与提醒偏好",
+            "db.hrt": "HRT 旅程结构",
+            "db.journey": "旅程记录",
+            "db.labs": "化验与纠错历史",
+            "db.preferences": "偏好与隐私设置",
+            "db.regimen": "方案版本与日程规则",
+            "db.status": "状态观察与纠错历史",
+            "db.system": "资料库控制记录",
+            "files.attachments.active": "当前附件文件",
+            "files.attachments.journal": "附件事务 journal",
+            "files.attachments.staging": "附件 staging",
+            "files.attachments.trash": "附件可恢复 trash",
+            "notification.countdown.delivered": "Countdown 已送达通知",
+            "notification.countdown.pending": "Countdown 待发送通知",
+            "notification.execution.delivered": "执行提醒已送达通知",
+            "notification.execution.pending": "执行提醒待发送通知",
+            "storage.control": "当前 pointer 与迁移控制",
+            "storage.generation.active": "当前 active generation",
+            "storage.generation.inactive-proven": "来源可证明的 inactive generation",
+            "storage.generation.invalid": "无效 generation",
+            "storage.generation.unproven": "来源未证明的 inactive generation",
+            "storage.legacy": "保留的 legacy 文件"
+        ]
+        return titles[key] ?? key
+    }
+
+    private func boundaryTitle(_ key: String) -> String {
+        let titles = [
+            "exports": "已导出的副本",
+            "filesSource": "Files 原件",
+            "photosSource": "Photos 原件",
+            "screenshots": "系统截图",
+            "shares": "分享后的副本",
+            "systemBackup": "系统备份"
+        ]
+        return titles[key] ?? key
+    }
+
+    private func boundaryDetail(_ key: String) -> String {
+        let details = [
+            "exports": "导出离开 App 后，App 无法继续追踪或删除。",
+            "filesSource": "用户选择导入的 Files 原件不会由 App 清理。",
+            "photosSource": "用户选择导入的 Photos 原件不会由 App 清理。",
+            "screenshots": "截图由系统相册与设备策略管理。",
+            "shares": "分享给其他 App 或联系人后的副本不受 App 控制。",
+            "systemBackup": "是否进入设备备份由系统设置和备份策略管理。"
+        ]
+        return details[key] ?? "这个边界不由 App 枚举或删除。"
     }
 }
 
@@ -961,7 +1496,7 @@ private struct ArchivePreviewSheet: View {
         case .localStorage:
             "系统备份由设备管理，不等于 App 主动上传或同步"
         case .deleteAndReset:
-            "删除功能实现前必须逐项验证恢复与关联关系"
+            "普通删除会保留历史校验副本；完整重置仍需冷启动恢复合同"
         case .unitConversion:
             "换算结果与原始记录分开保存"
         case .knowledgeSearch:

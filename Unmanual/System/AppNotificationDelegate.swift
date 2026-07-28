@@ -9,6 +9,44 @@ extension Notification.Name {
     )
 }
 
+enum DeferredAppDestination: Equatable, Sendable {
+    case today
+}
+
+@MainActor
+final class DeferredAppNavigationQueue {
+    static let shared = DeferredAppNavigationQueue()
+    private(set) var pendingDestination: DeferredAppDestination?
+
+    private init() {}
+
+    func enqueue(_ destination: DeferredAppDestination) {
+        pendingDestination = destination
+    }
+
+    func consume() -> DeferredAppDestination? {
+        defer { pendingDestination = nil }
+        return pendingDestination
+    }
+}
+
+@MainActor
+enum AppNotificationResponseRouter {
+    @discardableResult
+    static func route(identifier: String) -> Bool {
+        guard LocalReminderPlanner.isOwnedIdentifier(identifier)
+        else {
+            return false
+        }
+        DeferredAppNavigationQueue.shared.enqueue(.today)
+        NotificationCenter.default.post(
+            name: .unmanualOpenToday,
+            object: nil
+        )
+        return true
+    }
+}
+
 @MainActor
 final class AppNotificationDelegate: NSObject, UIApplicationDelegate,
     @preconcurrency UNUserNotificationCenterDelegate
@@ -40,11 +78,10 @@ final class AppNotificationDelegate: NSObject, UIApplicationDelegate,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if LocalReminderPlanner.isOwnedIdentifier(
+        AppNotificationResponseRouter.route(
+            identifier:
             response.notification.request.identifier
-        ) {
-            NotificationCenter.default.post(name: .unmanualOpenToday, object: nil)
-        }
+        )
         completionHandler()
     }
 }

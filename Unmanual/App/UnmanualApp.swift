@@ -9,6 +9,7 @@ struct UnmanualApp: App {
     @State private var theme = AppTheme()
     @State private var dataRuntime = AppDataRuntime()
     @State private var reminderRuntime: LocalReminderRuntime
+    @State private var privacyCoordinator: AppPrivacyCoordinator
 
     init() {
 #if DEBUG
@@ -26,18 +27,60 @@ struct UnmanualApp: App {
             initialValue: LocalReminderRuntime()
         )
 #endif
+#if DEBUG
+        let authenticationClient:
+            any DeviceOwnerAuthenticationClient =
+            ProcessInfo.processInfo.arguments.contains(
+                "-unmanual-authentication-success"
+            )
+            ? DebugSuccessfulAuthenticationClient()
+            : LocalAuthenticationClient()
+#else
+        let authenticationClient:
+            any DeviceOwnerAuthenticationClient =
+            LocalAuthenticationClient()
+#endif
+        _privacyCoordinator = State(
+            initialValue: AppPrivacyCoordinator(
+                client: authenticationClient
+            )
+        )
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-ui-test-notification-tap-today"
+        ) {
+            AppNotificationResponseRouter.route(
+                identifier: "unmanual.exec.v1.ui-test"
+            )
+        }
+#endif
+        PrivacyShieldWindowController.shared.start()
     }
 
     var body: some Scene {
         WindowGroup {
 #if DEBUG
-            runtimeRoot
+            ScenePrivacyShieldContainer(
+                isActive: scenePhase == .active
+            ) {
+                runtimeRoot
+            }
                 .environment(theme)
+                .environment(
+                    \.appPrivacyCoordinator,
+                    privacyCoordinator
+                )
                 .modifier(DebugDynamicTypeOverride())
                 .task {
+                    privacyCoordinator.handleSceneState(
+                        AppPrivacySceneState(scenePhase)
+                    )
                     dataRuntime.openIfNeeded()
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    privacyCoordinator.handleSceneState(
+                        AppPrivacySceneState(phase)
+                    )
                     if phase == .active { reconcileWhenReady() }
                 }
                 .onReceive(
@@ -67,12 +110,26 @@ struct UnmanualApp: App {
                     reconcileForTemporalChange(notification)
                 }
 #else
-            runtimeRoot
+            ScenePrivacyShieldContainer(
+                isActive: scenePhase == .active
+            ) {
+                runtimeRoot
+            }
                 .environment(theme)
+                .environment(
+                    \.appPrivacyCoordinator,
+                    privacyCoordinator
+                )
                 .task {
+                    privacyCoordinator.handleSceneState(
+                        AppPrivacySceneState(scenePhase)
+                    )
                     dataRuntime.openIfNeeded()
                 }
                 .onChange(of: scenePhase) { _, phase in
+                    privacyCoordinator.handleSceneState(
+                        AppPrivacySceneState(phase)
+                    )
                     if phase == .active { reconcileWhenReady() }
                 }
                 .onReceive(
@@ -124,7 +181,9 @@ struct UnmanualApp: App {
             reconcile: {
                 await reminderRuntime.reconcile(
                     reader: session.reader,
-                    writer: session.writer
+                    writer: session.writer,
+                    dataControlCoordinator:
+                        session.dataControlCoordinator
                 )
             },
             refresh: {
@@ -143,10 +202,37 @@ struct UnmanualApp: App {
             AppDataOpeningView()
         case let .ready(session):
 #if DEBUG
-            rootView
+            AppPrivacySessionRoot(
+                session: session,
+                coordinator: privacyCoordinator
+            ) {
+                rootView
+            }
                 .modelContainer(session.store.container)
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
+                .environment(
+                    \.appDataControlCoordinator,
+                    session.dataControlCoordinator
+                )
+                .environment(
+                    \.dataInventoryService,
+                    session.dataInventoryService
+                )
+                .environment(
+                    \.dataControlDeletionService,
+                    session.dataControlDeletionService
+                )
+                .environment(
+                    \.appDataResetAction,
+                    AppDataResetAction {
+                        stateDigest in
+                        try await dataRuntime.beginReset(
+                            confirmedStateDigest:
+                                stateDigest
+                        )
+                    }
+                )
                 .environment(
                     \.attachmentMutationService,
                     session.attachmentMutationService
@@ -166,9 +252,36 @@ struct UnmanualApp: App {
                     await reconcileAndRefresh(session: session)
                 }
 #else
-            rootView
+            AppPrivacySessionRoot(
+                session: session,
+                coordinator: privacyCoordinator
+            ) {
+                rootView
+            }
                 .environment(\.appDataWriter, session.writer)
                 .environment(\.appReadActor, session.reader)
+                .environment(
+                    \.appDataControlCoordinator,
+                    session.dataControlCoordinator
+                )
+                .environment(
+                    \.dataInventoryService,
+                    session.dataInventoryService
+                )
+                .environment(
+                    \.dataControlDeletionService,
+                    session.dataControlDeletionService
+                )
+                .environment(
+                    \.appDataResetAction,
+                    AppDataResetAction {
+                        stateDigest in
+                        try await dataRuntime.beginReset(
+                            confirmedStateDigest:
+                                stateDigest
+                        )
+                    }
+                )
                 .environment(
                     \.attachmentMutationService,
                     session.attachmentMutationService
@@ -192,6 +305,16 @@ struct UnmanualApp: App {
                 .task {
                     _ = await reminderRuntime.suspendForRecoveryAndClearOwnedPending()
                 }
+        case .resetPreparing:
+            DataResetStatusView(kind: .preparing)
+                .task {
+                    await dataRuntime
+                        .continueResetAfterSessionRelease()
+                }
+        case .resetRestartRequired:
+            DataResetStatusView(kind: .restartRequired)
+        case .resetRecovery:
+            DataResetStatusView(kind: .recovery)
         }
     }
 
@@ -248,7 +371,14 @@ struct UnmanualApp: App {
         } else if ProcessInfo.processInfo.arguments.contains(
             "-unmanual-skip-onboarding"
         ) {
-            AppShellView()
+            AppShellView(
+                initialTab:
+                    ProcessInfo.processInfo.arguments.contains(
+                        "-unmanual-ui-test-initial-archive"
+                    )
+                    ? .archive
+                    : .today
+            )
         } else {
             OnboardingGateView()
         }

@@ -195,12 +195,19 @@ struct CoreRegimenVersionSnapshot: Identifiable, Equatable, Sendable {
     let items: [CoreRegimenItemSnapshot]
 }
 
+struct CoreRegimenLineageAnchor: Equatable, Sendable {
+    let id: UUID
+    let effectiveStartDate: CivilDateFact
+}
+
 struct CoreRegimenOverviewSnapshot: Equatable, Sendable {
     static let empty = CoreRegimenOverviewSnapshot(
         current: nil,
         upcoming: [],
         history: [],
         drafts: [],
+        lineageAnchors: [],
+        terminalDeletedVersionIDs: [],
         labRecords: [],
         latestLabSample: nil,
         reviewIssueCount: 0,
@@ -211,6 +218,8 @@ struct CoreRegimenOverviewSnapshot: Equatable, Sendable {
     let upcoming: [CoreRegimenVersionSnapshot]
     let history: [CoreRegimenVersionSnapshot]
     let drafts: [CoreRegimenVersionSnapshot]
+    let lineageAnchors: [CoreRegimenLineageAnchor]
+    let terminalDeletedVersionIDs: Set<UUID>
     let labRecords: [LabRecordSnapshot]
     let latestLabSample: LabSampleSnapshot?
     let reviewIssueCount: Int
@@ -488,6 +497,19 @@ actor AppReadActor {
             drafts: snapshots
                 .filter { $0.editState == .draft }
                 .sorted { $0.effectiveStartDate > $1.effectiveStartDate },
+            lineageAnchors: snapshots
+                .filter {
+                    $0.editState == .sealed
+                        && !$0.requiresReview
+                }
+                .map {
+                    CoreRegimenLineageAnchor(
+                        id: $0.id,
+                        effectiveStartDate:
+                            $0.effectiveStartDate
+                    )
+                },
+            terminalDeletedVersionIDs: [],
             labRecords: try labRecords.map {
                 let historical = try canonicalHistoricalFacts(
                         sourceRecordType: "LabRecord",
@@ -511,6 +533,48 @@ actor AppReadActor {
     }
 
     private func latestCanonicalLabSample() throws -> LabSampleSnapshot? {
+        let hasParentRecordLifecycle =
+            modelContext.container.schema.entities.contains {
+                $0.name == "ParentRecordLifecycleHeadRecord"
+            }
+        if hasParentRecordLifecycle {
+            try ParentRecordLifecycleValidator.validate(
+                in: modelContext,
+                failure: .corruptionSuspected
+            )
+            let labSampleType =
+                ParentRecordType.labSample.rawValue
+            let activeLifecycle =
+                ParentRecordLifecycle.active.rawValue
+            var descriptor =
+                FetchDescriptor<ParentRecordLifecycleHeadRecord>(
+                    predicate: #Predicate {
+                        $0.parentTypeRawValue
+                            == labSampleType
+                            && $0.lifecycleRawValue
+                                == activeLifecycle
+                    },
+                    sortBy: [
+                        SortDescriptor(
+                            \.effectiveInstant,
+                            order: .reverse
+                        ),
+                        SortDescriptor(
+                            \.parentID,
+                            order: .reverse
+                        )
+                    ]
+                )
+            descriptor.fetchLimit = 1
+            guard let head = try modelContext.fetch(
+                descriptor
+            ).first else {
+                return nil
+            }
+            return try parentRecordLabSampleUnchecked(
+                id: head.parentID
+            )
+        }
         let sourceType = "LabSampleRecord"
         var descriptor = FetchDescriptor<HistoricalTimeRecord>(
             predicate: #Predicate {
@@ -531,7 +595,10 @@ actor AppReadActor {
         return try labSample(id: time.sourceRecordID)
     }
 
-    func archiveSnapshot() throws -> AppArchiveSnapshot {
+    func archiveSnapshot(
+        terminalOverlay: DataControlTerminalOverlay = .empty,
+        parentRecordOverlay: ParentRecordTerminalOverlay = .empty
+    ) throws -> AppArchiveSnapshot {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains(
             "-unmanual-archive-read-error"
@@ -539,9 +606,13 @@ actor AppReadActor {
             throw AppDataFailure.corruptionSuspected
         }
 #endif
-        let profileCount = try modelContext.fetchCount(FetchDescriptor<HRTProfile>())
+        let storedProfileCount = try modelContext.fetchCount(
+            FetchDescriptor<HRTProfile>()
+        )
         let countdownCount = try modelContext.fetchCount(FetchDescriptor<CountdownRecord>())
-        let journeyCount = try modelContext.fetchCount(FetchDescriptor<JourneyEntry>())
+        let storedJourneyCount = try modelContext.fetchCount(
+            FetchDescriptor<JourneyEntry>()
+        )
         let legacyRegimenCount = try modelContext.fetchCount(FetchDescriptor<RegimenVersion>())
         let sealedState = RegimenEditState.sealed.rawValue
         let canonicalRegimenDescriptor = FetchDescriptor<RegimenPlanVersionRecord>(
@@ -549,35 +620,137 @@ actor AppReadActor {
                 $0.editStateRawValue == sealedState && $0.isArchived == false
             }
         )
-        let regimenCount = try modelContext.fetchCount(canonicalRegimenDescriptor)
-        let labRecordCount = try modelContext.fetchCount(FetchDescriptor<LabRecord>())
+        let storedRegimenCount = try modelContext.fetchCount(
+            canonicalRegimenDescriptor
+        )
+        let storedLabRecordCount = try modelContext.fetchCount(
+            FetchDescriptor<LabRecord>()
+        )
+        guard storedJourneyCount
+                <= DataInventoryTaxonomy.maximumRowsPerModel,
+              storedRegimenCount
+                <= DataInventoryTaxonomy.maximumRowsPerModel,
+              storedLabRecordCount
+                <= DataInventoryTaxonomy.maximumRowsPerModel else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let profileCount = terminalOverlay.hidesHrtJourney
+            ? 0 : storedProfileCount
+        let journeyFacts = try visibleJourneyArchiveFacts(
+            storedCount: storedJourneyCount,
+            excluding: terminalOverlay.journeyEntryIDs
+        )
+        let regimenFacts = try visibleCanonicalRegimenArchiveFacts(
+            storedCount: storedRegimenCount,
+            excluding:
+                terminalOverlay.sealedRegimenVersionIDs
+        )
+        let labFacts = try visibleLegacyLabArchiveFacts(
+            storedCount: storedLabRecordCount,
+            excluding: parentRecordOverlay.labSampleIDs
+        )
 
         let extrema = try [
-            profileExtremeDate(ascending: true),
-            profileExtremeDate(ascending: false),
-            journeyExtremeDate(ascending: true),
-            journeyExtremeDate(ascending: false),
-            canonicalRegimenExtremeDate(ascending: true),
-            canonicalRegimenExtremeDate(ascending: false),
-            labExtremeDate(ascending: true),
-            labExtremeDate(ascending: false)
+            terminalOverlay.hidesHrtJourney
+                ? nil : profileExtremeDate(ascending: true),
+            terminalOverlay.hidesHrtJourney
+                ? nil : profileExtremeDate(ascending: false),
+            journeyFacts.first,
+            journeyFacts.latest,
+            regimenFacts.first,
+            regimenFacts.latest,
+            labFacts.first,
+            labFacts.latest
         ].compactMap { $0 }
 
         return AppArchiveSnapshot(
-            journeyCount: journeyCount,
-            labRecordCount: labRecordCount,
-            regimenCount: regimenCount,
+            journeyCount: journeyFacts.count,
+            labRecordCount: labFacts.count,
+            regimenCount: regimenFacts.count,
             profileCount: profileCount,
             countdownCount: countdownCount,
-            developmentExportItemCount: profileCount
-                + countdownCount
-                + journeyCount
-                + legacyRegimenCount
-                + labRecordCount,
+            developmentExportItemCount:
+                terminalOverlay == .empty
+                    && parentRecordOverlay.isEmpty
+                    ? storedProfileCount
+                        + countdownCount
+                        + storedJourneyCount
+                        + legacyRegimenCount
+                        + storedLabRecordCount
+                    : 0,
             firstActivityDate: extrema.min(),
             latestActivityDate: extrema.max()
         )
     }
+
+    func parentRecordTerminalOverlay()
+        throws -> ParentRecordTerminalOverlay {
+        try ParentRecordLifecycleValidator.validate(
+            in: modelContext,
+            failure: .corruptionSuspected
+        )
+        var descriptor =
+            FetchDescriptor<ParentRecordDeletionTombstoneRecord>()
+        descriptor.fetchLimit =
+            ParentRecordLifecycleCapacity.maximumParents + 1
+        let tombstones = try modelContext.fetch(descriptor)
+        guard tombstones.count
+                <= ParentRecordLifecycleCapacity.maximumParents else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        var labSampleIDs: Set<UUID> = []
+        var statusObservationIDs: Set<UUID> = []
+        for tombstone in tombstones {
+            guard let type = ParentRecordType(
+                rawValue: tombstone.parentTypeRawValue
+            ),
+            tombstone.parentKey
+                == type.recordKey(parentID: tombstone.parentID)
+            else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            switch type {
+            case .labSample:
+                guard labSampleIDs.insert(
+                    tombstone.parentID
+                ).inserted else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+            case .statusObservation:
+                guard statusObservationIDs.insert(
+                    tombstone.parentID
+                ).inserted else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+            }
+        }
+        return ParentRecordTerminalOverlay(
+            labSampleIDs: labSampleIDs,
+            statusObservationIDs: statusObservationIDs
+        )
+    }
+
+#if DEBUG
+    func developmentBackup() throws -> AppDataBackup {
+        AppDataBackupService.makeBackup(
+            profiles: try developmentBackupRecords(
+                HRTProfile.self
+            ),
+            countdowns: try developmentBackupRecords(
+                CountdownRecord.self
+            ),
+            entries: try developmentBackupRecords(
+                JourneyEntry.self
+            ),
+            labRecords: try developmentBackupRecords(
+                LabRecord.self
+            ),
+            regimens: try developmentBackupRecords(
+                RegimenVersion.self
+            )
+        )
+    }
+#endif
 
     func journeyPage(after cursor: JourneyPageCursor?, limit: Int = 100) throws -> JourneyPage {
         precondition(limit > 0 && limit <= 200)
@@ -999,52 +1172,362 @@ actor AppReadActor {
         return try modelContext.fetch(descriptor).first?.startDate
     }
 
-    private func journeyExtremeDate(ascending: Bool) throws -> Date? {
-        var descriptor = FetchDescriptor<JourneyEntry>(
-            sortBy: [SortDescriptor(\.occurredAt, order: ascending ? .forward : .reverse)]
-        )
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first?.occurredAt
+    private func visibleJourneyArchiveFacts(
+        storedCount: Int,
+        excluding hiddenIDs: Set<UUID>
+    ) throws -> (count: Int, first: Date?, latest: Date?) {
+        guard storedCount > 0 else {
+            return (0, nil, nil)
+        }
+        if hiddenIDs.isEmpty {
+            var firstDescriptor = FetchDescriptor<JourneyEntry>(
+                sortBy: [
+                    SortDescriptor(\.occurredAt),
+                    SortDescriptor(\.id)
+                ]
+            )
+            firstDescriptor.fetchLimit = 1
+            var latestDescriptor = FetchDescriptor<JourneyEntry>(
+                sortBy: [
+                    SortDescriptor(
+                        \.occurredAt,
+                        order: .reverse
+                    ),
+                    SortDescriptor(\.id, order: .reverse)
+                ]
+            )
+            latestDescriptor.fetchLimit = 1
+            return (
+                storedCount,
+                try modelContext.fetch(firstDescriptor)
+                    .first?.occurredAt,
+                try modelContext.fetch(latestDescriptor)
+                    .first?.occurredAt
+            )
+        }
+        var visibleCount = 0
+        var first: Date?
+        var latest: Date?
+        var scannedCount = 0
+        var cursor: (occurredAt: Date, id: UUID)?
+        while scannedCount < storedCount {
+            var descriptor: FetchDescriptor<JourneyEntry>
+            if let cursor {
+                let occurredAt = cursor.occurredAt
+                let id = cursor.id
+                descriptor = FetchDescriptor<JourneyEntry>(
+                    predicate: #Predicate {
+                        $0.occurredAt > occurredAt
+                            || (
+                                $0.occurredAt == occurredAt
+                                    && $0.id > id
+                            )
+                    },
+                    sortBy: [
+                        SortDescriptor(\.occurredAt),
+                        SortDescriptor(\.id)
+                    ]
+                )
+            } else {
+                descriptor = FetchDescriptor<JourneyEntry>(
+                    sortBy: [
+                        SortDescriptor(\.occurredAt),
+                        SortDescriptor(\.id)
+                    ]
+                )
+            }
+            descriptor.fetchLimit = min(
+                4_096,
+                storedCount - scannedCount
+            )
+            let records = try modelContext.fetch(descriptor)
+            guard !records.isEmpty,
+                  let last = records.last else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            for record in records
+            where !hiddenIDs.contains(record.id) {
+                first = first ?? record.occurredAt
+                latest = record.occurredAt
+                visibleCount += 1
+            }
+            scannedCount += records.count
+            cursor = (last.occurredAt, last.id)
+        }
+        return (visibleCount, first, latest)
     }
 
-    private func canonicalRegimenExtremeDate(ascending: Bool) throws -> Date? {
-        let sealedState = RegimenEditState.sealed.rawValue
-        let order: SortOrder = ascending ? .forward : .reverse
-        var descriptor = FetchDescriptor<RegimenPlanVersionRecord>(
-            predicate: #Predicate {
-                $0.editStateRawValue == sealedState && $0.isArchived == false
-            },
-            sortBy: [
-                SortDescriptor(\.effectiveStartYear, order: order),
-                SortDescriptor(\.effectiveStartMonth, order: order),
-                SortDescriptor(\.effectiveStartDay, order: order)
-            ]
-        )
-        descriptor.fetchLimit = 1
-        guard let regimen = try modelContext.fetch(descriptor).first else {
-            return nil
+    private func visibleCanonicalRegimenArchiveFacts(
+        storedCount: Int,
+        excluding hiddenIDs: Set<UUID>
+    ) throws -> (count: Int, first: Date?, latest: Date?) {
+        guard storedCount > 0 else {
+            return (0, nil, nil)
         }
-        guard let startDate = regimen.effectiveStartDate else {
+        let sealedState = RegimenEditState.sealed.rawValue
+        if hiddenIDs.isEmpty {
+            var firstDescriptor =
+                FetchDescriptor<RegimenPlanVersionRecord>(
+                    predicate: #Predicate {
+                        $0.editStateRawValue == sealedState
+                            && $0.isArchived == false
+                    },
+                    sortBy: [
+                        SortDescriptor(\.effectiveStartYear),
+                        SortDescriptor(\.effectiveStartMonth),
+                        SortDescriptor(\.effectiveStartDay),
+                        SortDescriptor(\.id)
+                    ]
+                )
+            firstDescriptor.fetchLimit = 1
+            var latestDescriptor =
+                FetchDescriptor<RegimenPlanVersionRecord>(
+                    predicate: #Predicate {
+                        $0.editStateRawValue == sealedState
+                            && $0.isArchived == false
+                    },
+                    sortBy: [
+                        SortDescriptor(
+                            \.effectiveStartYear,
+                            order: .reverse
+                        ),
+                        SortDescriptor(
+                            \.effectiveStartMonth,
+                            order: .reverse
+                        ),
+                        SortDescriptor(
+                            \.effectiveStartDay,
+                            order: .reverse
+                        ),
+                        SortDescriptor(\.id, order: .reverse)
+                    ]
+                )
+            latestDescriptor.fetchLimit = 1
+            let first = try modelContext.fetch(
+                firstDescriptor
+            ).first
+            let latest = try modelContext.fetch(
+                latestDescriptor
+            ).first
+            guard let firstDate = first?.effectiveStartDate,
+                  let latestDate = latest?.effectiveStartDate else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            return (
+                storedCount,
+                try displayDate(from: firstDate),
+                try displayDate(from: latestDate)
+            )
+        }
+        var visibleCount = 0
+        var first: Date?
+        var latest: Date?
+        var scannedCount = 0
+        var cursor:
+            (
+                year: Int,
+                month: Int,
+                day: Int,
+                id: UUID
+            )?
+        while scannedCount < storedCount {
+            var descriptor:
+                FetchDescriptor<RegimenPlanVersionRecord>
+            if let cursor {
+                let year = cursor.year
+                let month = cursor.month
+                let day = cursor.day
+                let id = cursor.id
+                descriptor = FetchDescriptor<RegimenPlanVersionRecord>(
+                    predicate: #Predicate {
+                        $0.editStateRawValue == sealedState
+                            && $0.isArchived == false
+                            && (
+                                $0.effectiveStartYear > year
+                                    || (
+                                        $0.effectiveStartYear == year
+                                            && $0.effectiveStartMonth
+                                                > month
+                                    )
+                                    || (
+                                        $0.effectiveStartYear == year
+                                            && $0.effectiveStartMonth
+                                                == month
+                                            && $0.effectiveStartDay
+                                                > day
+                                    )
+                                    || (
+                                        $0.effectiveStartYear == year
+                                            && $0.effectiveStartMonth
+                                                == month
+                                            && $0.effectiveStartDay
+                                                == day
+                                            && $0.id > id
+                                    )
+                            )
+                    },
+                    sortBy: [
+                        SortDescriptor(\.effectiveStartYear),
+                        SortDescriptor(\.effectiveStartMonth),
+                        SortDescriptor(\.effectiveStartDay),
+                        SortDescriptor(\.id)
+                    ]
+                )
+            } else {
+                descriptor = FetchDescriptor<RegimenPlanVersionRecord>(
+                    predicate: #Predicate {
+                        $0.editStateRawValue == sealedState
+                            && $0.isArchived == false
+                    },
+                    sortBy: [
+                        SortDescriptor(\.effectiveStartYear),
+                        SortDescriptor(\.effectiveStartMonth),
+                        SortDescriptor(\.effectiveStartDay),
+                        SortDescriptor(\.id)
+                    ]
+                )
+            }
+            descriptor.fetchLimit = min(
+                4_096,
+                storedCount - scannedCount
+            )
+            let records = try modelContext.fetch(descriptor)
+            guard !records.isEmpty,
+                  let last = records.last else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            for record in records
+            where !hiddenIDs.contains(record.id) {
+                guard let startDate = record.effectiveStartDate else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+                let date = try displayDate(from: startDate)
+                first = first ?? date
+                latest = date
+                visibleCount += 1
+            }
+            scannedCount += records.count
+            cursor = (
+                last.effectiveStartYear,
+                last.effectiveStartMonth,
+                last.effectiveStartDay,
+                last.id
+            )
+        }
+        return (visibleCount, first, latest)
+    }
+
+    private func visibleLegacyLabArchiveFacts(
+        storedCount: Int,
+        excluding hiddenSampleIDs: Set<UUID>
+    ) throws -> (count: Int, first: Date?, latest: Date?) {
+        guard storedCount > 0 else {
+            return (0, nil, nil)
+        }
+        if hiddenSampleIDs.isEmpty {
+            var firstDescriptor = FetchDescriptor<LabRecord>(
+                sortBy: [
+                    SortDescriptor(\.sampledAt),
+                    SortDescriptor(\.id)
+                ]
+            )
+            firstDescriptor.fetchLimit = 1
+            var latestDescriptor = FetchDescriptor<LabRecord>(
+                sortBy: [
+                    SortDescriptor(
+                        \.sampledAt,
+                        order: .reverse
+                    ),
+                    SortDescriptor(\.id, order: .reverse)
+                ]
+            )
+            latestDescriptor.fetchLimit = 1
+            return (
+                storedCount,
+                try modelContext.fetch(firstDescriptor)
+                    .first?.sampledAt,
+                try modelContext.fetch(latestDescriptor)
+                    .first?.sampledAt
+            )
+        }
+        var visibleCount = 0
+        var first: Date?
+        var latest: Date?
+        var scannedCount = 0
+        var cursor: (sampledAt: Date, id: UUID)?
+        while scannedCount < storedCount {
+            var descriptor: FetchDescriptor<LabRecord>
+            if let cursor {
+                let sampledAt = cursor.sampledAt
+                let id = cursor.id
+                descriptor = FetchDescriptor<LabRecord>(
+                    predicate: #Predicate {
+                        $0.sampledAt > sampledAt
+                            || (
+                                $0.sampledAt == sampledAt
+                                    && $0.id > id
+                            )
+                    },
+                    sortBy: [
+                        SortDescriptor(\.sampledAt),
+                        SortDescriptor(\.id)
+                    ]
+                )
+            } else {
+                descriptor = FetchDescriptor<LabRecord>(
+                    sortBy: [
+                        SortDescriptor(\.sampledAt),
+                        SortDescriptor(\.id)
+                    ]
+                )
+            }
+            descriptor.fetchLimit = min(
+                4_096,
+                storedCount - scannedCount
+            )
+            let records = try modelContext.fetch(descriptor)
+            guard !records.isEmpty,
+                  let last = records.last else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            for record in records
+            where !hiddenSampleIDs.contains(
+                PersonalTimelineBackfill
+                    .legacySampleID(for: record.id)
+            ) {
+                first = first ?? record.sampledAt
+                latest = record.sampledAt
+                visibleCount += 1
+            }
+            scannedCount += records.count
+            cursor = (last.sampledAt, last.id)
+        }
+        return (visibleCount, first, latest)
+    }
+
+#if DEBUG
+    private func developmentBackupRecords<T: PersistentModel>(
+        _ type: T.Type
+    ) throws -> [T] {
+        var descriptor = FetchDescriptor<T>()
+        descriptor.fetchLimit =
+            DataInventoryTaxonomy.maximumRowsPerModel + 1
+        let records = try modelContext.fetch(descriptor)
+        guard records.count
+                <= DataInventoryTaxonomy.maximumRowsPerModel else {
             throw AppDataFailure.corruptionSuspected
         }
-        return try displayDate(from: startDate)
+        return records
     }
-
-    private func labExtremeDate(ascending: Bool) throws -> Date? {
-        var descriptor = FetchDescriptor<LabRecord>(
-            sortBy: [SortDescriptor(\.sampledAt, order: ascending ? .forward : .reverse)]
-        )
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first?.sampledAt
-    }
+#endif
 }
 
 private struct AppReadActorEnvironmentKey: EnvironmentKey {
-    static let defaultValue: AppReadActor? = nil
+    static let defaultValue: AppDataReader? = nil
 }
 
 extension EnvironmentValues {
-    var appReadActor: AppReadActor? {
+    var appReadActor: AppDataReader? {
         get { self[AppReadActorEnvironmentKey.self] }
         set { self[AppReadActorEnvironmentKey.self] = newValue }
     }

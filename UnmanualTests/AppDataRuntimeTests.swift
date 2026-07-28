@@ -94,6 +94,102 @@ final class AppDataRuntimeTests: XCTestCase {
         XCTAssertEqual(attempts, 2)
     }
 
+    func testResetOpenFailureEntersResetRecovery() async {
+        let runtime = AppDataRuntime {
+            throw DataResetServiceFailure.recoveryRequired
+        }
+
+        runtime.openIfNeeded()
+        await waitUntilSettled(runtime)
+
+        guard case .resetRecovery = runtime.state else {
+            return XCTFail(
+                "reset failure must not enter generic Recovery"
+            )
+        }
+    }
+
+    func testResetWaitsForSessionReleaseBeforeQuarantine()
+        async throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appending(
+                path: "AppDataRuntimeReset-"
+                    + UUID().uuidString.lowercased(),
+                directoryHint: .isDirectory
+            )
+        try FileManager.default.createDirectory(
+            at: temporary,
+            withIntermediateDirectories: false
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: temporary)
+        }
+        let layout = AppDataStoreLayout(
+            rootURL: temporary.appending(
+                path: "Unmanual",
+                directoryHint: .isDirectory
+            ),
+            legacyStoreURL: temporary.appending(
+                path: "default.store"
+            )
+        )
+        let runtime = AppDataRuntime {
+            try AppDataStoreBootstrapper(
+                layout: layout,
+                backupPolicy: .systemManaged,
+                fileProtectionVerificationMode:
+                    .simulatorTestHarness
+            ).open()
+        }
+        runtime.openIfNeeded()
+        await waitUntilSettled(runtime)
+        var retainedSession: AppDataSession?
+        if case let .ready(value) = runtime.state {
+            retainedSession = value
+        }
+        guard retainedSession?.dataInventoryService != nil else {
+            return XCTFail("expected reset-capable session")
+        }
+        let manifest = try await retainedSession!
+            .dataInventoryService!.manifest()
+
+        try await runtime.beginReset(
+            confirmedStateDigest: manifest.stateDigest
+        )
+        guard case .resetPreparing = runtime.state else {
+            return XCTFail("expected teardown gate")
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: layout.rootURL.path
+            )
+        )
+
+        retainedSession = nil
+        XCTAssertNil(retainedSession)
+        await runtime.continueResetAfterSessionRelease()
+
+        guard case .resetRestartRequired = runtime.state else {
+            return XCTFail(
+                "quarantine may begin only after release proof"
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: layout.rootURL.path
+            )
+        )
+        let resetLayout = DataResetPathLayout(
+            applicationSupportURL: temporary,
+            storeLayout: layout
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: resetLayout.journalURL.path
+            )
+        )
+    }
+
     func testCommittedWriteEntersRecoveryWhenPostCommitProtectionReadbackFails() async throws {
         let container = try AppModelContainerFactory.makeInMemoryBridgeContainer()
         _ = try LegacyV1Backfill.run(in: container)
@@ -335,6 +431,154 @@ final class AppDataRuntimeTests: XCTestCase {
         add(attachment)
     }
 
+    func testResetStatusViewsRenderAtRepresentativeLayoutSizes()
+        throws {
+        let sizes = [
+            CGSize(width: 320, height: 568),
+            CGSize(width: 390, height: 844),
+            CGSize(width: 430, height: 932),
+            CGSize(width: 768, height: 1_024)
+        ]
+        let kinds: [(String, DataResetStatusView.Kind)] = [
+            ("Preparing", .preparing),
+            ("RestartRequired", .restartRequired),
+            ("Recovery", .recovery)
+        ]
+        for (name, kind) in kinds {
+            for size in sizes {
+                let image = render(
+                    DataResetStatusView(kind: kind)
+                        .environment(AppTheme())
+                        .environment(
+                            \.dynamicTypeSize,
+                            .large
+                        )
+                        .frame(
+                            width: size.width,
+                            height: size.height
+                        ),
+                    size: size
+                )
+                assertContainsForeground(image)
+                let attachment = XCTAttachment(
+                    image: image
+                )
+                attachment.name =
+                    "Reset-\(name)-"
+                    + "\(Int(size.width))x"
+                    + "\(Int(size.height))"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            let accessibilitySize = CGSize(
+                width: 320,
+                height: 568
+            )
+            let accessibilityImage = try
+                renderScrolledToBottom(
+                DataResetStatusView(kind: kind)
+                    .environment(AppTheme())
+                    .environment(
+                        \.dynamicTypeSize,
+                        .accessibility5
+                    )
+                    .frame(
+                        width: accessibilitySize.width,
+                        height:
+                            accessibilitySize.height
+                    ),
+                size: accessibilitySize
+            )
+            assertContainsForeground(
+                accessibilityImage
+            )
+            let accessibilityAttachment =
+                XCTAttachment(
+                    image: accessibilityImage
+                )
+            accessibilityAttachment.name =
+                "Reset-\(name)-320x568-Accessibility5"
+            accessibilityAttachment.lifetime =
+                .keepAlways
+            add(accessibilityAttachment)
+        }
+    }
+
+    private func renderScrolledToBottom<Content: View>(
+        _ content: Content,
+        size: CGSize
+    ) throws -> UIImage {
+        let host = UIHostingController(
+            rootView: content
+        )
+        let window = UIWindow(
+            frame: CGRect(
+                origin: .zero,
+                size: size
+            )
+        )
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+
+        let scrollView = try XCTUnwrap(
+            descendants(of: host.view)
+                .compactMap { $0 as? UIScrollView }
+                .filter {
+                    $0.contentSize.height
+                        > $0.bounds.height
+                }
+                .max {
+                    $0.contentSize.height
+                        < $1.contentSize.height
+                }
+        )
+        let bottomOffset = max(
+            -scrollView.adjustedContentInset.top,
+            scrollView.contentSize.height
+                + scrollView.adjustedContentInset.bottom
+                - scrollView.bounds.height
+        )
+        scrollView.setContentOffset(
+            CGPoint(
+                x: scrollView.contentOffset.x,
+                y: bottomOffset
+            ),
+            animated: false
+        )
+        scrollView.layoutIfNeeded()
+        host.view.layoutIfNeeded()
+        XCTAssertEqual(
+            scrollView.contentOffset.y,
+            bottomOffset,
+            accuracy: 1
+        )
+
+        let renderer =
+            UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { _ in
+            XCTAssertTrue(
+                host.view.drawHierarchy(
+                    in: host.view.bounds,
+                    afterScreenUpdates: true
+                )
+            )
+        }
+        window.rootViewController = nil
+        window.isHidden = true
+        return image
+    }
+
+    private func descendants(
+        of root: UIView
+    ) -> [UIView] {
+        root.subviews.flatMap {
+            [$0] + descendants(of: $0)
+        }
+    }
+
     private func render<Content: View>(_ content: Content, size: CGSize) -> UIImage {
         let host = UIHostingController(rootView: content)
         let window = UIWindow(frame: CGRect(origin: .zero, size: size))
@@ -507,6 +751,21 @@ final class ZZSystemBackupDisclosureRenderTests: XCTestCase {
                         .environment(theme)
                         .environment(\.dynamicTypeSize, dynamicTypeSize)
                         .frame(width: size.width, height: size.height)
+                )
+            ),
+            (
+                "ArchiveDataControl",
+                AnyView(
+                    ArchiveDataControlSheet()
+                        .environment(theme)
+                        .environment(
+                            \.dynamicTypeSize,
+                            dynamicTypeSize
+                        )
+                        .frame(
+                            width: size.width,
+                            height: size.height
+                        )
                 )
             ),
             (

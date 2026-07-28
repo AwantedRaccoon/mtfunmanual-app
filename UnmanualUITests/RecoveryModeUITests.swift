@@ -152,12 +152,26 @@ final class SystemBackupDisclosureUITests: XCTestCase {
     }
 
     func testArchiveDisclosureIsReachableAndNotClipped() throws {
-        let app = launch(arguments: ["-unmanual-archive"])
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+        let app = launch(
+            arguments: ["-unmanual-archive"],
+            durableStoreID: storeID
+        )
         let localStorage = element("archive.localStorage", in: app)
         XCTAssertTrue(localStorage.waitForExistence(timeout: 5))
         scrollToVisible(localStorage, in: app)
         XCTAssertTrue(localStorage.isHittable)
         localStorage.tap()
+        let integrity = element(
+            "archive.localStorage.integrity",
+            in: app
+        )
+        XCTAssertTrue(integrity.waitForExistence(timeout: 12))
+        XCTAssertTrue(
+            app.staticTexts["清单核对完整"]
+                .waitForExistence(timeout: 5)
+        )
 
         let boundary = app.staticTexts[
             "iOS 可能按你的设置将 App 数据纳入 iCloud 或电脑的系统备份；App 不保证每次备份或恢复成功。"
@@ -244,12 +258,24 @@ final class SystemBackupDisclosureUITests: XCTestCase {
     }
 
     func testArchiveDisclosureAtAccessibility5IsReachableAndNotClipped() throws {
-        let app = launch(arguments: ["-unmanual-archive"], maximumDynamicType: true)
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+        let app = launch(
+            arguments: ["-unmanual-archive"],
+            maximumDynamicType: true,
+            durableStoreID: storeID
+        )
         let localStorage = element("archive.localStorage", in: app)
         XCTAssertTrue(localStorage.waitForExistence(timeout: 5))
         scrollToVisible(localStorage, in: app)
         XCTAssertTrue(localStorage.isHittable)
         localStorage.tap()
+        XCTAssertTrue(
+            element(
+                "archive.localStorage.integrity",
+                in: app
+            ).waitForExistence(timeout: 12)
+        )
 
         let boundary = app.staticTexts[
             "iOS 可能按你的设置将 App 数据纳入 iCloud 或电脑的系统备份；App 不保证每次备份或恢复成功。"
@@ -261,6 +287,231 @@ final class SystemBackupDisclosureUITests: XCTestCase {
         try auditVisibleText(in: app)
 
         attachScreenshot(named: "SystemBackup-Archive-Accessibility5")
+    }
+
+    func testArchiveInventoryFailureCanRetryToComplete() throws {
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+        let app = launch(
+            arguments: [
+                "-unmanual-archive",
+                "-unmanual-ui-test-inventory-fail-once"
+            ],
+            durableStoreID: storeID
+        )
+        let localStorage = element("archive.localStorage", in: app)
+        XCTAssertTrue(localStorage.waitForExistence(timeout: 8))
+        scrollToVisible(localStorage, in: app)
+        localStorage.tap()
+
+        let unavailable = element(
+            "archive.localStorage.unavailable",
+            in: app
+        )
+        XCTAssertTrue(unavailable.waitForExistence(timeout: 12))
+        let retry = element("archive.localStorage.retry", in: app)
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        XCTAssertTrue(retry.isEnabled)
+        retry.tap()
+
+        let integrity = element(
+            "archive.localStorage.integrity",
+            in: app
+        )
+        XCTAssertTrue(integrity.waitForExistence(timeout: 12))
+        XCTAssertTrue(
+            app.staticTexts["清单核对完整"]
+                .waitForExistence(timeout: 5)
+        )
+    }
+
+    func testArchiveDataControlDeletionCanCancelConfirmAndStayDeletedAfterReopen()
+        throws
+    {
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+        let app = launch(
+            arguments: [
+                "-unmanual-archive",
+                "-unmanual-hrt-active-fixture"
+            ],
+            durableStoreID: storeID
+        )
+        openDataControl(in: app)
+
+        let target = element(
+            "archive.dataControl.target.hrt-journey",
+            in: app
+        )
+        XCTAssertTrue(target.waitForExistence(timeout: 12))
+        target.tap()
+
+        let confirm = element(
+            "archive.dataControl.confirm",
+            in: app
+        )
+        XCTAssertTrue(confirm.waitForExistence(timeout: 12))
+        scrollToVisible(confirm, in: app)
+        confirm.tap()
+
+        let alert = app.alerts["再次确认移除？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["取消"].tap()
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+
+        confirm.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["从普通页面移除"].tap()
+
+        let success = element(
+            "archive.dataControl.success",
+            in: app
+        )
+        XCTAssertTrue(success.waitForExistence(timeout: 15))
+        XCTAssertFalse(target.exists)
+        attachScreenshot(
+            named: "DataControl-Deletion-Confirmed"
+        )
+        app.terminate()
+
+        let reopened = launch(
+            arguments: ["-unmanual-archive"],
+            durableStoreID: storeID,
+            resetsBeforeOpen: false
+        )
+        openDataControl(in: reopened)
+        XCTAssertTrue(
+            reopened.staticTexts[
+                "当前没有可逐项移除的记录"
+            ].waitForExistence(timeout: 12)
+        )
+        XCTAssertFalse(
+            element(
+                "archive.dataControl.target.hrt-journey",
+                in: reopened
+            ).exists
+        )
+        attachScreenshot(
+            named: "DataControl-Deletion-Reopened"
+        )
+    }
+
+    func testArchiveDataControlResetCanCancelThenCompletesAcrossColdLaunch()
+        throws
+    {
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+        let app = launch(
+            arguments: [
+                "-unmanual-archive",
+                "-unmanual-hrt-active-fixture"
+            ],
+            durableStoreID: storeID
+        )
+        openDataControl(in: app)
+
+        let reset = element(
+            "archive.dataControl.resetConfirm",
+            in: app
+        )
+        XCTAssertTrue(reset.waitForExistence(timeout: 12))
+        scrollToVisible(reset, in: app)
+        reset.tap()
+
+        let alert = app.alerts["清空全部 App 数据？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["取消"].tap()
+        XCTAssertTrue(reset.waitForExistence(timeout: 5))
+
+        reset.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        alert.buttons["隔离并准备清空"].tap()
+        XCTAssertTrue(
+            element(
+                "dataReset.restartRequired",
+                in: app
+            ).waitForExistence(timeout: 20)
+        )
+        attachScreenshot(
+            named: "DataControl-Reset-RestartRequired"
+        )
+        app.terminate()
+
+        let coldLaunch = launch(
+            durableStoreID: storeID,
+            resetsBeforeOpen: false,
+            skipsOnboarding: false
+        )
+        XCTAssertTrue(
+            element(
+                "onboarding.privacy.continue",
+                in: coldLaunch
+            ).waitForExistence(timeout: 20)
+        )
+        XCTAssertFalse(
+            element(
+                "dataReset.restartRequired",
+                in: coldLaunch
+            ).exists
+        )
+        coldLaunch.terminate()
+
+        let verified = launch(
+            arguments: ["-unmanual-archive"],
+            durableStoreID: storeID,
+            resetsBeforeOpen: false
+        )
+        openDataControl(in: verified)
+        XCTAssertTrue(
+            verified.staticTexts[
+                "当前没有可逐项移除的记录"
+            ].waitForExistence(timeout: 12)
+        )
+        XCTAssertFalse(
+            element(
+                "archive.dataControl.target.hrt-journey",
+                in: verified
+            ).exists
+        )
+        attachScreenshot(
+            named: "DataControl-Reset-FreshStore"
+        )
+    }
+
+    func testArchiveDataControlManifestFailureRetriesAtAccessibilityFive()
+        throws
+    {
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+        let app = launch(
+            arguments: [
+                "-unmanual-archive",
+                "-unmanual-ui-test-inventory-fail-once"
+            ],
+            maximumDynamicType: true,
+            durableStoreID: storeID
+        )
+        openDataControl(in: app)
+
+        let retry = app.buttons[
+            "重新核对完整清单"
+        ]
+        XCTAssertTrue(retry.waitForExistence(timeout: 12))
+        scrollToVisible(retry, in: app)
+        XCTAssertTrue(retry.isHittable)
+        retry.tap()
+
+        let reset = element(
+            "archive.dataControl.resetConfirm",
+            in: app
+        )
+        XCTAssertTrue(reset.waitForExistence(timeout: 15))
+        scrollToVisible(reset, in: app)
+        XCTAssertTrue(reset.isHittable)
+        try auditVisibleText(in: app)
+        attachScreenshot(
+            named: "DataControl-Accessibility5-Retry"
+        )
     }
 
     func testQuickRecordDisclosureAtAccessibility5IsReachableAndNotClipped() throws {
@@ -619,20 +870,77 @@ final class SystemBackupDisclosureUITests: XCTestCase {
 
     private func launch(
         arguments: [String] = [],
-        maximumDynamicType: Bool = false
+        maximumDynamicType: Bool = false,
+        durableStoreID: UUID? = nil,
+        resetsBeforeOpen: Bool = true,
+        skipsOnboarding: Bool = true
     ) -> XCUIApplication {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = [
-            "-unmanual-empty-store",
-            "-unmanual-skip-onboarding"
-        ] + arguments
+        if let durableStoreID {
+            app.launchArguments = [
+                "-unmanual-ui-test-store-id",
+                durableStoreID.uuidString
+            ]
+            if resetsBeforeOpen {
+                app.launchArguments.append(
+                    "-unmanual-ui-test-reset-store"
+                )
+            }
+            if skipsOnboarding {
+                app.launchArguments.append(
+                    "-unmanual-skip-onboarding"
+                )
+            }
+            app.launchArguments += arguments
+        } else {
+            app.launchArguments = ["-unmanual-empty-store"]
+            if skipsOnboarding {
+                app.launchArguments.append(
+                    "-unmanual-skip-onboarding"
+                )
+            }
+            app.launchArguments += arguments
+        }
         if maximumDynamicType {
             app.launchArguments.append("-unmanual-ui-test-accessibility5")
         }
         app.launch()
         return app
+    }
+
+    private func cleanupDurableStore(_ id: UUID) {
+        let cleanup = XCUIApplication()
+        cleanup.launchArguments = [
+            "-unmanual-ui-test-store-id",
+            id.uuidString,
+            "-unmanual-ui-test-cleanup-store",
+            "-unmanual-skip-onboarding"
+        ]
+        cleanup.launch()
+        _ = cleanup.descendants(matching: .any)["app.shell"]
+            .waitForExistence(timeout: 8)
+        cleanup.terminate()
+    }
+
+    private func openDataControl(
+        in app: XCUIApplication
+    ) {
+        let entry = element(
+            "archive.deleteAndReset",
+            in: app
+        )
+        XCTAssertTrue(entry.waitForExistence(timeout: 12))
+        scrollToVisible(entry, in: app)
+        XCTAssertTrue(entry.isHittable)
+        entry.tap()
+        XCTAssertTrue(
+            element(
+                "archive.dataControl.resetBoundary",
+                in: app
+            ).waitForExistence(timeout: 15)
+        )
     }
 
     private func enableGentleMode(in app: XCUIApplication) {

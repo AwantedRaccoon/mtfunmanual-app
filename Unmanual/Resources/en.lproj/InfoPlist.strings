@@ -1,2 +1,3 @@
 "CFBundleDisplayName" = "Unmanual";
 "CFBundleName" = "Unmanual";
+"NSFaceIDUsageDescription" = "Use Face ID to unlock local records.";

@@ -27,7 +27,8 @@ enum LegacyV1Backfill {
         in container: ModelContainer,
         batchSize: Int = 128,
         interruptAfterCommittedBatches: Int? = nil,
-        now: Date = Date()
+        now: Date = Date(),
+        expectedDatasetID: UUID? = nil
     ) throws -> Outcome {
         precondition(batchSize > 0)
         let context = ModelContext(container)
@@ -40,7 +41,10 @@ enum LegacyV1Backfill {
         if metadata == nil || state == nil {
             try context.transaction {
                 if metadata == nil {
-                    let created = DatasetMetadata(createdAt: now)
+                    let created = DatasetMetadata(
+                        datasetID: expectedDatasetID ?? UUID(),
+                        createdAt: now
+                    )
                     context.insert(created)
                     metadata = created
                 }
@@ -54,6 +58,11 @@ enum LegacyV1Backfill {
         }
 
         guard let metadata, let state else {
+            throw AppDataFailure.migrationFailed
+        }
+        guard expectedDatasetID.map({
+            metadata.datasetID == $0
+        }) ?? true else {
             throw AppDataFailure.migrationFailed
         }
 

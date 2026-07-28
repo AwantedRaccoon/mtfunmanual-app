@@ -72,7 +72,8 @@ extension AppReadActor {
     func onboardingSnapshot(
         asOf instant: Date = Date(),
         displayTimeZoneIdentifier: String =
-            TimeZone.autoupdatingCurrent.identifier
+            TimeZone.autoupdatingCurrent.identifier,
+        terminalOverlay: DataControlTerminalOverlay = .empty
     ) throws -> OnboardingSnapshot {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains(
@@ -113,7 +114,10 @@ extension AppReadActor {
             instant: instant,
             timeZoneIdentifier: displayTimeZoneIdentifier
         ).localDate
-        let regimen = try onboardingRegimenSnapshot(asOf: today)
+        let regimen = try onboardingRegimenSnapshot(
+            asOf: today,
+            terminalOverlay: terminalOverlay
+        )
         return OnboardingSnapshot(
             isCompleted: preference.onboardingCompleted,
             progress: OnboardingProgressSnapshot(
@@ -124,7 +128,9 @@ extension AppReadActor {
                 completedAt: progress.completedAt,
                 updatedAt: progress.updatedAt
             ),
-            profile: profiles.first.map {
+            profile: terminalOverlay.hidesHrtJourney
+                ? nil
+                : profiles.first.map {
                 HRTProfileSnapshot(
                     id: $0.id,
                     startDate: $0.startDate,
@@ -145,7 +151,9 @@ extension AppReadActor {
         )
     }
 
-    func onboardingProfileSnapshot() throws -> HRTProfileSnapshot? {
+    func onboardingProfileSnapshot(
+        terminalOverlay: DataControlTerminalOverlay = .empty
+    ) throws -> HRTProfileSnapshot? {
         var descriptor = FetchDescriptor<HRTProfile>(
             sortBy: [SortDescriptor(\.createdAt)]
         )
@@ -153,6 +161,9 @@ extension AppReadActor {
         let profiles = try modelContext.fetch(descriptor)
         guard profiles.count <= 1 else {
             throw AppDataFailure.corruptionSuspected
+        }
+        guard !terminalOverlay.hidesHrtJourney else {
+            return nil
         }
         return profiles.first.map {
             HRTProfileSnapshot(
@@ -165,7 +176,8 @@ extension AppReadActor {
     }
 
     private func onboardingRegimenSnapshot(
-        asOf date: CivilDateFact
+        asOf date: CivilDateFact,
+        terminalOverlay: DataControlTerminalOverlay
     ) throws -> (
         hasEligibleRegimen: Bool,
         needsReview: Bool,
@@ -179,7 +191,15 @@ extension AppReadActor {
         guard fetchedVersions.count <= 512 else {
             throw AppDataFailure.corruptionSuspected
         }
-        let versions = fetchedVersions.filter { !$0.isArchived }
+        let hiddenRegimenIDs =
+            terminalOverlay.draftRegimenVersionIDs
+                .union(
+                    terminalOverlay.sealedRegimenVersionIDs
+                )
+        let versions = fetchedVersions.filter {
+            !$0.isArchived
+                && !hiddenRegimenIDs.contains($0.id)
+        }
         let timeline = versions.compactMap { version -> RegimenTimelineVersion? in
             guard let start = version.effectiveStartDate else { return nil }
             return RegimenTimelineVersion(

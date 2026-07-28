@@ -125,6 +125,26 @@ enum AppSchemaV10ParentRecordLifecycle: VersionedSchema {
         ]
 }
 
+enum AppSchemaV11PrivacyControl: VersionedSchema {
+    static let versionIdentifier = Schema.Version(11, 0, 0)
+
+    static let models: [any PersistentModel.Type] =
+        AppSchemaV10ParentRecordLifecycle.models + [
+            PrivacyControlRecord.self,
+            PrivacyControlBackfillState.self
+        ]
+}
+
+enum AppSchemaV12DataControl: VersionedSchema {
+    static let versionIdentifier = Schema.Version(12, 0, 0)
+
+    static let models: [any PersistentModel.Type] =
+        AppSchemaV11PrivacyControl.models + [
+            DataControlDeletionTombstoneRecord.self,
+            DataControlBackfillState.self
+        ]
+}
+
 enum AppSchemaMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         AppSchemaV1.self,
@@ -136,7 +156,9 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
         AppSchemaV7CountdownIntegrity.self,
         AppSchemaV8Onboarding.self,
         AppSchemaV9HrtJourneyLifecycle.self,
-        AppSchemaV10ParentRecordLifecycle.self
+        AppSchemaV10ParentRecordLifecycle.self,
+        AppSchemaV11PrivacyControl.self,
+        AppSchemaV12DataControl.self
     ]
 
     static let stages: [MigrationStage] = [
@@ -166,6 +188,14 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
         .lightweight(
             fromVersion: AppSchemaV9HrtJourneyLifecycle.self,
             toVersion: AppSchemaV10ParentRecordLifecycle.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV10ParentRecordLifecycle.self,
+            toVersion: AppSchemaV11PrivacyControl.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV11PrivacyControl.self,
+            toVersion: AppSchemaV12DataControl.self
         )
     ]
 }
@@ -284,6 +314,14 @@ enum AppModelContainerFactory {
 
     static var parentRecordLifecycleSchema: Schema {
         Schema(versionedSchema: AppSchemaV10ParentRecordLifecycle.self)
+    }
+
+    static var privacyControlSchema: Schema {
+        Schema(versionedSchema: AppSchemaV11PrivacyControl.self)
+    }
+
+    static var dataControlSchema: Schema {
+        Schema(versionedSchema: AppSchemaV12DataControl.self)
     }
 
     static var frozenV6CountdownLifecycleSchema: Schema {
@@ -629,6 +667,116 @@ enum AppModelContainerFactory {
         let schema = parentRecordLifecycleSchema
         let configuration = ModelConfiguration(
             "UnmanualParentRecordLifecycleTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            allowsSave: true,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makePrivacyControlContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makePrivacyControlContainer(
+            at: storeURL,
+            allowsSave: true
+        )
+    }
+
+    static func makeReadOnlyPrivacyControlContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makePrivacyControlContainer(
+            at: storeURL,
+            allowsSave: false
+        )
+    }
+
+    private static func makePrivacyControlContainer(
+        at storeURL: URL,
+        allowsSave: Bool
+    ) throws -> ModelContainer {
+        let schema = privacyControlSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeInMemoryPrivacyControlContainer()
+        throws -> ModelContainer {
+        let schema = privacyControlSchema
+        let configuration = ModelConfiguration(
+            "UnmanualPrivacyControlTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            allowsSave: true,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeDataControlContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeDataControlContainer(
+            at: storeURL,
+            allowsSave: true
+        )
+    }
+
+    static func makeReadOnlyDataControlContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeDataControlContainer(
+            at: storeURL,
+            allowsSave: false
+        )
+    }
+
+    private static func makeDataControlContainer(
+        at storeURL: URL,
+        allowsSave: Bool
+    ) throws -> ModelContainer {
+        let schema = dataControlSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeInMemoryDataControlContainer()
+        throws -> ModelContainer {
+        let schema = dataControlSchema
+        let configuration = ModelConfiguration(
+            "UnmanualDataControlTests",
             schema: schema,
             isStoredInMemoryOnly: true,
             allowsSave: true,

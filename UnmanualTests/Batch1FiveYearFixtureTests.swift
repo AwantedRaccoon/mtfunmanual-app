@@ -40,12 +40,32 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
         // onboarding progress and adoption-state revisions. V9 adds the HRT
         // lifecycle migrated snapshot and backfill-state revisions. V10 adds
         // a migrated parent root and head for every canonical lab sample,
-        // plus one parent-lifecycle backfill-state revision.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 25_819)
+        // plus one parent-lifecycle backfill-state revision. V11 adds the
+        // privacy preference and its backfill marker; V12 adds the data-control
+        // backfill marker.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 25_822)
         XCTAssertEqual(
             try GenerationPointerStore(layout: layout).read()
                 .schemaVersion,
-            "10.0.0"
+            "12.0.0"
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<DataControlBackfillState>()
+            ),
+            1
+        )
+        XCTAssertEqual(
+            try context.fetch(
+                FetchDescriptor<DataControlBackfillState>()
+            ).first?.source,
+            .bootstrapV12
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<DataControlDeletionTombstoneRecord>()
+            ),
+            0
         )
         XCTAssertEqual(
             try context.fetchCount(

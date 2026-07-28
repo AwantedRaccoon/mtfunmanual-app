@@ -294,6 +294,150 @@ final class OnboardingUITests: XCTestCase {
         ])
     }
 
+    func testAppLockPersistsGatesSensitiveRootAndRelocksAfterBackground()
+        throws
+    {
+        continueAfterFailure = false
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+
+        let firstLaunch = XCUIApplication()
+        firstLaunch.launchArguments = durableStoreArguments(
+            storeID,
+            resetsBeforeOpen: true
+        ) + [
+            "-unmanual-archive",
+            "-unmanual-authentication-success"
+        ]
+        firstLaunch.launch()
+        let setting = firstLaunch.buttons["archive.appLock"]
+        XCTAssertTrue(setting.waitForExistence(timeout: 12))
+        for _ in 0..<6 where !setting.isHittable {
+            firstLaunch.swipeUp()
+        }
+        XCTAssertTrue(setting.isHittable)
+        XCTAssertEqual(setting.value as? String, "已关闭")
+        setting.tap()
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "已开启"),
+            object: setting
+        )
+        wait(for: [enabled], timeout: 10)
+        firstLaunch.terminate()
+
+        let reopened = XCUIApplication()
+        reopened.launchArguments = durableStoreArguments(storeID) + [
+            "-unmanual-archive",
+            "-unmanual-authentication-success"
+        ]
+        reopened.launch()
+        let gate = reopened.descendants(matching: .any)["privacy.gate"]
+        XCTAssertTrue(gate.waitForExistence(timeout: 12))
+        XCTAssertFalse(reopened.buttons["archive.appLock"].exists)
+        tapWhenReady("privacy.unlock", in: reopened)
+        XCTAssertTrue(
+            reopened.buttons["archive.appLock"]
+                .waitForExistence(timeout: 10)
+        )
+
+        XCUIDevice.shared.press(.home)
+        reopened.activate()
+        XCTAssertTrue(gate.waitForExistence(timeout: 10))
+        XCTAssertFalse(reopened.buttons["archive.appLock"].exists)
+        tapWhenReady("privacy.unlock", in: reopened)
+        let enabledSetting = reopened.buttons["archive.appLock"]
+        XCTAssertTrue(enabledSetting.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !enabledSetting.isHittable {
+            reopened.swipeUp()
+        }
+        XCTAssertEqual(enabledSetting.value as? String, "已开启")
+        enabledSetting.tap()
+        let disabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "已关闭"),
+            object: enabledSetting
+        )
+        wait(for: [disabled], timeout: 10)
+        reopened.terminate()
+
+        let afterDisable = XCUIApplication()
+        afterDisable.launchArguments = durableStoreArguments(storeID) + [
+            "-unmanual-archive",
+            "-unmanual-authentication-success"
+        ]
+        afterDisable.launch()
+        XCTAssertTrue(
+            afterDisable.buttons["archive.appLock"]
+                .waitForExistence(timeout: 12)
+        )
+        XCTAssertFalse(
+            afterDisable.descendants(matching: .any)["privacy.gate"]
+                .exists
+        )
+    }
+
+    func testNotificationTapWaitsForUnlockBeforeOpeningToday()
+        throws
+    {
+        continueAfterFailure = false
+        let storeID = UUID()
+        defer { cleanupDurableStore(storeID) }
+
+        let setup = XCUIApplication()
+        setup.launchArguments = durableStoreArguments(
+            storeID,
+            resetsBeforeOpen: true
+        ) + [
+            "-unmanual-archive",
+            "-unmanual-authentication-success"
+        ]
+        setup.launch()
+        let setting = setup.buttons["archive.appLock"]
+        XCTAssertTrue(setting.waitForExistence(timeout: 12))
+        for _ in 0..<6 where !setting.isHittable {
+            setup.swipeUp()
+        }
+        XCTAssertTrue(setting.isHittable)
+        setting.tap()
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "value == %@",
+                "已开启"
+            ),
+            object: setting
+        )
+        wait(for: [enabled], timeout: 10)
+        setup.terminate()
+
+        let tapped = XCUIApplication()
+        tapped.launchArguments = durableStoreArguments(storeID) + [
+            "-unmanual-skip-onboarding",
+            "-unmanual-authentication-success",
+            "-unmanual-ui-test-initial-archive",
+            "-unmanual-ui-test-notification-tap-today"
+        ]
+        tapped.launch()
+        let gate = tapped.descendants(matching: .any)[
+            "privacy.gate"
+        ]
+        XCTAssertTrue(gate.waitForExistence(timeout: 12))
+        XCTAssertFalse(shell(in: tapped).exists)
+        XCTAssertFalse(tapped.buttons["今天"].exists)
+
+        tapWhenReady("privacy.unlock", in: tapped)
+        XCTAssertTrue(shell(in: tapped).waitForExistence(timeout: 10))
+        let today = tapped.buttons["今天"]
+        XCTAssertTrue(today.waitForExistence(timeout: 10))
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(
+                format: "value == %@",
+                "已选择"
+            ),
+            object: today
+        )
+        wait(for: [selected], timeout: 10)
+        XCTAssertEqual(today.value as? String, "已选择")
+    }
+
     private func launchInMemory(
         additionalArguments: [String] = [],
         orientation: UIDeviceOrientation = .portrait

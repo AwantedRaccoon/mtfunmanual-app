@@ -53,6 +53,9 @@ extension AppWriteActor {
     func commitAdministration(
         _ command: CommitAdministrationCommand
     ) throws -> AdministrationCommitResult {
+        try ensureDataControlOccurrenceIsWritable(
+            command.occurrence
+        )
         let digest = try TodayExecutionDigestV1.administrationCommand(command)
         if let replay = try administrationReplay(
             operationID: command.operationID,
@@ -75,6 +78,9 @@ extension AppWriteActor {
         do {
             var result: AdministrationCommitResult?
             try modelContext.transaction {
+                try ensureDataControlOccurrenceIsWritable(
+                    command.occurrence
+                )
                 if let replay = try administrationReplay(
                     operationID: command.operationID,
                     digest: digest

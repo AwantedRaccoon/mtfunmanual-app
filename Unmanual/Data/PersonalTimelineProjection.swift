@@ -31,6 +31,27 @@ struct PersonalTimelineItem: Identifiable, Equatable, Sendable {
     let timestamp: HistoricalTimestamp?
     let dateOnly: CivilDateFact?
     let localDate: CivilDateFact
+    let regimenVersionID: UUID?
+
+    init(
+        id: UUID,
+        kind: PersonalTimelineItemKind,
+        title: String,
+        detail: String,
+        timestamp: HistoricalTimestamp?,
+        dateOnly: CivilDateFact?,
+        localDate: CivilDateFact,
+        regimenVersionID: UUID? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.timestamp = timestamp
+        self.dateOnly = dateOnly
+        self.localDate = localDate
+        self.regimenVersionID = regimenVersionID
+    }
 
     var rowIdentity: String {
         "\(kind.rawValue):\(id.uuidString.lowercased())"
@@ -348,7 +369,9 @@ extension AppReadActor {
                     detail: administrationLabel(status),
                     timestamp: timestamp,
                     dateOnly: nil,
-                    localDate: timestamp.localDate
+                    localDate: timestamp.localDate,
+                    regimenVersionID:
+                        event.regimenVersionID
                 )
             )
         }

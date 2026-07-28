@@ -5,6 +5,688 @@ import XCTest
 
 @MainActor
 final class StoreBootstrapTests: XCTestCase {
+    func testFreshAfterResetUsesFrozenGenerationAndDatasetIdentity() throws {
+        let layout = try makeLayout()
+        let expectedGenerationID = UUID()
+        let expectedDatasetID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: expectedGenerationID,
+                expectedDatasetID: expectedDatasetID
+            ),
+            fileProtectionVerificationMode: .simulatorTestHarness
+        )
+
+        let opened = try bootstrapper.open()
+        let pointer = try GenerationPointerStore(
+            layout: layout,
+            backupPolicy: .systemManaged
+        ).read()
+        let context = ModelContext(opened.container)
+        let metadata = try XCTUnwrap(
+            context.fetch(FetchDescriptor<DatasetMetadata>()).first
+        )
+
+        XCTAssertEqual(opened.generationID, expectedGenerationID)
+        XCTAssertEqual(pointer.generationID, expectedGenerationID)
+        XCTAssertEqual(pointer.datasetID, expectedDatasetID)
+        XCTAssertEqual(pointer.schemaVersion, "12.0.0")
+        XCTAssertEqual(pointer.origin, .newInstall)
+        XCTAssertEqual(metadata.datasetID, expectedDatasetID)
+        let journal = try XCTUnwrap(
+            MigrationJournalStore(
+                layout: layout,
+                backupPolicy: .systemManaged
+            ).readIfPresent()
+        )
+        XCTAssertEqual(journal.targetGenerationID, expectedGenerationID)
+        XCTAssertEqual(journal.origin, .newInstall)
+        XCTAssertEqual(journal.phase, .activated)
+
+        let reopened = try bootstrapper.open()
+        XCTAssertEqual(reopened.generationID, expectedGenerationID)
+        XCTAssertEqual(
+            try GenerationPointerStore(
+                layout: layout,
+                backupPolicy: .systemManaged
+            ).read(),
+            pointer
+        )
+    }
+
+    func testFreshAfterResetRejectsCorruptRecoveryJournalBeforeReopen()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let datasetID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: datasetID
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let pointerBefore = try Data(
+            contentsOf: layout.pointerURL
+        )
+        let corruptBytes = Data(
+            "{not-a-migration-journal".utf8
+        )
+        try corruptBytes.write(
+            to: layout.journalURL,
+            options: .atomic
+        )
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: layout.journalURL),
+            corruptBytes
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: layout.pointerURL),
+            pointerBefore
+        )
+    }
+
+    func testFreshAfterResetRejectsRecoveryJournalForDifferentGeneration()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let datasetID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: datasetID
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        try MigrationJournalStore(
+            layout: layout,
+            backupPolicy: .systemManaged
+        ).write(
+            MigrationJournal(
+                targetGenerationID: UUID(),
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        let journalBefore = try Data(
+            contentsOf: layout.journalURL
+        )
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: layout.journalURL),
+            journalBefore
+        )
+    }
+
+    func testFreshAfterResetRejectsMissingRecoveryJournalWhenPointerExists()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let pointerBefore = try Data(
+            contentsOf: layout.pointerURL
+        )
+        try FileManager.default.removeItem(
+            at: layout.journalURL
+        )
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: layout.journalURL.path
+            )
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: layout.pointerURL),
+            pointerBefore
+        )
+    }
+
+    func testFreshAfterResetAcceptsValidatedJournalWithMatchingPointer()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let datasetID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: datasetID
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let activated = try MigrationJournalStore(
+            layout: layout,
+            backupPolicy: .systemManaged
+        ).read()
+        try MigrationJournalStore(
+            layout: layout,
+            backupPolicy: .systemManaged
+        ).write(
+            MigrationJournal(
+                operationID: activated.operationID,
+                targetGenerationID: generationID,
+                origin: .newInstall,
+                phase: .validated,
+                updatedAt: activated.updatedAt
+            )
+        )
+
+        let reopened = try bootstrapper.open()
+
+        XCTAssertEqual(
+            reopened.generationID,
+            generationID
+        )
+        XCTAssertEqual(
+            try GenerationPointerStore(
+                layout: layout,
+                backupPolicy: .systemManaged
+            ).read().datasetID,
+            datasetID
+        )
+        XCTAssertEqual(
+            try MigrationJournalStore(
+                layout: layout,
+                backupPolicy: .systemManaged
+            ).read().phase,
+            .validated
+        )
+    }
+
+    func testFreshAfterResetAdoptsOnlyExactEmptyPreparingGeneration()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let generationURL = layout
+            .generationDirectoryURL(for: generationID)
+        try FileManager.default.createDirectory(
+            at: layout.storeDirectoryURL(for: generationID),
+            withIntermediateDirectories: true
+        )
+
+        let opened = try AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        ).open()
+
+        XCTAssertEqual(opened.generationID, generationID)
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: generationURL.path
+            )
+        )
+    }
+
+    func testFreshAfterResetRejectsUnknownPreparingGenerationLeafWithoutDeletingIt()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let generationURL = layout
+            .generationDirectoryURL(for: generationID)
+        try FileManager.default.createDirectory(
+            at: generationURL,
+            withIntermediateDirectories: true
+        )
+        let unknownURL = generationURL.appending(
+            path: "unknown.bin"
+        )
+        let bytes = Data("must survive".utf8)
+        try bytes.write(to: unknownURL)
+
+        XCTAssertThrowsError(
+            try AppDataStoreBootstrapper(
+                layout: layout,
+                backupPolicy: .systemManaged,
+                mode: .freshAfterReset(
+                    expectedGenerationID: generationID,
+                    expectedDatasetID: UUID()
+                ),
+                fileProtectionVerificationMode:
+                    .simulatorTestHarness
+            ).open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: unknownURL),
+            bytes
+        )
+    }
+
+    func testFreshAfterResetRejectsUnknownPreparedStoreLeafWithoutDeletingIt()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let datasetID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: datasetID
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        XCTAssertThrowsError(
+            try bootstrapper.open(
+                failAt: .afterGenerationPrepared
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? StoreBootstrapInterruption,
+                .injected
+            )
+        }
+        let unknownURL = layout
+            .storeDirectoryURL(for: generationID)
+            .appending(path: "unknown.bin")
+        let bytes = Data("must survive prepared replay".utf8)
+        try bytes.write(to: unknownURL)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: unknownURL),
+            bytes
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: layout.pointerURL.path
+            )
+        )
+    }
+
+    func testFreshAfterResetRejectsUnknownActivatedStoreLeafWithoutDeletingIt()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let unknownURL = layout
+            .storeDirectoryURL(for: generationID)
+            .appending(path: "unknown.bin")
+        let bytes = Data("must survive activated replay".utf8)
+        try bytes.write(to: unknownURL)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: unknownURL),
+            bytes
+        )
+    }
+
+    func testFreshAfterResetRejectsUnknownValidatedFilesLeafWithoutDeletingIt()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        XCTAssertThrowsError(
+            try bootstrapper.open(
+                failAt: .afterValidationBeforePointer
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? StoreBootstrapInterruption,
+                .injected
+            )
+        }
+        let unknownURL = layout
+            .generationDirectoryURL(for: generationID)
+            .appending(path: "Files")
+            .appending(path: "unknown.bin")
+        let bytes = Data("must survive validated replay".utf8)
+        try bytes.write(to: unknownURL)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: unknownURL),
+            bytes
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: layout.pointerURL.path
+            )
+        )
+    }
+
+    func testFreshAfterResetRejectsPointerReplayWithExtraGenerationWithoutDeletingIt()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let extraGenerationURL = layout.generationsURL
+            .appending(
+                path: UUID().uuidString.lowercased(),
+                directoryHint: .isDirectory
+            )
+        try FileManager.default.createDirectory(
+            at: extraGenerationURL,
+            withIntermediateDirectories: false
+        )
+        let evidenceURL = extraGenerationURL
+            .appending(path: "evidence.bin")
+        let bytes = Data("must survive sibling rejection".utf8)
+        try bytes.write(to: evidenceURL)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: evidenceURL),
+            bytes
+        )
+    }
+
+    func testFreshAfterResetRejectsKnownFilesDirectoryReplacedBySymlink()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let filesURL = layout
+            .generationDirectoryURL(for: generationID)
+            .appending(path: "Files")
+        let trashURL = filesURL.appending(path: ".trash")
+        let targetURL = layout.legacyStoreURL
+            .deletingLastPathComponent()
+            .appending(
+                path: "symlink-target",
+                directoryHint: .isDirectory
+            )
+        try FileManager.default.createDirectory(
+            at: targetURL,
+            withIntermediateDirectories: false
+        )
+        try FileManager.default.removeItem(at: trashURL)
+        try FileManager.default.createSymbolicLink(
+            at: trashURL,
+            withDestinationURL: targetURL
+        )
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertNotNil(
+            try? FileManager.default
+                .destinationOfSymbolicLink(
+                    atPath: trashURL.path
+                )
+        )
+    }
+
+    func testFreshAfterResetRejectsUnknownRecoverySiblingBeforeStoreMutation()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        XCTAssertThrowsError(
+            try bootstrapper.open(
+                failAt: .afterGenerationPrepared
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? StoreBootstrapInterruption,
+                .injected
+            )
+        }
+        let unknownURL = layout.recoveryURL
+            .appending(path: "unknown.bin")
+        let bytes = Data("must survive control rejection".utf8)
+        try bytes.write(to: unknownURL)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: unknownURL),
+            bytes
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: layout.pointerURL.path
+            )
+        )
+        XCTAssertTrue(
+            try FileManager.default
+                .contentsOfDirectory(
+                    at: layout.storeDirectoryURL(
+                        for: generationID
+                    ),
+                    includingPropertiesForKeys: nil,
+                    options: []
+                )
+                .isEmpty
+        )
+    }
+
+    func testFreshAfterResetRejectsUnknownPointerSiblingWithoutDeletingIt()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let pointerBefore = try Data(
+            contentsOf: layout.pointerURL
+        )
+        let unknownURL = layout.pointerDirectoryURL
+            .appending(path: "unknown.bin")
+        let bytes = Data("must survive pointer rejection".utf8)
+        try bytes.write(to: unknownURL)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: unknownURL),
+            bytes
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: layout.pointerURL),
+            pointerBefore
+        )
+    }
+
+    func testFreshAfterResetRejectsActivePointerSymlink()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        let bootstrapper = AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            mode: .freshAfterReset(
+                expectedGenerationID: generationID,
+                expectedDatasetID: UUID()
+            ),
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        )
+        _ = try bootstrapper.open()
+        let targetURL = layout.legacyStoreURL
+            .deletingLastPathComponent()
+            .appending(path: "pointer-target.json")
+        try FileManager.default.moveItem(
+            at: layout.pointerURL,
+            to: targetURL
+        )
+        try FileManager.default.createSymbolicLink(
+            at: layout.pointerURL,
+            withDestinationURL: targetURL
+        )
+
+        XCTAssertThrowsError(
+            try bootstrapper.open()
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .corruptionSuspected
+            )
+        }
+        XCTAssertNotNil(
+            try? FileManager.default
+                .destinationOfSymbolicLink(
+                    atPath: layout.pointerURL.path
+                )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: targetURL.path
+            )
+        )
+    }
+
     func testCoreRelationshipValidationRejectsSkippedPreviousVersionChain() throws {
         let container = try AppModelContainerFactory.makeInMemoryCoreContainer()
         _ = try LegacyV1Backfill.run(in: container)
@@ -196,7 +878,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "12.0.0")
         XCTAssertEqual(pointer.generationID, upgraded.generationID)
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         let sourceResourceValuesAfterUpgrade = try sourceStoreURL.resourceValues(
@@ -280,7 +962,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "12.0.0")
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<AdministrationEventRecord>()), 0)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<ReminderPreferenceRecord>()), 0)
@@ -353,7 +1035,7 @@ final class StoreBootstrapTests: XCTestCase {
         let context = ModelContext(upgraded.container)
 
         XCTAssertNotEqual(upgraded.generationID, sourceGenerationID)
-        XCTAssertEqual(pointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "12.0.0")
         XCTAssertEqual(pointer.generationID, upgraded.generationID)
         XCTAssertEqual(try sha256(of: sourceStoreURL), sourceDigest)
         XCTAssertEqual(
@@ -456,7 +1138,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertNotEqual(resumed.generationID, interruptedJournal.targetGenerationID)
         XCTAssertEqual(activatedPointer.generationID, resumed.generationID)
-        XCTAssertEqual(activatedPointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
         XCTAssertEqual(
             try durableStoreBundleHashes(at: sourceStoreURL),
             sourceBundleBefore
@@ -522,10 +1204,10 @@ final class StoreBootstrapTests: XCTestCase {
             )
             XCTAssertEqual(
                 Set(generationNames).subtracting(knownGenerationNames).count,
-                3,
-                "V4→V10 must retain the V7, V8, and V9 intermediate generations"
+                5,
+                "V4→V12 must retain the V7, V8, V9, V10, and V11 intermediate generations"
             )
-            XCTAssertEqual(generationNames.count, 6)
+            XCTAssertEqual(generationNames.count, 8)
         }
     }
 
@@ -560,7 +1242,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertNotEqual(resumed.generationID, targetID)
         XCTAssertEqual(activatedPointer.generationID, resumed.generationID)
-        XCTAssertEqual(activatedPointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
         XCTAssertEqual(
             try durableStoreBundleHashes(at: source.storeURL),
             source.durableHashes
@@ -575,10 +1257,10 @@ final class StoreBootstrapTests: XCTestCase {
         ])
         XCTAssertEqual(
             Set(generationNames).subtracting(knownGenerationNames).count,
-            2,
-            "V5→V10 must retain the V8 and V9 intermediate generations"
+            4,
+            "V5→V12 must retain the V8, V9, V10, and V11 intermediate generations"
         )
-        XCTAssertEqual(generationNames.count, 5)
+        XCTAssertEqual(generationNames.count, 7)
     }
 
     func testV5ToV7CopiesAndAuditsAttachmentFilesBeforePointerActivation()
@@ -623,7 +1305,7 @@ final class StoreBootstrapTests: XCTestCase {
         )
         let snapshot = try XCTUnwrap(AttachmentSnapshot(attachment))
 
-        XCTAssertEqual(pointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "12.0.0")
         XCTAssertEqual(pointer.generationID, opened.generationID)
         XCTAssertNotEqual(opened.generationID, source.generationID)
         XCTAssertEqual(try Data(contentsOf: targetFileURL), payload)
@@ -744,7 +1426,7 @@ final class StoreBootstrapTests: XCTestCase {
             displayTimeZoneIdentifier: "UTC"
         )
 
-        XCTAssertEqual(pointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "12.0.0")
         XCTAssertNotEqual(pointer.generationID, source.generationID)
         XCTAssertEqual(
             checkpoint.reminderAdmission,
@@ -820,7 +1502,7 @@ final class StoreBootstrapTests: XCTestCase {
             let opened = try bootstrapper.open()
             activatedGenerationID = opened.generationID
             let pointer = try GenerationPointerStore(layout: layout).read()
-            XCTAssertEqual(pointer.schemaVersion, "10.0.0")
+            XCTAssertEqual(pointer.schemaVersion, "12.0.0")
             XCTAssertEqual(pointer.generationID, opened.generationID)
             let context = ModelContext(opened.container)
             let states = try context.fetch(
@@ -1038,10 +1720,10 @@ final class StoreBootstrapTests: XCTestCase {
             ])
             XCTAssertEqual(
                 Set(generationNames).subtracting(knownGenerationNames).count,
-                2,
-                "V5→V10 must retain the V8 and V9 intermediate generations"
+                4,
+                "V5→V12 must retain the V8, V9, V10, and V11 intermediate generations"
             )
-            XCTAssertEqual(generationNames.count, 5)
+            XCTAssertEqual(generationNames.count, 7)
         }
     }
 
@@ -1103,7 +1785,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertNotEqual(resumed.generationID, targetID)
         XCTAssertEqual(activatedPointer.generationID, resumed.generationID)
-        XCTAssertEqual(activatedPointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
         XCTAssertTrue(preferences.onboardingCompleted)
         XCTAssertEqual(progress.step, .completed)
         XCTAssertNotNil(progress.completedAt)
@@ -1124,12 +1806,12 @@ final class StoreBootstrapTests: XCTestCase {
         )
         XCTAssertEqual(
             Set(generationNames).subtracting(knownGenerationNames).count,
-            1,
-            "V7→V10 must retain the V9 intermediate generation"
+            3,
+            "V7→V12 must retain the V9, V10, and V11 intermediate generations"
         )
         XCTAssertEqual(
             generationNames.count,
-            source.preexistingGenerationNames.count + 3
+            source.preexistingGenerationNames.count + 5
         )
     }
 
@@ -1174,7 +1856,7 @@ final class StoreBootstrapTests: XCTestCase {
         ).read()
         XCTAssertNotEqual(resumed.generationID, targetID)
         XCTAssertEqual(activatedPointer.generationID, resumed.generationID)
-        XCTAssertEqual(activatedPointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
     }
 
     func testV7ToV8CopiesAttachmentTreeAndPreservesSource()
@@ -1287,7 +1969,7 @@ final class StoreBootstrapTests: XCTestCase {
             activatedPointer.generationID,
             finalGenerationID
         )
-        XCTAssertEqual(activatedPointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
         XCTAssertEqual(backfill.sourceSchemaVersion, "8.0.0")
         XCTAssertEqual(
             try context.fetchCount(
@@ -1299,14 +1981,20 @@ final class StoreBootstrapTests: XCTestCase {
             try durableStoreBundleHashes(at: source.storeURL),
             source.durableHashes
         )
-        XCTAssertEqual(
-            try directoryEntryNames(at: layout.generationsURL),
-            [
-                source.generationID.uuidString.lowercased(),
-                targetID.uuidString.lowercased(),
-                finalGenerationID.uuidString.lowercased()
-            ].sorted()
+        let generationNames = try directoryEntryNames(
+            at: layout.generationsURL
         )
+        let knownGenerationNames = Set([
+            source.generationID.uuidString.lowercased(),
+            targetID.uuidString.lowercased(),
+            finalGenerationID.uuidString.lowercased()
+        ])
+        XCTAssertEqual(
+            Set(generationNames).subtracting(knownGenerationNames).count,
+            2,
+            "V8→V12 must retain the V10 and V11 intermediate generations"
+        )
+        XCTAssertEqual(generationNames.count, 5)
 
         let reopened = try bootstrapper.open()
         XCTAssertEqual(reopened.generationID, finalGenerationID)
@@ -1389,9 +2077,186 @@ final class StoreBootstrapTests: XCTestCase {
         let activatedPointer = try GenerationPointerStore(
             layout: layout
         ).read()
+        let finalGenerationID = resumed.generationID
+        XCTAssertNotEqual(finalGenerationID, targetID)
+        XCTAssertEqual(
+            activatedPointer.generationID,
+            finalGenerationID
+        )
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            source.durableHashes
+        )
+
+        let reopened = try bootstrapper.open()
+        XCTAssertEqual(reopened.generationID, finalGenerationID)
+        XCTAssertEqual(reopened.origin, .existingGeneration)
+    }
+
+    func testV10ToV11CrashBeforePointerPreservesSourceThenAdvancesToV12()
+        throws
+    {
+        let layout = try makeLayout()
+        let source = try seedActiveV10Generation(in: layout)
+        let bootstrapper = makeTestBootstrapper(layout: layout)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open(failAt: .afterValidationBeforePointer)
+        ) { error in
+            XCTAssertEqual(error as? StoreBootstrapInterruption, .injected)
+        }
+        let interruptedPointer = try GenerationPointerStore(
+            layout: layout
+        ).read()
+        let interruptedJournal = try MigrationJournalStore(
+            layout: layout
+        ).read()
+        let targetID = interruptedJournal.targetGenerationID
+
+        XCTAssertEqual(
+            interruptedPointer.generationID,
+            source.generationID
+        )
+        XCTAssertEqual(interruptedPointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(
+            interruptedJournal.sourceGenerationID,
+            source.generationID
+        )
+        XCTAssertEqual(
+            interruptedJournal.sourceSchemaVersion,
+            "10.0.0"
+        )
+        XCTAssertEqual(
+            interruptedJournal.targetSchemaVersion,
+            "11.0.0"
+        )
+        XCTAssertEqual(interruptedJournal.phase, .validated)
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            source.durableHashes
+        )
+
+        try autoreleasepool {
+            let target = try AppModelContainerFactory
+                .makeReadOnlyPrivacyControlContainer(
+                    at: layout.storeURL(for: targetID)
+                )
+            let context = ModelContext(target)
+            let snapshot = try PrivacyControlRelationshipValidator
+                .snapshot(in: context, failure: .migrationFailed)
+            let state = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<PrivacyControlBackfillState>()
+                ).first
+            )
+            XCTAssertFalse(snapshot.appLockEnabled)
+            XCTAssertEqual(state.source, .schemaUpgradeV10)
+        }
+        let v11DurableHashes = try durableStoreBundleHashes(
+            at: layout.storeURL(for: targetID)
+        )
+
+        let resumed = try bootstrapper.open()
+        let activatedPointer = try GenerationPointerStore(
+            layout: layout
+        ).read()
+        let finalGenerationID = resumed.generationID
+        XCTAssertNotEqual(finalGenerationID, targetID)
+        XCTAssertEqual(activatedPointer.generationID, finalGenerationID)
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            source.durableHashes
+        )
+        XCTAssertEqual(
+            try durableStoreBundleHashes(
+                at: layout.storeURL(for: targetID)
+            ),
+            v11DurableHashes
+        )
+
+        let reopened = try bootstrapper.open()
+        XCTAssertEqual(reopened.generationID, finalGenerationID)
+        XCTAssertEqual(reopened.origin, .existingGeneration)
+    }
+
+    func testV11ToV12CrashBeforePointerPreservesSourceAndReusesTarget()
+        throws
+    {
+        let layout = try makeLayout()
+        let source = try seedActiveV11Generation(in: layout)
+        let bootstrapper = makeTestBootstrapper(layout: layout)
+
+        XCTAssertThrowsError(
+            try bootstrapper.open(failAt: .afterValidationBeforePointer)
+        ) { error in
+            XCTAssertEqual(error as? StoreBootstrapInterruption, .injected)
+        }
+        let interruptedPointer = try GenerationPointerStore(
+            layout: layout
+        ).read()
+        let interruptedJournal = try MigrationJournalStore(
+            layout: layout
+        ).read()
+        let targetID = interruptedJournal.targetGenerationID
+
+        XCTAssertEqual(
+            interruptedPointer.generationID,
+            source.generationID
+        )
+        XCTAssertEqual(interruptedPointer.schemaVersion, "11.0.0")
+        XCTAssertEqual(
+            interruptedJournal.sourceGenerationID,
+            source.generationID
+        )
+        XCTAssertEqual(
+            interruptedJournal.sourceSchemaVersion,
+            "11.0.0"
+        )
+        XCTAssertEqual(
+            interruptedJournal.targetSchemaVersion,
+            "12.0.0"
+        )
+        XCTAssertEqual(interruptedJournal.phase, .validated)
+        XCTAssertEqual(
+            try durableStoreBundleHashes(at: source.storeURL),
+            source.durableHashes
+        )
+
+        try autoreleasepool {
+            let target = try AppModelContainerFactory
+                .makeReadOnlyDataControlContainer(
+                    at: layout.storeURL(for: targetID)
+                )
+            let context = ModelContext(target)
+            let state = try XCTUnwrap(
+                context.fetch(
+                    FetchDescriptor<DataControlBackfillState>()
+                ).first
+            )
+            XCTAssertEqual(state.source, .schemaUpgradeV11)
+            XCTAssertEqual(
+                try context.fetchCount(
+                    FetchDescriptor<DataControlDeletionTombstoneRecord>()
+                ),
+                0
+            )
+            XCTAssertNoThrow(
+                try DataControlRelationshipValidator.validate(
+                    in: context,
+                    failure: .migrationFailed
+                )
+            )
+        }
+
+        let resumed = try bootstrapper.open()
+        let activatedPointer = try GenerationPointerStore(
+            layout: layout
+        ).read()
         XCTAssertEqual(resumed.generationID, targetID)
         XCTAssertEqual(activatedPointer.generationID, targetID)
-        XCTAssertEqual(activatedPointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(activatedPointer.schemaVersion, "12.0.0")
         XCTAssertEqual(
             try durableStoreBundleHashes(at: source.storeURL),
             source.durableHashes
@@ -1588,7 +2453,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         XCTAssertEqual(opened.origin, .newInstall)
         XCTAssertEqual(pointer.generationID, opened.generationID)
-        XCTAssertEqual(pointer.schemaVersion, "10.0.0")
+        XCTAssertEqual(pointer.schemaVersion, "12.0.0")
         XCTAssertEqual(opened.storeURL, layout.storeURL(for: opened.generationID))
         XCTAssertTrue(FileManager.default.fileExists(atPath: opened.storeURL.path))
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
@@ -1610,6 +2475,18 @@ final class StoreBootstrapTests: XCTestCase {
             ).source,
             .newInstallV8
         )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                context.fetch(FetchDescriptor<DataControlBackfillState>()).first
+            ).source,
+            .bootstrapV12
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<DataControlDeletionTombstoneRecord>()
+            ),
+            0
+        )
     }
 
     func testLegacyAdoptionCopiesBundleMigratesTargetAndNeverMutatesSource() throws {
@@ -1626,9 +2503,10 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: layout.legacyStoreURL.path))
         XCTAssertNotEqual(opened.storeURL, layout.legacyStoreURL)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<HRTProfile>()), 1)
-        // Canonical/receipt-ledger facts, V7 integrity, V8 onboarding, and
-        // the V10 parent-lifecycle rollout accompany the adopted fact.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 11)
+        // Canonical/receipt-ledger facts, V7 integrity, V8 onboarding,
+        // V10 parent lifecycle, V11 privacy control, and the V12 data-control
+        // marker accompany the adopted fact.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 14)
         XCTAssertTrue(
             try XCTUnwrap(
                 context.fetch(FetchDescriptor<UserPreferencesRecord>()).first
@@ -1646,6 +2524,12 @@ final class StoreBootstrapTests: XCTestCase {
             ).source,
             .legacyAdoption
         )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                context.fetch(FetchDescriptor<DataControlBackfillState>()).first
+            ).source,
+            .bootstrapV12
+        )
     }
 
     func testEmptyUnversionedLegacyStoreAdoptsReopensAndKeepsSourceUntouched() throws {
@@ -1661,7 +2545,7 @@ final class StoreBootstrapTests: XCTestCase {
             let context = ModelContext(opened.container)
 
             XCTAssertEqual(opened.origin, .legacyAdoption)
-            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 7)
+            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 10)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<MigrationBackfillState>()), 1)
             firstDatasetID = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID
@@ -1672,7 +2556,7 @@ final class StoreBootstrapTests: XCTestCase {
             let context = ModelContext(reopened.container)
 
             XCTAssertEqual(reopened.origin, .existingGeneration)
-            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 7)
+            XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 10)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<DatasetMetadata>()), 1)
             XCTAssertEqual(try context.fetchCount(FetchDescriptor<MigrationBackfillState>()), 1)
             XCTAssertEqual(try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID, firstDatasetID)
@@ -1714,9 +2598,10 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<RegimenVersion>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 1)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1)
-        // V7 adds Countdown integrity, V8 onboarding, and V10 the parent
-        // lifecycle rollout plus the migrated lab root/head.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 30)
+        // V7 adds Countdown integrity, V8 onboarding, V10 the parent
+        // lifecycle rollout plus the migrated lab root/head, V11 adds privacy
+        // control, and V12 adds the data-control marker.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 33)
         XCTAssertEqual(
             try context.fetch(
                 FetchDescriptor<OperationReceiptRecord>(
@@ -1873,6 +2758,88 @@ final class StoreBootstrapTests: XCTestCase {
         XCTAssertTrue(try directoryEntryNames(at: layout.generationsURL).isEmpty)
     }
 
+    func testMigrationJournalRejectsSameSourceAndTargetForEveryPhase()
+        throws {
+        let layout = try makeLayout()
+        let generationID = UUID()
+        for phase in [
+            MigrationJournalPhase.preparing,
+            .prepared,
+            .validated,
+            .activated
+        ] {
+            try MigrationJournalStore(layout: layout).write(
+                MigrationJournal(
+                    targetGenerationID: generationID,
+                    origin: .schemaUpgrade,
+                    sourceGenerationID: generationID,
+                    sourceSchemaVersion: "11.0.0",
+                    targetSchemaVersion: "12.0.0",
+                    phase: phase,
+                    updatedAt: Date(
+                        timeIntervalSince1970: 1_800_200_000
+                    )
+                )
+            )
+            XCTAssertThrowsError(
+                try MigrationJournalStore(layout: layout).read()
+            ) { error in
+                XCTAssertEqual(
+                    error as? AppDataFailure,
+                    .migrationFailed
+                )
+            }
+        }
+    }
+
+    func testMissingPointerRejectsSchemaUpgradeJournalWithoutMutation()
+        throws {
+        let layout = try makeLayout()
+        let sourceGenerationID = UUID()
+        let targetGenerationID = UUID()
+        let targetStoreURL = layout.storeURL(
+            for: targetGenerationID
+        )
+        try FileManager.default.createDirectory(
+            at: targetStoreURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("preserved-target".utf8).write(to: targetStoreURL)
+        let digestBefore = try sha256(of: targetStoreURL)
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: targetGenerationID,
+                origin: .schemaUpgrade,
+                sourceGenerationID: sourceGenerationID,
+                sourceSchemaVersion: "10.0.0",
+                targetSchemaVersion: "11.0.0",
+                phase: .prepared,
+                updatedAt: Date(
+                    timeIntervalSince1970: 1_800_200_010
+                )
+            )
+        )
+
+        XCTAssertThrowsError(
+            try makeTestBootstrapper(layout: layout).open()
+        ) { error in
+            XCTAssertEqual(
+                error as? AppDataFailure,
+                .migrationFailed
+            )
+        }
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: layout.pointerURL.path
+            )
+        )
+        XCTAssertEqual(try sha256(of: targetStoreURL), digestBefore)
+        XCTAssertEqual(
+            try MigrationJournalStore(layout: layout).read().phase,
+            .prepared
+        )
+    }
+
     func testPointerToMissingGenerationEntersRecoveryWithoutReplacement() throws {
         let layout = try makeLayout()
         let pointer = GenerationPointer(
@@ -1906,11 +2873,12 @@ final class StoreBootstrapTests: XCTestCase {
         var revisionCount = 0
         try autoreleasepool {
             let container = try AppModelContainerFactory
-                .makeReadOnlyParentRecordLifecycleContainer(at: storeURL)
+                .makeReadOnlyDataControlContainer(at: storeURL)
             let context = ModelContext(container)
             datasetID = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first).datasetID
             revisionCount = try context.fetchCount(FetchDescriptor<RecordRevision>())
-            // The validated V4 generation has one revision for every business fact.
+            // The validated V12 generation has one revision for every
+            // business fact.
             factCount = revisionCount
         }
         let pointer = GenerationPointer(
@@ -2079,7 +3047,7 @@ final class StoreBootstrapTests: XCTestCase {
 
         try autoreleasepool {
             let container = try AppModelContainerFactory
-                .makeParentRecordLifecycleContainer(at: storeURL)
+                .makeDataControlContainer(at: storeURL)
             let context = ModelContext(container)
             let metadata = try XCTUnwrap(context.fetch(FetchDescriptor<DatasetMetadata>()).first)
             let validRevision = try XCTUnwrap(context.fetch(FetchDescriptor<RecordRevision>()).first)
@@ -2216,7 +3184,7 @@ final class StoreBootstrapTests: XCTestCase {
         }
         try autoreleasepool {
             let container = try AppModelContainerFactory
-                .makeParentRecordLifecycleContainer(at: storeURL)
+                .makeDataControlContainer(at: storeURL)
             let context = ModelContext(container)
             let profile = try XCTUnwrap(context.fetch(FetchDescriptor<HRTProfile>()).first)
             profile.startDate = Date(timeIntervalSince1970: 1_800_000_000)
@@ -2244,7 +3212,7 @@ final class StoreBootstrapTests: XCTestCase {
             }
             try autoreleasepool {
                 let container = try AppModelContainerFactory
-                    .makeParentRecordLifecycleContainer(at: storeURL)
+                    .makeDataControlContainer(at: storeURL)
                 let context = ModelContext(container)
                 let metadata = try XCTUnwrap(
                     context.fetch(FetchDescriptor<DatasetMetadata>()).first
@@ -2480,7 +3448,7 @@ final class StoreBootstrapTests: XCTestCase {
         let journal = try MigrationJournalStore(layout: layout).read()
 
         try autoreleasepool {
-            let container = try AppModelContainerFactory.makeParentRecordLifecycleContainer(
+            let container = try AppModelContainerFactory.makeDataControlContainer(
                 at: layout.storeURL(for: journal.targetGenerationID)
             )
             let context = ModelContext(container)
@@ -2928,6 +3896,18 @@ final class StoreBootstrapTests: XCTestCase {
     }
 
     private struct V9SourceFixture {
+        let generationID: UUID
+        let storeURL: URL
+        let durableHashes: [String: String]
+    }
+
+    private struct V10SourceFixture {
+        let generationID: UUID
+        let storeURL: URL
+        let durableHashes: [String: String]
+    }
+
+    private struct V11SourceFixture {
         let generationID: UUID
         let storeURL: URL
         let durableHashes: [String: String]
@@ -3613,6 +4593,166 @@ final class StoreBootstrapTests: XCTestCase {
             resources: layout.protectionResources(for: generationID)
         )
         return V9SourceFixture(
+            generationID: generationID,
+            storeURL: storeURL,
+            durableHashes: try durableStoreBundleHashes(at: storeURL)
+        )
+    }
+
+    private func seedActiveV10Generation(
+        in layout: AppDataStoreLayout
+    ) throws -> V10SourceFixture {
+        let generationID = UUID()
+        let storeURL = layout.storeURL(for: generationID)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var datasetID: UUID!
+        var revisionCount = 0
+        try autoreleasepool {
+            let container = try AppModelContainerFactory
+                .makeParentRecordLifecycleContainer(at: storeURL)
+            guard try LegacyV1Backfill.run(in: container).didComplete,
+                  try CoreTimeRegimenBackfill.run(in: container)
+                    .didComplete,
+                  try TodayExecutionBackfill.run(in: container)
+                    .didComplete,
+                  try PersonalTimelineBackfill.run(in: container)
+                    .didComplete,
+                  try CountdownLifecycleBackfill.run(in: container)
+                    .didComplete,
+                  try CountdownIntegrityBackfill.run(in: container)
+                    .didComplete,
+                  try OnboardingBackfill.run(
+                      in: container,
+                      source: .schemaUpgradeV7
+                  ).didComplete,
+                  try HrtJourneyLifecycleBackfill.run(
+                      in: container,
+                      sourceSchemaVersion: "9.0.0"
+                  ).didComplete,
+                  try ParentRecordLifecycleBackfill.run(
+                      in: container,
+                      sourceSchemaVersion: "9.0.0"
+                  ).didComplete else {
+                throw AppDataFailure.migrationFailed
+            }
+            let context = ModelContext(container)
+            datasetID = try XCTUnwrap(
+                context.fetch(FetchDescriptor<DatasetMetadata>()).first
+            ).datasetID
+            revisionCount = try context.fetchCount(
+                FetchDescriptor<RecordRevision>()
+            )
+        }
+        try GenerationPointerStore(layout: layout).write(
+            GenerationPointer(
+                generationID: generationID,
+                schemaVersion: "10.0.0",
+                origin: .schemaUpgrade,
+                datasetID: datasetID,
+                minimumFactCount: revisionCount,
+                minimumRevisionCount: revisionCount
+            )
+        )
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: generationID,
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        _ = try StoreFileProtectionAuditor(
+            backupPolicy: .systemManaged,
+            verificationMode: .simulatorTestHarness
+        ).hardenAndInspect(
+            storeURL: storeURL,
+            resources: layout.protectionResources(for: generationID)
+        )
+        return V10SourceFixture(
+            generationID: generationID,
+            storeURL: storeURL,
+            durableHashes: try durableStoreBundleHashes(at: storeURL)
+        )
+    }
+
+    private func seedActiveV11Generation(
+        in layout: AppDataStoreLayout
+    ) throws -> V11SourceFixture {
+        let generationID = UUID()
+        let storeURL = layout.storeURL(for: generationID)
+        try FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        var datasetID: UUID!
+        var revisionCount = 0
+        try autoreleasepool {
+            let container = try AppModelContainerFactory
+                .makePrivacyControlContainer(at: storeURL)
+            guard try LegacyV1Backfill.run(in: container).didComplete,
+                  try CoreTimeRegimenBackfill.run(in: container)
+                    .didComplete,
+                  try TodayExecutionBackfill.run(in: container)
+                    .didComplete,
+                  try PersonalTimelineBackfill.run(in: container)
+                    .didComplete,
+                  try CountdownLifecycleBackfill.run(in: container)
+                    .didComplete,
+                  try CountdownIntegrityBackfill.run(in: container)
+                    .didComplete,
+                  try OnboardingBackfill.run(
+                      in: container,
+                      source: .schemaUpgradeV7
+                  ).didComplete,
+                  try HrtJourneyLifecycleBackfill.run(
+                      in: container,
+                      sourceSchemaVersion: "9.0.0"
+                  ).didComplete,
+                  try ParentRecordLifecycleBackfill.run(
+                      in: container,
+                      sourceSchemaVersion: "9.0.0"
+                  ).didComplete,
+                  try PrivacyControlBackfill.run(
+                      in: container,
+                      source: .schemaUpgradeV10
+                  ).didComplete else {
+                throw AppDataFailure.migrationFailed
+            }
+            let context = ModelContext(container)
+            datasetID = try XCTUnwrap(
+                context.fetch(FetchDescriptor<DatasetMetadata>()).first
+            ).datasetID
+            revisionCount = try context.fetchCount(
+                FetchDescriptor<RecordRevision>()
+            )
+        }
+        try GenerationPointerStore(layout: layout).write(
+            GenerationPointer(
+                generationID: generationID,
+                schemaVersion: "11.0.0",
+                origin: .schemaUpgrade,
+                datasetID: datasetID,
+                minimumFactCount: revisionCount,
+                minimumRevisionCount: revisionCount
+            )
+        )
+        try MigrationJournalStore(layout: layout).write(
+            MigrationJournal(
+                targetGenerationID: generationID,
+                origin: .newInstall,
+                phase: .activated
+            )
+        )
+        _ = try StoreFileProtectionAuditor(
+            backupPolicy: .systemManaged,
+            verificationMode: .simulatorTestHarness
+        ).hardenAndInspect(
+            storeURL: storeURL,
+            resources: layout.protectionResources(for: generationID)
+        )
+        return V11SourceFixture(
             generationID: generationID,
             storeURL: storeURL,
             durableHashes: try durableStoreBundleHashes(at: storeURL)

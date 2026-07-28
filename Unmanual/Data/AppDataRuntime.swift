@@ -34,13 +34,22 @@ struct AppDataRecoveryState: Equatable, Sendable {
     }
 }
 
+final class AppDataSessionReleaseProbe:
+    @unchecked Sendable {}
+
 @MainActor
-struct AppDataSession {
+final class AppDataSession {
     let store: BootstrappedAppDataStore
+    let releaseProbe: AppDataSessionReleaseProbe
+    let dataControlCoordinator: AppDataControlCoordinator
     let writer: AppDataWriter
-    let reader: AppReadActor
+    let reader: AppDataReader
     let attachmentMutationService: AttachmentMutationService
     let attachmentMutationRecoveryLatch: AttachmentMutationRecoveryLatch
+    let dataInventoryService: DataInventoryProductionService?
+    let dataControlDeletionService: DataControlDeletionService?
+    let dataResetPreparationService:
+        DataResetPreparationService?
 
     init(
         store: BootstrappedAppDataStore,
@@ -49,14 +58,22 @@ struct AppDataSession {
         onAttachmentIntegrityFailure: @escaping @Sendable () async -> Void
     ) {
         self.store = store
+        let releaseProbe = AppDataSessionReleaseProbe()
+        self.releaseProbe = releaseProbe
+        let dataControlCoordinator = AppDataControlCoordinator(
+            generationID: store.generationID
+        )
+        self.dataControlCoordinator = dataControlCoordinator
         let storage = AppWriteActor(modelContainer: store.container)
         let writer = AppDataWriter(
             storage: storage,
+            dataControlCoordinator: dataControlCoordinator,
             verifyStoreProtection: {
                 guard let plan = store.protectionPlan else { return true }
                 return await verifyStoreProtection(plan)
             },
             onProtectionFailure: onProtectionFailure,
+            sessionReleaseProbe: releaseProbe,
             onReminderInputsChanged: { result in
                 await MainActor.run {
                     NotificationCenter.default.post(
@@ -67,16 +84,48 @@ struct AppDataSession {
             }
         )
         self.writer = writer
-        self.reader = AppReadActor(modelContainer: store.container)
+        self.reader = AppDataReader(
+            storage: AppReadActor(
+                modelContainer: store.container
+            ),
+            dataControlCoordinator: dataControlCoordinator,
+            sessionReleaseProbe: releaseProbe
+        )
         let fileStore = AttachmentFileStore(rootURL: store.attachmentRootURL)
         let recoveryLatch = AttachmentMutationRecoveryLatch()
         self.attachmentMutationRecoveryLatch = recoveryLatch
         self.attachmentMutationService = AttachmentMutationService(
             writer: writer,
             fileStore: fileStore,
+            dataControlCoordinator: dataControlCoordinator,
             recoveryLatch: recoveryLatch,
             onRecoveryRequired: onAttachmentIntegrityFailure
         )
+        let dataInventoryService = DataInventoryProductionService(
+            store: store,
+            dataControlCoordinator: dataControlCoordinator,
+            sessionReleaseProbe: releaseProbe
+        )
+        self.dataInventoryService = dataInventoryService
+        self.dataControlDeletionService = dataInventoryService.map {
+            DataControlDeletionService(
+                generationID: store.generationID,
+                writer: writer,
+                fileStore: fileStore,
+                inventoryService: $0,
+                dataControlCoordinator: dataControlCoordinator,
+                recoveryLatch: recoveryLatch,
+                onRecoveryRequired:
+                    onAttachmentIntegrityFailure
+            )
+        }
+        self.dataResetPreparationService = dataInventoryService.map {
+            DataResetPreparationService(
+                store: store,
+                manifestProvider: $0,
+                coordinator: dataControlCoordinator
+            )
+        }
     }
 }
 
@@ -87,11 +136,19 @@ final class AppDataRuntime {
         case opening
         case ready(AppDataSession)
         case recovery(AppDataRecoveryState)
+        case resetPreparing
+        case resetRestartRequired
+        case resetRecovery
     }
 
     private(set) var state: State = .opening
     private var hasAttemptedOpen = false
     private var openSequence = 0
+    private var pendingResetOperation:
+        DataResetPreparedOperation?
+    private weak var pendingResetReleaseProbe:
+        AppDataSessionReleaseProbe?
+    private var isContinuingReset = false
     private let openStore: () async throws -> BootstrappedAppDataStore
     private let verifyStoreProtection: @Sendable (StoreFileProtectionPlan) async -> Bool
 
@@ -132,10 +189,70 @@ final class AppDataRuntime {
     func handleAttachmentIntegrityFailure(generationID: UUID) {
         guard case let .ready(session) = state,
               session.store.generationID == generationID else { return }
+        Task {
+            await session.dataControlCoordinator.invalidate()
+        }
         session.attachmentMutationRecoveryLatch.invalidate()
         state = .recovery(
             AppDataRecoveryState(reason: .corruptionSuspected)
         )
+    }
+
+    func beginReset(
+        confirmedStateDigest: String
+    ) async throws {
+        guard case let .ready(session) = state,
+              let service =
+                session.dataResetPreparationService else {
+            throw DataResetServiceFailure.unavailable
+        }
+        let prepared = try await service.prepare(
+            confirmedStateDigest:
+                confirmedStateDigest
+        )
+        openSequence += 1
+        pendingResetOperation = prepared
+        pendingResetReleaseProbe = session.releaseProbe
+        state = .resetPreparing
+    }
+
+    func continueResetAfterSessionRelease() async {
+        guard case .resetPreparing = state,
+              !isContinuingReset,
+              let operation = pendingResetOperation else {
+            return
+        }
+        isContinuingReset = true
+        defer { isContinuingReset = false }
+
+        for _ in 0..<50
+            where pendingResetReleaseProbe != nil {
+            await Task.yield()
+            try? await Task.sleep(
+                for: .milliseconds(10)
+            )
+        }
+        guard pendingResetReleaseProbe == nil else {
+            await operation.coordinator
+                .endExclusiveResetLease(operation.lease)
+            pendingResetOperation = nil
+            state = .resetRecovery
+            return
+        }
+        pendingResetOperation = nil
+        let worker = DataResetCurrentProcessWorker()
+        do {
+            let journal = try await worker
+                .advanceToRestartRequired(operation)
+            guard journal.phase == .restartRequired
+            else {
+                throw DataResetServiceFailure
+                    .recoveryRequired
+            }
+            state = .resetRestartRequired
+        } catch {
+            state = .resetRecovery
+        }
     }
 
     private func open() {
@@ -162,6 +279,12 @@ final class AppDataRuntime {
                         }
                     )
                 )
+            } catch is DataResetServiceFailure {
+                guard sequence == openSequence else { return }
+                state = .resetRecovery
+            } catch is DataResetStateMachineError {
+                guard sequence == openSequence else { return }
+                state = .resetRecovery
             } catch let failure as AppDataFailure {
                 guard sequence == openSequence else { return }
                 state = .recovery(AppDataRecoveryState(reason: failure))
@@ -179,6 +302,9 @@ final class AppDataRuntime {
     private func handlePostCommitProtectionFailure(generationID: UUID) {
         guard case let .ready(session) = state,
               session.store.generationID == generationID else { return }
+        Task {
+            await session.dataControlCoordinator.invalidate()
+        }
         session.attachmentMutationRecoveryLatch.invalidate()
         state = .recovery(AppDataRecoveryState(reason: .fileProtectionUnverified))
     }
@@ -227,28 +353,69 @@ private actor AppDataBootstrapWorker {
             if testStore.cleansUp {
                 return try await makeInMemoryDebugStore()
             }
-            return try AppDataStoreBootstrapper(
-                layout: urls.layout,
-                backupPolicy: .production,
-                fileProtectionVerificationMode: .simulatorTestHarness
-            ).open()
+            let resetLayout = DataResetPathLayout(
+                applicationSupportURL:
+                    urls.layout.rootURL
+                    .deletingLastPathComponent(),
+                storeLayout: urls.layout
+            )
+            let openedStore: BootstrappedAppDataStore
+            if FileManager.default.fileExists(
+                atPath: resetLayout.journalURL.path
+            ) {
+                openedStore = try await
+                    DataResetColdLaunchCoordinator(
+                        layoutProvider: {
+                            urls.layout
+                        },
+                        fileProtectionVerificationMode:
+                            .simulatorTestHarness
+                    ).open()
+            } else {
+                openedStore = try AppDataStoreBootstrapper(
+                    layout: urls.layout,
+                    backupPolicy: .production,
+                    fileProtectionVerificationMode:
+                        .simulatorTestHarness
+                ).open()
+            }
+            try await seedDebugHrtJourneyIfRequested(
+                in: openedStore.container
+            )
+            return openedStore
         }
         if ProcessInfo.processInfo.arguments.contains("-unmanual-empty-store") {
             return try await makeInMemoryDebugStore()
         }
 #endif
         let layout = try AppDataStoreLayout.production()
-        return try AppDataStoreBootstrapper(
-            layout: layout,
-            backupPolicy: .production
-        ).open()
+        let resetLayout = DataResetPathLayout(
+            applicationSupportURL:
+                layout.rootURL.deletingLastPathComponent(),
+            storeLayout: layout
+        )
+        let resetJournalExists =
+            FileManager.default.fileExists(
+                atPath: resetLayout.journalURL.path
+            )
+        do {
+            return try await DataResetColdLaunchCoordinator(
+                layoutProvider: { layout }
+            ).open()
+        } catch {
+            if resetJournalExists {
+                throw DataResetServiceFailure
+                    .recoveryRequired
+            }
+            throw error
+        }
     }
 
 #if DEBUG
     private func makeInMemoryDebugStore()
         async throws -> BootstrappedAppDataStore {
         let container = try AppModelContainerFactory
-            .makeInMemoryParentRecordLifecycleContainer()
+            .makeInMemoryDataControlContainer()
         _ = try LegacyV1Backfill.run(in: container)
         _ = try CoreTimeRegimenBackfill.run(
             in: container,
@@ -268,6 +435,14 @@ private actor AppDataBootstrapWorker {
         _ = try ParentRecordLifecycleBackfill.run(
             in: container,
             sourceSchemaVersion: "9.0.0"
+        )
+        _ = try PrivacyControlBackfill.run(
+            in: container,
+            source: .bootstrapV11
+        )
+        _ = try DataControlBackfill.run(
+            in: container,
+            source: .bootstrapV12
         )
         try await seedDebugHrtJourneyIfRequested(in: container)
         return BootstrappedAppDataStore(
@@ -412,14 +587,10 @@ enum DebugUITestStoreConfiguration {
             root,
             AppDataStoreLayout(
                 rootURL: root.appendingPathComponent(
-                    "Managed",
+                    "Unmanual",
                     isDirectory: true
                 ),
                 legacyStoreURL: root
-                    .appendingPathComponent(
-                        "Legacy",
-                        isDirectory: true
-                    )
                     .appendingPathComponent("default.store")
             )
         )
