@@ -4,8 +4,8 @@
 
 - 本文件适用于 `mtf-app/` 的整个目录树；更深层的 `AGENTS.md` 可以为子模块补充更具体的规则。
 - 用户在当前任务中的明确要求高于本文件。规则冲突时，优先遵守更具体、离目标文件更近的规则。
-- 本项目已确定先做 iOS 原生版本：SwiftUI + SwiftData，最低 iOS 17.0，同时支持 iPhone 与 iPad。首发功能仍以 `docs/product/` 中的规划为准；不要把未确认细节伪装成既定决定。
-- 本地后端的时间、执行、库存、化验、数据谱系、无网络与发行门禁以 `docs/architecture/0002-batch-0-contract-freeze.md` 为准；`foragent/` 中的方案和副本不是工程事实源。
+- 本项目已确定先做 iOS 原生版本：SwiftUI + SwiftData，最低 iOS 17.0，同时支持 iPhone 与 iPad。首发功能以 `docs/product/` 中的规划及其已接受 ADR 修订为准；不要把未确认细节伪装成既定决定。
+- 本地后端的时间、执行、化验、数据谱系、无网络与发行门禁以 `docs/architecture/0002-batch-0-contract-freeze.md` 为准；库存已由 `docs/architecture/0009-inventory-deferred-from-app-1.0.md` 明确移出 App 1.0，不得继续当作 1.0 实现或发布门禁。`foragent/` 中的方案和副本不是工程事实源。
 - 当项目变大时，把架构、产品和视觉细节移入 `docs/`，让根 `AGENTS.md` 保持为入口地图和不可越界合同。
 
 ## 项目定位
@@ -175,7 +175,7 @@
 - 打开并运行：`open Unmanual.xcodeproj`，选择 `Unmanual` scheme 和本地模拟器后运行；没有 Apple Developer 账号时只使用模拟器。
 - 无签名编译：`xcodebuild -project Unmanual.xcodeproj -scheme Unmanual -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build`
 - Simulator 测试：先用 `xcrun simctl list devices available` 取得测试设备 UDID，再运行 `xcodebuild -project Unmanual.xcodeproj -scheme Unmanual -configuration Debug -destination 'platform=iOS Simulator,id=<SIMULATOR_UDID>' -derivedDataPath .build/DerivedData test`。该命令使用 Xcode 的本地 ad-hoc Simulator 签名，不需要 Apple Developer Program，并保留 `CODE_SIGN_ENTITLEMENTS` 的构建处理与 simulated xcent 证据；不得加入 `CODE_SIGNING_ALLOWED=NO`。Simulator 可能不会把数据保护 entitlement 嵌入 App 签名或映射为真实保护 class，因此只能核对工程配置与代码路径，不能替代真机门禁。无签名只用于上一条 generic 编译命令。
-- Batch 1 性能 harness 的 Simulator preflight：先取得项目专属 Simulator UDID，再运行 `xcodebuild -project Unmanual.xcodeproj -scheme UnmanualPerformancePreflight -configuration Release -destination 'platform=iOS Simulator,id=<SIMULATOR_UDID>' -derivedDataPath .build/Batch1PerformancePreflight -resultBundlePath .build/Batch1PerformancePreflight.xcresult -only-testing:UnmanualPerformanceTests/Batch1ReleasePerformanceTests/testFiveYearReleasePerformance -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 3600 CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES test`。该 scheme 关闭 coverage/debugger 并显式注入 `simulator-preflight`；结果只能验证 harness，数值阈值与跨设备冻结 fixture 未确定前不得称为性能通过。原始 JSON/CSV 只从 `.xcresult` 导出到 `.build/`，不提交。
+- Batch 1 性能 harness 的 Simulator preflight：先取得项目专属 Simulator UDID，再运行 `xcodebuild -project Unmanual.xcodeproj -scheme UnmanualPerformancePreflight -configuration Release -destination 'platform=iOS Simulator,id=<SIMULATOR_UDID>' -derivedDataPath .build/Batch1PerformancePreflight -resultBundlePath .build/Batch1PerformancePreflight.xcresult -only-testing:UnmanualPerformanceTests/Batch1ReleasePerformanceTests/testFiveYearReleasePerformance -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 3600 -maximum-test-execution-time-allowance 3600 CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES test`。测试合同自身也必须声明 3,600 秒执行时限；命令行的 default 明确未声明时的默认值，maximum 保留一小时硬上限。不得关闭 timeout 或减少 20 个正式样本绕过门禁。该 scheme 关闭 coverage/debugger 并显式注入 `simulator-preflight`；结果只能验证 harness，数值阈值与跨设备冻结 fixture 未确定前不得称为性能通过。原始 JSON/CSV 只从 `.xcresult` 导出到 `.build/`，不提交。
 - 当前没有独立 lint 或自动格式化依赖；以 Swift 6 编译警告、Xcode 格式和测试为基线。不要擅自引入格式化工具。
 
 ## 验证要求

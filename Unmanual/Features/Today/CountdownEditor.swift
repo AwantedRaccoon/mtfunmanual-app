@@ -48,6 +48,12 @@ struct CountdownEditor: View {
         ).isEmpty
     }
 
+    private var canDismiss: Bool {
+        EditorWriteDismissalPolicy.allowsDismiss(
+            isWriting: isSaving
+        )
+    }
+
     private var isDue: Bool {
         guard let current = activeCountdown,
               let today = try? currentCivilDate() else {
@@ -63,7 +69,11 @@ struct CountdownEditor: View {
                 eyebrow: editorEyebrow,
                 title: editorTitle,
                 detail: "目标日只是一条私人时间线。它不会自动作出医疗判断，也不会替你决定接下来该做什么。",
-                cancel: dismiss.callAsFunction
+                isCancelEnabled: canDismiss,
+                cancel: {
+                    guard canDismiss else { return }
+                    dismiss()
+                }
             ) {
                 VStack(spacing: V25Theme.fieldSpacing) {
                     if isReading {
@@ -217,6 +227,7 @@ struct CountdownEditor: View {
             }
         }
         .tint(theme.indigo)
+        .interactiveDismissDisabled(!canDismiss)
         .localSaveErrorAlert(message: $saveErrorMessage)
     }
 

@@ -94,6 +94,7 @@ final class TodayExecutionUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = [
             "-unmanual-empty-store",
+            "-unmanual-skip-onboarding",
             "-unmanual-today-execution"
         ] + additionalArguments
         app.launch()
@@ -103,10 +104,33 @@ final class TodayExecutionUITests: XCTestCase {
     }
 
     private func scrollToVisible(_ element: XCUIElement, in app: XCUIApplication) {
+        let todayTab = app.buttons["今天"].firstMatch
+        XCTAssertTrue(todayTab.exists)
+        let tabBarTop = todayTab.frame.minY
         var attempts = 0
-        while !element.isHittable && attempts < 10 {
-            app.swipeUp()
+        while attempts < 20 {
+            if element.exists,
+               element.isHittable,
+               element.frame.maxY <= tabBarTop - 8 {
+                break
+            }
+            if element.exists, element.frame.minY < 60 {
+                drag(in: app, fromY: 0.38, toY: 0.50)
+            } else if element.exists, element.frame.minY < tabBarTop {
+                drag(in: app, fromY: 0.55, toY: 0.43)
+            } else {
+                app.swipeUp()
+            }
             attempts += 1
         }
+        XCTAssertTrue(element.exists)
+        XCTAssertTrue(element.isHittable)
+        XCTAssertLessThanOrEqual(element.frame.maxY, tabBarTop - 8)
+    }
+
+    private func drag(in app: XCUIApplication, fromY: CGFloat, toY: CGFloat) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: fromY))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toY))
+        start.press(forDuration: 0.05, thenDragTo: end)
     }
 }

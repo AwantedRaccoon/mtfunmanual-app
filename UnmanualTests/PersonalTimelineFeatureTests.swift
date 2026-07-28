@@ -3229,6 +3229,105 @@ final class PersonalTimelineFeatureTests: XCTestCase {
         XCTAssertNotEqual(latest?.id, olderID)
         XCTAssertEqual(latest?.id, newerID)
         XCTAssertEqual(latest?.kind, .labSample)
+
+        let gentle = try await reader.latestLabTimelineItem(
+            gentleModeEnabled: true
+        )
+        XCTAssertEqual(gentle?.title, "检查记录")
+    }
+
+    func testTimelinePaginationReloadsInsteadOfMixingGentleModes() {
+        XCTAssertEqual(
+            TimelinePageModePolicy.resolution(
+                currentGentleModeEnabled: false,
+                incomingGentleModeEnabled: false
+            ),
+            .append
+        )
+        XCTAssertEqual(
+            TimelinePageModePolicy.resolution(
+                currentGentleModeEnabled: false,
+                incomingGentleModeEnabled: true
+            ),
+            .reloadFirstPage
+        )
+        XCTAssertEqual(
+            TimelinePageModePolicy.resolution(
+                currentGentleModeEnabled: true,
+                incomingGentleModeEnabled: false
+            ),
+            .reloadFirstPage
+        )
+    }
+
+    func testTimelinePrivacyModeNeverGuessesStandardBeforeRead() {
+        let unresolved = TimelinePrivacyMode(
+            gentleModeEnabled: nil
+        )
+        XCTAssertFalse(unresolved.isResolved)
+        XCTAssertTrue(unresolved.usesGentleSurfaceCopy)
+        XCTAssertEqual(
+            unresolved.journeySubtitle,
+            "正在读取本地时间线与显示偏好。"
+        )
+        XCTAssertFalse(
+            unresolved.journeySubtitle.contains("化验")
+        )
+
+        let standard = TimelinePrivacyMode(
+            gentleModeEnabled: false
+        )
+        XCTAssertTrue(standard.isResolved)
+        XCTAssertFalse(standard.usesGentleSurfaceCopy)
+        XCTAssertTrue(standard.journeySubtitle.contains("化验"))
+
+        let gentle = TimelinePrivacyMode(
+            gentleModeEnabled: true
+        )
+        XCTAssertTrue(gentle.isResolved)
+        XCTAssertTrue(gentle.usesGentleSurfaceCopy)
+        XCTAssertFalse(gentle.journeySubtitle.contains("化验"))
+    }
+
+    func testTimelinePrivacyPresentationPrioritizesFailureOverLoading()
+    {
+        let unresolved = TimelinePrivacyMode(
+            gentleModeEnabled: nil
+        )
+        XCTAssertEqual(
+            TimelinePrivacyPresentationPolicy.state(
+                privacyMode: unresolved,
+                firstPageErrorMessage: nil,
+                hasIntegrityFailure: false
+            ),
+            .loading
+        )
+        XCTAssertEqual(
+            TimelinePrivacyPresentationPolicy.state(
+                privacyMode: unresolved,
+                firstPageErrorMessage: "读取失败",
+                hasIntegrityFailure: false
+            ),
+            .retryableError
+        )
+        XCTAssertEqual(
+            TimelinePrivacyPresentationPolicy.state(
+                privacyMode: unresolved,
+                firstPageErrorMessage: "完整性失败",
+                hasIntegrityFailure: true
+            ),
+            .recovery
+        )
+        XCTAssertEqual(
+            TimelinePrivacyPresentationPolicy.state(
+                privacyMode: TimelinePrivacyMode(
+                    gentleModeEnabled: false
+                ),
+                firstPageErrorMessage: nil,
+                hasIntegrityFailure: false
+            ),
+            .content
+        )
     }
 
     private func preparedContainer() throws -> ModelContainer {

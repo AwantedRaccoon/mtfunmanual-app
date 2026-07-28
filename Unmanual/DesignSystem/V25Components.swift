@@ -76,13 +76,13 @@ struct V25PageHeader: View {
                         Text(title)
                             .font(theme.display(42, relativeTo: .largeTitle))
                             .tracking(-1.2)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text(subtitle)
                             .font(.subheadline)
                             .foregroundStyle(theme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-
-                    Spacer(minLength: 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(alignment: .trailing, spacing: 6) {
                         Text(register.uppercased())
@@ -93,6 +93,8 @@ struct V25PageHeader: View {
                             .foregroundStyle(theme.secondaryText)
                     }
                     .padding(.top, 9)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                 }
             }
         }
@@ -190,6 +192,7 @@ struct V25EditorHeader: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let register: String
+    let isCancelEnabled: Bool
     let cancel: () -> Void
 
     var body: some View {
@@ -200,6 +203,8 @@ struct V25EditorHeader: View {
                         .font(.body.weight(.semibold))
                         .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                         .buttonStyle(.plain)
+                        .disabled(!isCancelEnabled)
+                        .opacity(isCancelEnabled ? 1 : 0.46)
                     Text(register.uppercased())
                         .font(.caption2.weight(.bold))
                         .fixedSize(horizontal: false, vertical: true)
@@ -211,6 +216,8 @@ struct V25EditorHeader: View {
                         .font(.body.weight(.semibold))
                         .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                         .buttonStyle(.plain)
+                        .disabled(!isCancelEnabled)
+                        .opacity(isCancelEnabled ? 1 : 0.46)
 
                     Spacer()
 
@@ -260,6 +267,7 @@ struct V25EditorPage<Content: View>: View {
     let eyebrow: String
     let title: String
     let detail: String
+    let isCancelEnabled: Bool
     let cancel: () -> Void
     private let content: Content
 
@@ -268,6 +276,7 @@ struct V25EditorPage<Content: View>: View {
         eyebrow: String,
         title: String,
         detail: String,
+        isCancelEnabled: Bool = true,
         cancel: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) {
@@ -275,6 +284,7 @@ struct V25EditorPage<Content: View>: View {
         self.eyebrow = eyebrow
         self.title = title
         self.detail = detail
+        self.isCancelEnabled = isCancelEnabled
         self.cancel = cancel
         self.content = content()
     }
@@ -283,7 +293,11 @@ struct V25EditorPage<Content: View>: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: V25Theme.sectionSpacing) {
-                    V25EditorHeader(register: register, cancel: cancel)
+                    V25EditorHeader(
+                        register: register,
+                        isCancelEnabled: isCancelEnabled,
+                        cancel: cancel
+                    )
                     V25EditorIntro(eyebrow: eyebrow, title: title, detail: detail)
                     content
                 }
@@ -304,6 +318,12 @@ struct V25EditorPage<Content: View>: View {
         }
         .background(theme.rice.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+enum EditorWriteDismissalPolicy {
+    static func allowsDismiss(isWriting: Bool) -> Bool {
+        !isWriting
     }
 }
 

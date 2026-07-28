@@ -76,3 +76,28 @@ actor UserNotificationClient: LocalNotificationClient {
 private enum UserNotificationClientFailure: Error {
     case unknownTimeZone
 }
+
+#if DEBUG
+actor DebugDeniedNotificationClient: LocalNotificationClient {
+    func settings() async -> LocalNotificationSettingsSnapshot {
+        LocalNotificationSettingsSnapshot(
+            authorization: .denied,
+            alertsEnabled: false
+        )
+    }
+
+    func requestAuthorization() async throws -> Bool {
+        false
+    }
+
+    func pendingRequests() async -> [LocalPendingNotificationRequest] {
+        []
+    }
+
+    func add(_ request: LocalReminderRequest) async throws {}
+
+    func removePendingRequests(
+        withIdentifiers identifiers: [String]
+    ) async {}
+}
+#endif

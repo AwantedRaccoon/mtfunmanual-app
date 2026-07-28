@@ -35,9 +35,66 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<JourneyEntry>()), 7_300)
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabRecord>()), 1_200)
         // Each legacy lab adds definition/sample/result/time plus a sample receipt.
-        // V7 also adds state/event/reminder/receipt/command-audit revisions for
-        // each legacy countdown, plus one integrity-marker revision.
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 23_414)
+        // V7 adds state/event/reminder/receipt/command-audit revisions for
+        // each legacy countdown plus one integrity-marker revision. V8 adds
+        // onboarding progress and adoption-state revisions. V9 adds the HRT
+        // lifecycle migrated snapshot and backfill-state revisions. V10 adds
+        // a migrated parent root and head for every canonical lab sample,
+        // plus one parent-lifecycle backfill-state revision.
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 25_819)
+        XCTAssertEqual(
+            try GenerationPointerStore(layout: layout).read()
+                .schemaVersion,
+            "10.0.0"
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<OnboardingProgressRecord>()
+            ),
+            1
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<OnboardingBackfillState>()
+            ),
+            1
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<HrtJourneyLifecycleEventRecord>()
+            ),
+            1
+        )
+        XCTAssertEqual(
+            try context.fetch(
+                FetchDescriptor<HrtJourneyLifecycleEventRecord>()
+            ).first?.kind,
+            .migratedSnapshot
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<HrtJourneyLifecycleBackfillState>()
+            ),
+            1
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<ParentRecordLifecycleHeadRecord>()
+            ),
+            1_200
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<ParentRecordMutationEventRecord>()
+            ),
+            1_200
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<ParentRecordLifecycleBackfillState>()
+            ),
+            1
+        )
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<LabSampleRecord>()), 1_200)
         XCTAssertEqual(
             try context.fetchCount(FetchDescriptor<CountdownStateRecord>()),

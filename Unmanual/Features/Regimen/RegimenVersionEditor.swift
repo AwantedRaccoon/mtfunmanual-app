@@ -49,12 +49,24 @@ struct RegimenVersionEditor: View {
         return hasTitle && !draftMedications.isEmpty
     }
 
+    private var canDismiss: Bool {
+        EditorWriteDismissalPolicy.allowsDismiss(
+            isWriting: isSaving
+        )
+    }
+
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        RegimenEditHeader(cancel: dismiss.callAsFunction)
+                        RegimenEditHeader(
+                            isCancelEnabled: canDismiss,
+                            cancel: {
+                                guard canDismiss else { return }
+                                dismiss()
+                            }
+                        )
 
                         RegimenEditIntro(isEditing: activeRegimen != nil)
                             .padding(.top, 24)
@@ -118,6 +130,7 @@ struct RegimenVersionEditor: View {
             }
         }
         .tint(theme.indigo)
+        .interactiveDismissDisabled(!canDismiss)
         .task { await loadCurrentVersionIfNeeded() }
         .localSaveErrorAlert(message: $saveErrorMessage)
         .sheet(item: $previewSheet) { sheet in
@@ -129,6 +142,7 @@ struct RegimenVersionEditor: View {
                 cancel: { previewSheet = nil },
                 confirm: { seal(sheet) }
             )
+            .interactiveDismissDisabled(isSaving)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
@@ -328,6 +342,7 @@ private struct RegimenEditHeader: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    let isCancelEnabled: Bool
     let cancel: () -> Void
 
     var body: some View {
@@ -336,6 +351,8 @@ private struct RegimenEditHeader: View {
                 .font(.body.weight(.semibold))
                 .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                 .buttonStyle(.plain)
+                .disabled(!isCancelEnabled)
+                .opacity(isCancelEnabled ? 1 : 0.46)
 
             Spacer()
 
@@ -792,10 +809,12 @@ private struct RegimenImpactReviewSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("返回修改", action: cancel)
+                        .disabled(isSaving)
                 }
             }
         }
         .tint(theme.indigo)
+        .interactiveDismissDisabled(isSaving)
     }
 
     private func impactRow(_ title: String, count: Int) -> some View {

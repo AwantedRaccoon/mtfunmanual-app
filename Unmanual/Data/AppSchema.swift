@@ -90,7 +90,131 @@ enum AppSchemaV7CountdownIntegrity: VersionedSchema {
         ]
 }
 
+enum AppSchemaV8Onboarding: VersionedSchema {
+    static let versionIdentifier = Schema.Version(8, 0, 0)
+
+    static let models: [any PersistentModel.Type] =
+        AppSchemaV7CountdownIntegrity.models + [
+            OnboardingProgressRecord.self,
+            OnboardingBackfillState.self
+        ]
+}
+
+enum AppSchemaV9HrtJourneyLifecycle: VersionedSchema {
+    static let versionIdentifier = Schema.Version(9, 0, 0)
+
+    static let models: [any PersistentModel.Type] =
+        AppSchemaV8Onboarding.models + [
+            HrtJourneyLifecycleEventRecord.self,
+            HrtJourneyLifecycleBackfillState.self
+        ]
+}
+
+enum AppSchemaV10ParentRecordLifecycle: VersionedSchema {
+    static let versionIdentifier = Schema.Version(10, 0, 0)
+
+    static let models: [any PersistentModel.Type] =
+        AppSchemaV9HrtJourneyLifecycle.models + [
+            ParentRecordLifecycleHeadRecord.self,
+            ParentRecordMutationEventRecord.self,
+            LabSampleCorrectionSnapshotRecord.self,
+            LabResultCorrectionSnapshotRecord.self,
+            StatusObservationCorrectionSnapshotRecord.self,
+            ParentRecordDeletionTombstoneRecord.self,
+            ParentRecordLifecycleBackfillState.self
+        ]
+}
+
 enum AppSchemaMigrationPlan: SchemaMigrationPlan {
+    static let schemas: [any VersionedSchema.Type] = [
+        AppSchemaV1.self,
+        AppSchemaV2Bridge.self,
+        AppSchemaV3Core.self,
+        AppSchemaV4TodayExecution.self,
+        AppSchemaV5PersonalTimeline.self,
+        AppSchemaV6CountdownLifecycle.self,
+        AppSchemaV7CountdownIntegrity.self,
+        AppSchemaV8Onboarding.self,
+        AppSchemaV9HrtJourneyLifecycle.self,
+        AppSchemaV10ParentRecordLifecycle.self
+    ]
+
+    static let stages: [MigrationStage] = [
+        .lightweight(fromVersion: AppSchemaV1.self, toVersion: AppSchemaV2Bridge.self),
+        .lightweight(fromVersion: AppSchemaV2Bridge.self, toVersion: AppSchemaV3Core.self),
+        .lightweight(fromVersion: AppSchemaV3Core.self, toVersion: AppSchemaV4TodayExecution.self),
+        .lightweight(
+            fromVersion: AppSchemaV4TodayExecution.self,
+            toVersion: AppSchemaV5PersonalTimeline.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV5PersonalTimeline.self,
+            toVersion: AppSchemaV6CountdownLifecycle.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV6CountdownLifecycle.self,
+            toVersion: AppSchemaV7CountdownIntegrity.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV7CountdownIntegrity.self,
+            toVersion: AppSchemaV8Onboarding.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV8Onboarding.self,
+            toVersion: AppSchemaV9HrtJourneyLifecycle.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV9HrtJourneyLifecycle.self,
+            toVersion: AppSchemaV10ParentRecordLifecycle.self
+        )
+    ]
+}
+
+enum AppSchemaMigrationPlanThroughV8: SchemaMigrationPlan {
+    static let schemas: [any VersionedSchema.Type] = [
+        AppSchemaV1.self,
+        AppSchemaV2Bridge.self,
+        AppSchemaV3Core.self,
+        AppSchemaV4TodayExecution.self,
+        AppSchemaV5PersonalTimeline.self,
+        AppSchemaV6CountdownLifecycle.self,
+        AppSchemaV7CountdownIntegrity.self,
+        AppSchemaV8Onboarding.self
+    ]
+
+    static let stages: [MigrationStage] = [
+        .lightweight(
+            fromVersion: AppSchemaV1.self,
+            toVersion: AppSchemaV2Bridge.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV2Bridge.self,
+            toVersion: AppSchemaV3Core.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV3Core.self,
+            toVersion: AppSchemaV4TodayExecution.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV4TodayExecution.self,
+            toVersion: AppSchemaV5PersonalTimeline.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV5PersonalTimeline.self,
+            toVersion: AppSchemaV6CountdownLifecycle.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV6CountdownLifecycle.self,
+            toVersion: AppSchemaV7CountdownIntegrity.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV7CountdownIntegrity.self,
+            toVersion: AppSchemaV8Onboarding.self
+        )
+    ]
+}
+
+enum AppSchemaMigrationPlanThroughV7: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         AppSchemaV1.self,
         AppSchemaV2Bridge.self,
@@ -102,9 +226,18 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
     ]
 
     static let stages: [MigrationStage] = [
-        .lightweight(fromVersion: AppSchemaV1.self, toVersion: AppSchemaV2Bridge.self),
-        .lightweight(fromVersion: AppSchemaV2Bridge.self, toVersion: AppSchemaV3Core.self),
-        .lightweight(fromVersion: AppSchemaV3Core.self, toVersion: AppSchemaV4TodayExecution.self),
+        .lightweight(
+            fromVersion: AppSchemaV1.self,
+            toVersion: AppSchemaV2Bridge.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV2Bridge.self,
+            toVersion: AppSchemaV3Core.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV3Core.self,
+            toVersion: AppSchemaV4TodayExecution.self
+        ),
         .lightweight(
             fromVersion: AppSchemaV4TodayExecution.self,
             toVersion: AppSchemaV5PersonalTimeline.self
@@ -137,12 +270,28 @@ enum AppModelContainerFactory {
         Schema(versionedSchema: AppSchemaV5PersonalTimeline.self)
     }
 
+    static var onboardingSchema: Schema {
+        Schema(versionedSchema: AppSchemaV8Onboarding.self)
+    }
+
     static var countdownLifecycleSchema: Schema {
-        Schema(versionedSchema: AppSchemaV7CountdownIntegrity.self)
+        onboardingSchema
+    }
+
+    static var hrtJourneyLifecycleSchema: Schema {
+        Schema(versionedSchema: AppSchemaV9HrtJourneyLifecycle.self)
+    }
+
+    static var parentRecordLifecycleSchema: Schema {
+        Schema(versionedSchema: AppSchemaV10ParentRecordLifecycle.self)
     }
 
     static var frozenV6CountdownLifecycleSchema: Schema {
         Schema(versionedSchema: AppSchemaV6CountdownLifecycle.self)
+    }
+
+    static var frozenV7CountdownIntegritySchema: Schema {
+        Schema(versionedSchema: AppSchemaV7CountdownIntegrity.self)
     }
 
     static func makeV1Container(at storeURL: URL) throws -> ModelContainer {
@@ -383,6 +532,135 @@ enum AppModelContainerFactory {
         )
     }
 
+    static func makeHrtJourneyLifecycleContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeHrtJourneyLifecycleContainer(
+            at: storeURL,
+            allowsSave: true
+        )
+    }
+
+    static func makeReadOnlyHrtJourneyLifecycleContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeHrtJourneyLifecycleContainer(
+            at: storeURL,
+            allowsSave: false
+        )
+    }
+
+    private static func makeHrtJourneyLifecycleContainer(
+        at storeURL: URL,
+        allowsSave: Bool
+    ) throws -> ModelContainer {
+        let schema = hrtJourneyLifecycleSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeInMemoryHrtJourneyLifecycleContainer()
+        throws -> ModelContainer {
+        let schema = hrtJourneyLifecycleSchema
+        let configuration = ModelConfiguration(
+            "UnmanualHrtJourneyLifecycleTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            allowsSave: true,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeParentRecordLifecycleContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeParentRecordLifecycleContainer(
+            at: storeURL,
+            allowsSave: true
+        )
+    }
+
+    static func makeReadOnlyParentRecordLifecycleContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeParentRecordLifecycleContainer(
+            at: storeURL,
+            allowsSave: false
+        )
+    }
+
+    private static func makeParentRecordLifecycleContainer(
+        at storeURL: URL,
+        allowsSave: Bool
+    ) throws -> ModelContainer {
+        let schema = parentRecordLifecycleSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeInMemoryParentRecordLifecycleContainer()
+        throws -> ModelContainer {
+        let schema = parentRecordLifecycleSchema
+        let configuration = ModelConfiguration(
+            "UnmanualParentRecordLifecycleTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            allowsSave: true,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeV8OnboardingContainer(
+        at storeURL: URL,
+        allowsSave: Bool = true
+    ) throws -> ModelContainer {
+        let schema = onboardingSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlanThroughV8.self,
+            configurations: [configuration]
+        )
+    }
+
     static func makeV6CountdownLifecycleContainer(
         at storeURL: URL,
         allowsSave: Bool = true
@@ -397,7 +675,26 @@ enum AppModelContainerFactory {
         )
         return try ModelContainer(
             for: schema,
-            migrationPlan: AppSchemaMigrationPlan.self,
+            migrationPlan: AppSchemaMigrationPlanThroughV7.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeV7CountdownIntegrityContainer(
+        at storeURL: URL,
+        allowsSave: Bool = true
+    ) throws -> ModelContainer {
+        let schema = frozenV7CountdownIntegritySchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlanThroughV7.self,
             configurations: [configuration]
         )
     }

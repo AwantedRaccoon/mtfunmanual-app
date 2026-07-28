@@ -2,6 +2,20 @@ import Foundation
 import Observation
 import SwiftUI
 
+enum LocalReminderAuthorizationOutcome: Equatable, Sendable {
+    case authorized
+    case denied
+    case limitedBySystemSettings
+    case requestFailed
+    case superseded
+    case suspended
+}
+
+struct LocalReminderAuthorizationResult: Equatable, Sendable {
+    let outcome: LocalReminderAuthorizationOutcome
+    let reconciliationSettled: Bool
+}
+
 @MainActor
 @Observable
 final class LocalReminderRuntime {
@@ -224,14 +238,20 @@ final class LocalReminderRuntime {
         isSuspendedForRecovery = false
     }
 
+    @discardableResult
     func requestAuthorizationAndReconcile(
         reader: AppReadActor,
         writer: AppDataWriter,
         now: Date? = nil,
         displayTimeZoneIdentifier: String = TimeZone.autoupdatingCurrent.identifier
-    ) async {
+    ) async -> LocalReminderAuthorizationResult {
         let epoch = reconciliationEpoch
-        guard !isSuspendedForRecovery else { return }
+        guard !isSuspendedForRecovery else {
+            return LocalReminderAuthorizationResult(
+                outcome: .suspended,
+                reconciliationSettled: false
+            )
+        }
         var authorizationRequestFailed = false
         do {
             let granted = try await client.requestAuthorization()
@@ -239,9 +259,19 @@ final class LocalReminderRuntime {
         } catch {
             authorizationRequestFailed = true
         }
-        guard isCurrent(epoch: epoch) else { return }
+        guard isCurrent(epoch: epoch) else {
+            return LocalReminderAuthorizationResult(
+                outcome: .superseded,
+                reconciliationSettled: false
+            )
+        }
         let settings = await client.settings()
-        guard isCurrent(epoch: epoch) else { return }
+        guard isCurrent(epoch: epoch) else {
+            return LocalReminderAuthorizationResult(
+                outcome: .superseded,
+                reconciliationSettled: false
+            )
+        }
         if authorizationRequestFailed {
             if settings.authorization == .notDetermined {
                 let observedAt: Date
@@ -250,9 +280,14 @@ final class LocalReminderRuntime {
                 } else {
                     observedAt = await nowProvider()
                 }
-                guard isCurrent(epoch: epoch) else { return }
+                guard isCurrent(epoch: epoch) else {
+                    return LocalReminderAuthorizationResult(
+                        outcome: .superseded,
+                        reconciliationSettled: false
+                    )
+                }
                 let sequence = allocateRequestSequence()
-                _ = await process(
+                let didSettle = await process(
                     .failure(
                         FailureRequest(
                             writer: writer,
@@ -263,7 +298,10 @@ final class LocalReminderRuntime {
                         )
                     )
                 )
-                return
+                return LocalReminderAuthorizationResult(
+                    outcome: .requestFailed,
+                    reconciliationSettled: didSettle
+                )
             }
         }
         let resolvedNow: Date
@@ -272,9 +310,14 @@ final class LocalReminderRuntime {
         } else {
             resolvedNow = await nowProvider()
         }
-        guard isCurrent(epoch: epoch) else { return }
+        guard isCurrent(epoch: epoch) else {
+            return LocalReminderAuthorizationResult(
+                outcome: .superseded,
+                reconciliationSettled: false
+            )
+        }
         let sequence = allocateRequestSequence()
-        _ = await process(
+        let didSettle = await process(
             .reconciliation(
                 ReconciliationRequest(
                     reader: reader,
@@ -285,6 +328,26 @@ final class LocalReminderRuntime {
                     sequence: sequence
                 )
             )
+        )
+        guard isCurrent(epoch: epoch) else {
+            return LocalReminderAuthorizationResult(
+                outcome: .superseded,
+                reconciliationSettled: false
+            )
+        }
+        let outcome: LocalReminderAuthorizationOutcome = switch settings.authorization {
+        case .denied:
+            .denied
+        case .notDetermined:
+            .requestFailed
+        case .authorized, .provisional, .ephemeral:
+            settings.alertsEnabled
+                ? .authorized
+                : .limitedBySystemSettings
+        }
+        return LocalReminderAuthorizationResult(
+            outcome: outcome,
+            reconciliationSettled: didSettle
         )
     }
 

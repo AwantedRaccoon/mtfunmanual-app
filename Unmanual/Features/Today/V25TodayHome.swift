@@ -8,10 +8,12 @@ struct V25TodayHome: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     let profile: HRTProfileSnapshot?
+    let hrtJourney: HrtJourneySnapshot?
     let countdown: CountdownTodaySnapshot?
     let regimens: [CoreRegimenVersionSnapshot]
     let latestLab: PersonalTimelineItem?
     let entries: [JourneyEntrySnapshot]
+    let gentleModeEnabled: Bool
     let quickRecordAction: () -> Void
     let startDateAction: () -> Void
     let countdownAction: () -> Void
@@ -34,10 +36,12 @@ struct V25TodayHome: View {
 
     init(
         profile: HRTProfileSnapshot?,
+        hrtJourney: HrtJourneySnapshot? = nil,
         countdown: CountdownTodaySnapshot?,
         regimens: [CoreRegimenVersionSnapshot],
         latestLab: PersonalTimelineItem? = nil,
         entries: [JourneyEntrySnapshot],
+        gentleModeEnabled: Bool = false,
         quickRecordAction: @escaping () -> Void,
         startDateAction: @escaping () -> Void,
         countdownAction: @escaping () -> Void,
@@ -59,10 +63,12 @@ struct V25TodayHome: View {
         correctionAction: @escaping (TodayExecutionItemSnapshot) -> Void = { _ in }
     ) {
         self.profile = profile
+        self.hrtJourney = hrtJourney
         self.countdown = countdown
         self.regimens = regimens
         self.latestLab = latestLab
         self.entries = entries
+        self.gentleModeEnabled = gentleModeEnabled
         self.quickRecordAction = quickRecordAction
         self.startDateAction = startDateAction
         self.countdownAction = countdownAction
@@ -85,7 +91,10 @@ struct V25TodayHome: View {
     }
 
     private var hrtDay: Int? {
-        profile.map { DateFacts.hrtDay(startDate: $0.startDate) }
+        if let hrtJourney {
+            return hrtJourney.summary.currentPhaseDay
+        }
+        return profile.map { DateFacts.hrtDay(startDate: $0.startDate) }
     }
 
     private var activeRegimen: CoreRegimenVersionSnapshot? {
@@ -215,7 +224,9 @@ struct V25TodayHome: View {
 
     @ViewBuilder
     private var dayRuler: some View {
-        if let hrtDay {
+        if hrtJourney?.summary.state == .paused {
+            pausedJourney
+        } else if let hrtDay {
             VStack(spacing: 0) {
                 rulerHeading
                 neighborDay(max(1, hrtDay - 2))
@@ -227,7 +238,7 @@ struct V25TodayHome: View {
             }
             .accessibilityElement(children: .contain)
         } else {
-            setupStartDate
+            emptyTodayHero
         }
     }
 
@@ -291,8 +302,8 @@ struct V25TodayHome: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(V25PressStyle())
-                .accessibilityLabel("HRT 第 \(day) 天")
-                .accessibilityHint("点按修改开始日")
+                .accessibilityLabel("HRT 本周期第 \(day) 天")
+                .accessibilityHint("点按管理 HRT 历程")
                 .accessibilityIdentifier("today.v25.editStartDate")
 
                 Spacer(minLength: 10)
@@ -321,10 +332,18 @@ struct V25TodayHome: View {
     private var startDateLine: some View {
         Button(action: startDateAction) {
             HStack {
-                Text("从这里开始")
+                Text(
+                    hrtJourney.map {
+                        "从首次开始第 \($0.summary.overallJourneyDay) 个自然日 · 第 \($0.summary.periodCount) 段"
+                    } ?? "从这里开始"
+                )
                     .font(.caption.weight(.bold))
                 Spacer()
-                Text(profile?.startDate.unmanualShortDateText ?? "设置开始日")
+                Text(
+                    hrtJourney?.firstEverStartDate.unmanualShortDateText
+                        ?? profile?.startDate.unmanualShortDateText
+                        ?? "设置开始日"
+                )
                     .font(theme.utility(11))
                     .monospacedDigit()
             }
@@ -335,45 +354,106 @@ struct V25TodayHome: View {
         .buttonStyle(V25PressStyle())
     }
 
-    private var setupStartDate: some View {
+    private var pausedJourney: some View {
         Button(action: startDateAction) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("HRT 历程")
+                        .font(.caption.weight(.black))
+                    Spacer()
+                    Text("已暂停")
+                        .font(theme.utility(11))
+                        .tracking(0.8)
+                }
+                Text("HRT 历程当前已暂停")
+                    .font(theme.display(30, relativeTo: .title))
+                if let summary = hrtJourney?.summary {
+                    Text(
+                        "暂停第 \(summary.pausedDay ?? 1) 天 · 从首次开始第 \(summary.overallJourneyDay) 个自然日 · 已记录 \(summary.periodCount) 段"
+                    )
+                    .font(.body.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Label("记录恢复", systemImage: "arrow.right")
+                    .font(.headline.weight(.black))
+            }
+            .foregroundStyle(theme.indigoDeep)
+            .padding(20)
+            .frame(maxWidth: .infinity, minHeight: 210, alignment: .leading)
+            .background(theme.mustard.opacity(0.25))
+            .overlay {
+                Rectangle().stroke(theme.indigo, lineWidth: 2)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(V25PressStyle())
+        .accessibilityIdentifier("today.hrtJourney.paused")
+        .accessibilityHint("点按记录恢复日期")
+    }
+
+    private var emptyTodayHero: some View {
+        Button(action: quickRecordAction) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("HRT 日数刻度")
+                Text("LOCAL / NOW")
                     .font(.caption.weight(.black))
-                Text("先标记你的开始日")
+                Text("今天先从此刻开始")
                     .font(theme.display(34, relativeTo: .largeTitle))
-                Label("设置开始日", systemImage: "arrow.right")
+                Text("不需要先填写 HRT 日期或化验资料。想留下什么时，再记录一条。")
+                    .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                Label(
+                    hasEntryToday ? "再记一条" : "记录此刻",
+                    systemImage: "plus"
+                )
                     .font(.headline.weight(.black))
             }
             .foregroundStyle(theme.paper)
             .padding(20)
-            .frame(maxWidth: .infinity, minHeight: 240, alignment: .leading)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: 190,
+                alignment: .leading
+            )
             .background(theme.indigo)
             .contentShape(Rectangle())
         }
         .buttonStyle(V25PressStyle())
-        .accessibilityIdentifier("today.v25.addStartDate")
+        .accessibilityIdentifier("today.v25.quickRecord")
     }
 
     private var accessibleNow: some View {
         VStack(spacing: 12) {
-            Button(action: startDateAction) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("此刻")
-                        .font(.caption.weight(.black))
-                    Text(hrtDay.map { "HRT 第 \($0) 天" } ?? "设置 HRT 开始日")
-                        .font(.largeTitle.weight(.black))
-                    Text(profile?.startDate.unmanualShortDateText ?? "尚未设置")
-                        .font(.body.monospacedDigit())
+            if hrtDay != nil
+                || hrtJourney?.summary.state == .paused {
+                Button(action: startDateAction) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("此刻")
+                            .font(.caption.weight(.black))
+                        Text(accessibleHrtStatus)
+                            .font(.largeTitle.weight(.black))
+                        Text(accessibleHrtDetail)
+                            .font(.body.monospacedDigit())
+                    }
+                    .foregroundStyle(theme.indigoDeep)
+                    .padding(20)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 154,
+                        alignment: .leading
+                    )
+                    .background(theme.blue.opacity(0.26))
+                    .overlay {
+                        Rectangle().stroke(theme.indigo, lineWidth: 2)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(theme.indigoDeep)
-                .padding(20)
-                .frame(maxWidth: .infinity, minHeight: 154, alignment: .leading)
-                .background(theme.blue.opacity(0.26))
-                .overlay { Rectangle().stroke(theme.indigo, lineWidth: 2) }
-                .contentShape(Rectangle())
+                .buttonStyle(V25PressStyle())
+                .accessibilityIdentifier(
+                    hrtJourney?.summary.state == .paused
+                        ? "today.hrtJourney.paused"
+                        : "today.v25.editStartDate"
+                )
             }
-            .buttonStyle(V25PressStyle())
 
             Button(action: quickRecordAction) {
                 Label(hasEntryToday ? "再记一条" : "记录此刻", systemImage: "plus")
@@ -390,6 +470,26 @@ struct V25TodayHome: View {
         .padding(.bottom, 16)
     }
 
+    private var accessibleHrtStatus: String {
+        if hrtJourney?.summary.state == .paused {
+            return "HRT 历程当前已暂停"
+        }
+        return hrtDay.map {
+            "本周期第 \($0) 天"
+        } ?? "设置 HRT 开始日"
+    }
+
+    private var accessibleHrtDetail: String {
+        guard let hrtJourney else {
+            return profile?.startDate.unmanualShortDateText ?? "尚未设置"
+        }
+        let summary = hrtJourney.summary
+        if summary.state == .paused {
+            return "暂停第 \(summary.pausedDay ?? 1) 天；从首次开始第 \(summary.overallJourneyDay) 个自然日"
+        }
+        return "从首次开始第 \(summary.overallJourneyDay) 个自然日；第 \(summary.periodCount) 段"
+    }
+
     private var context: some View {
         Group {
             if dynamicTypeSize.isAccessibilitySize {
@@ -398,7 +498,9 @@ struct V25TodayHome: View {
                         countdownContext
                     }
                     regimenContext
-                    labContext
+                    if latestLab != nil {
+                        labContext
+                    }
                 }
             } else {
                 VStack(spacing: 0) {
@@ -408,7 +510,9 @@ struct V25TodayHome: View {
                         }
                         regimenContext
                     }
-                    labContext
+                    if latestLab != nil {
+                        labContext
+                    }
                 }
             }
         }
@@ -442,8 +546,11 @@ struct V25TodayHome: View {
     }
 
     private var labContext: some View {
-        V25ContextItem(
-            label: "最近化验",
+        let copy = LabSurfaceDisplayPolicy.copy(
+            gentleModeEnabled: gentleModeEnabled
+        )
+        return V25ContextItem(
+            label: copy.todayLabel,
             value: labValue,
             detail: latestLab?.localDate.iso8601 ?? "尚无记录",
             metadata: "查看完整原始记录",

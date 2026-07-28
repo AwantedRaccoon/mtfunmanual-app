@@ -16,6 +16,9 @@ struct ArchiveView: View {
     @State private var isLoadingGentleMode = true
     @State private var isSavingGentleMode = false
     @State private var gentleModeErrorMessage: String?
+    @State private var onboardingPresentation:
+        ArchiveOnboardingPresentation?
+    @State private var onboardingErrorMessage: String?
 
     var body: some View {
         V25Page {
@@ -70,6 +73,7 @@ struct ArchiveView: View {
                     isLoadingGentleMode: isLoadingGentleMode,
                     isSavingGentleMode: isSavingGentleMode,
                     gentleModeAction: setGentleMode,
+                    setupAction: openOnboardingSettings,
                     storageAction: { destination = .localStorage },
                     deleteAction: { destination = .deleteAndReset }
                 )
@@ -80,6 +84,15 @@ struct ArchiveView: View {
                         .padding(.top, 10)
                         .accessibilityIdentifier(
                             "archive.gentleModeError"
+                        )
+                }
+                if let onboardingErrorMessage {
+                    Text(onboardingErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(theme.vermilionText)
+                        .padding(.top, 10)
+                        .accessibilityIdentifier(
+                            "archive.onboardingError"
                         )
                 }
 
@@ -119,6 +132,14 @@ struct ArchiveView: View {
                 )
             }
             .interactiveDismissDisabled()
+        }
+        .fullScreenCover(item: $onboardingPresentation) {
+            presentation in
+            OnboardingFlowView(
+                mode: .revisit,
+                initialSnapshot: presentation.snapshot,
+                close: { onboardingPresentation = nil }
+            )
         }
         .sheet(item: $destination) { destination in
             Group {
@@ -208,6 +229,28 @@ struct ArchiveView: View {
         }
     }
 
+    private func openOnboardingSettings() {
+        guard let appReadActor else {
+            onboardingErrorMessage =
+                "本地资料尚未准备好，首次设置没有打开。"
+            return
+        }
+        onboardingErrorMessage = nil
+        Task {
+            do {
+                let snapshot = try await appReadActor
+                    .onboardingSnapshot()
+                onboardingPresentation = ArchiveOnboardingPresentation(
+                    snapshot: snapshot
+                )
+            } catch {
+                onboardingPresentation = nil
+                onboardingErrorMessage =
+                    "首次设置状态没有通过完整性检查。"
+            }
+        }
+    }
+
     private func archiveReadError(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("档案摘要需要重新读取")
@@ -228,6 +271,11 @@ struct ArchiveView: View {
         .background(theme.rose.opacity(0.28))
         .overlay { Rectangle().stroke(theme.vermilion, lineWidth: 2) }
     }
+}
+
+private struct ArchiveOnboardingPresentation: Identifiable {
+    let id = UUID()
+    let snapshot: OnboardingSnapshot
 }
 
 private struct ArchiveDossierCover: View {
@@ -494,6 +542,7 @@ private struct ArchiveControlLedger: View {
     let isLoadingGentleMode: Bool
     let isSavingGentleMode: Bool
     let gentleModeAction: (Bool) -> Void
+    let setupAction: () -> Void
     let storageAction: () -> Void
     let deleteAction: () -> Void
 
@@ -503,6 +552,7 @@ private struct ArchiveControlLedger: View {
         isLoadingGentleMode: Bool,
         isSavingGentleMode: Bool,
         gentleModeAction: @escaping (Bool) -> Void,
+        setupAction: @escaping () -> Void,
         storageAction: @escaping () -> Void,
         deleteAction: @escaping () -> Void
     ) {
@@ -511,6 +561,7 @@ private struct ArchiveControlLedger: View {
         self.isLoadingGentleMode = isLoadingGentleMode
         self.isSavingGentleMode = isSavingGentleMode
         self.gentleModeAction = gentleModeAction
+        self.setupAction = setupAction
         self.storageAction = storageAction
         self.deleteAction = deleteAction
         _localGentleModeEnabled = State(
@@ -577,6 +628,14 @@ private struct ArchiveControlLedger: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("archive.gentleMode")
+            ArchiveLedgerRow(
+                title: "首次设置与提醒",
+                detail: "重新查看开始日、方案、提醒和 Countdown；不会重置完成状态。",
+                status: "可再次修改",
+                color: theme.mustard,
+                accessibilityIdentifier: "archive.onboarding",
+                action: setupAction
+            )
             ArchiveLedgerRow(
                 title: "本地存储说明",
                 detail: "看看哪些内容留在设备里，导出后又会发生什么。",

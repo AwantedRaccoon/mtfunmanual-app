@@ -18,25 +18,31 @@ enum PersonalTimelineBackfill {
         descriptor.fetchLimit = 2
         let states = try context.fetch(descriptor)
         guard states.count <= 1 else { throw AppDataFailure.migrationFailed }
-        if let state = states.first, state.completedAt != nil {
-            return PersonalTimelineBackfillOutcome(
-                didComplete: true,
-                didChangeStore: false
-            )
-        }
 
         do {
+            var didChangeStore = false
             try context.transaction {
                 let state = states.first ?? PersonalTimelineBackfillState(updatedAt: now)
-                if states.isEmpty { context.insert(state) }
+                if states.isEmpty {
+                    context.insert(state)
+                    didChangeStore = true
+                }
                 let facts = try migrateLegacyLabs(in: context, now: now)
-                try ensureRevisions(for: facts, in: context, now: now)
-                state.completedAt = now
-                state.updatedAt = now
+                if !facts.isEmpty {
+                    try ensureRevisions(for: facts, in: context, now: now)
+                    didChangeStore = true
+                }
+                if state.completedAt == nil {
+                    state.completedAt = now
+                    state.updatedAt = now
+                    didChangeStore = true
+                } else if !facts.isEmpty {
+                    state.updatedAt = now
+                }
             }
             return PersonalTimelineBackfillOutcome(
                 didComplete: true,
-                didChangeStore: true
+                didChangeStore: didChangeStore
             )
         } catch {
             context.rollback()
@@ -54,6 +60,14 @@ enum PersonalTimelineBackfill {
         var results: [LabResultRecord] = []
         var historicalTimes: [HistoricalTimeRecord] = []
         var receipts: [OperationReceiptRecord] = []
+
+        var isEmpty: Bool {
+            definitions.isEmpty
+                && samples.isEmpty
+                && results.isEmpty
+                && historicalTimes.isEmpty
+                && receipts.isEmpty
+        }
     }
 
     private static func migrateLegacyLabs(
@@ -65,22 +79,38 @@ enum PersonalTimelineBackfill {
                 sortBy: [SortDescriptor(\.sampledAt), SortDescriptor(\.id)]
             )
         )
-        let existingSamples = Set(
-            try context.fetch(FetchDescriptor<LabSampleRecord>()).map(\.id)
+        let existingSamples = try AppDataIndex.checkedUniqueMap(
+            try context.fetch(FetchDescriptor<LabSampleRecord>()),
+            keyedBy: \.id,
+            failure: .migrationFailed
         )
-        let existingResults = Set(
-            try context.fetch(FetchDescriptor<LabResultRecord>()).map(\.id)
+        let existingResults = try AppDataIndex.checkedUniqueMap(
+            try context.fetch(FetchDescriptor<LabResultRecord>()),
+            keyedBy: \.id,
+            failure: .migrationFailed
         )
-        let existingDefinitions = Set(
-            try context.fetch(FetchDescriptor<LabItemDefinitionRecord>()).map(\.id)
+        let existingDefinitions = try AppDataIndex.checkedUniqueMap(
+            try context.fetch(FetchDescriptor<LabItemDefinitionRecord>()),
+            keyedBy: \.id,
+            failure: .migrationFailed
         )
-        let existingReceiptOperationIDs = Set(
-            try context.fetch(FetchDescriptor<OperationReceiptRecord>())
-                .map(\.operationID)
+        let existingReceipts = try AppDataIndex.checkedUniqueMap(
+            try context.fetch(FetchDescriptor<OperationReceiptRecord>()),
+            keyedBy: \.operationID,
+            failure: .migrationFailed
         )
-        let legacyTimes = try context.fetch(FetchDescriptor<HistoricalTimeRecord>())
+        let historicalTimes = try context.fetch(
+            FetchDescriptor<HistoricalTimeRecord>()
+        )
         let legacyTimeByID = try AppDataIndex.checkedUniqueMap(
-            legacyTimes.filter { $0.sourceRecordType == "LabRecord" },
+            historicalTimes.filter { $0.sourceRecordType == "LabRecord" },
+            keyedBy: \.sourceRecordID,
+            failure: .migrationFailed
+        )
+        let canonicalTimeByID = try AppDataIndex.checkedUniqueMap(
+            historicalTimes.filter {
+                $0.sourceRecordType == "LabSampleRecord"
+            },
             keyedBy: \.sourceRecordID,
             failure: .migrationFailed
         )
@@ -92,10 +122,7 @@ enum PersonalTimelineBackfill {
                 namespace: "legacy-lab-definition",
                 value: source.id.uuidString
             )
-            guard !existingSamples.contains(sampleID),
-                  !existingResults.contains(source.id),
-                  !existingDefinitions.contains(definitionID),
-                  let legacyTime = legacyTimeByID[source.id],
+            guard let legacyTime = legacyTimeByID[source.id],
                   let timestamp = legacyTime.historicalTimestamp,
                   let associationState = HistoricalAssociationState(
                       rawValue: legacyTime.associationStateRawValue
@@ -116,9 +143,6 @@ enum PersonalTimelineBackfill {
                 namespace: "legacy-lab-operation",
                 value: source.id.uuidString
             )
-            guard !existingReceiptOperationIDs.contains(operationID) else {
-                throw AppDataFailure.migrationFailed
-            }
             let sample = LabSampleRecord(
                 id: sampleID,
                 operationID: operationID,
@@ -166,6 +190,36 @@ enum PersonalTimelineBackfill {
                 resultRecordID: sampleID,
                 committedAt: source.createdAt
             )
+            let existing = (
+                definition: existingDefinitions[definitionID],
+                sample: existingSamples[sampleID],
+                result: existingResults[source.id],
+                historicalTime: canonicalTimeByID[sampleID],
+                receipt: existingReceipts[operationID]
+            )
+            let existingCount = [
+                existing.definition != nil,
+                existing.sample != nil,
+                existing.result != nil,
+                existing.historicalTime != nil,
+                existing.receipt != nil
+            ].filter { $0 }.count
+            if existingCount == 5 {
+                guard try matches(
+                    existing: existing,
+                    expectedDefinition: definition,
+                    expectedSample: sample,
+                    expectedResult: result,
+                    expectedHistoricalTime: historical,
+                    expectedReceipt: receipt
+                ) else {
+                    throw AppDataFailure.migrationFailed
+                }
+                continue
+            }
+            guard existingCount == 0 else {
+                throw AppDataFailure.migrationFailed
+            }
             context.insert(definition)
             context.insert(sample)
             context.insert(result)
@@ -178,6 +232,43 @@ enum PersonalTimelineBackfill {
             facts.receipts.append(receipt)
         }
         return facts
+    }
+
+    private static func matches(
+        existing: (
+            definition: LabItemDefinitionRecord?,
+            sample: LabSampleRecord?,
+            result: LabResultRecord?,
+            historicalTime: HistoricalTimeRecord?,
+            receipt: OperationReceiptRecord?
+        ),
+        expectedDefinition: LabItemDefinitionRecord,
+        expectedSample: LabSampleRecord,
+        expectedResult: LabResultRecord,
+        expectedHistoricalTime: HistoricalTimeRecord,
+        expectedReceipt: OperationReceiptRecord
+    ) throws -> Bool {
+        guard let definition = existing.definition,
+              let sample = existing.sample,
+              let result = existing.result,
+              let historicalTime = existing.historicalTime,
+              let receipt = existing.receipt else {
+            return false
+        }
+        return try PersonalTimelineDigestV1.labItemDefinition(definition)
+                == PersonalTimelineDigestV1.labItemDefinition(
+                    expectedDefinition
+                )
+            && PersonalTimelineDigestV1.labSample(sample)
+                == PersonalTimelineDigestV1.labSample(expectedSample)
+            && PersonalTimelineDigestV1.labResult(result)
+                == PersonalTimelineDigestV1.labResult(expectedResult)
+            && CoreFactDigestV1.historicalTime(historicalTime)
+                == CoreFactDigestV1.historicalTime(
+                    expectedHistoricalTime
+                )
+            && TodayExecutionDigestV1.operationReceipt(receipt)
+                == TodayExecutionDigestV1.operationReceipt(expectedReceipt)
     }
 
     private static func ensureRevisions(
@@ -223,11 +314,15 @@ enum PersonalTimelineBackfill {
         let existingKeys = Set(
             try context.fetch(FetchDescriptor<RecordRevision>()).map(\.recordKey)
         )
+        guard !revisionFacts.isEmpty,
+              metadata.nextLocalRevision > 0,
+              metadata.nextLocalRevision < Int64.max else {
+            throw AppDataFailure.migrationFailed
+        }
+        let sharedRevision = metadata.nextLocalRevision
         for (type, id, fields, createdAt) in revisionFacts {
             let key = type + ":" + id.uuidString.lowercased()
-            guard !existingKeys.contains(key),
-                  metadata.nextLocalRevision > 0,
-                  metadata.nextLocalRevision < Int64.max else {
+            guard !existingKeys.contains(key) else {
                 throw AppDataFailure.migrationFailed
             }
             context.insert(
@@ -236,7 +331,7 @@ enum PersonalTimelineBackfill {
                     recordType: type,
                     recordID: id,
                     datasetID: metadata.datasetID,
-                    localRevision: metadata.nextLocalRevision,
+                    localRevision: sharedRevision,
                     digestVersion: RecordDigestV1.version,
                     digestHex: try RecordDigestV1.sha256Hex(
                         recordType: type,
@@ -246,8 +341,8 @@ enum PersonalTimelineBackfill {
                     committedAt: max(createdAt, now)
                 )
             )
-            metadata.nextLocalRevision += 1
         }
+        metadata.nextLocalRevision += 1
 
         if !facts.receipts.isEmpty {
             var ledgerDescriptor =
@@ -288,8 +383,9 @@ enum PersonalTimelineBackfill {
             ledgerRevision.recordType = ledgerRecordType
             ledgerRevision.recordID = ledgerRecordID
             ledgerRevision.datasetID = metadata.datasetID
-            // The final receipt and its ledger projection are one atomic change.
-            ledgerRevision.localRevision = metadata.nextLocalRevision - 1
+            // All facts produced by this reconciliation transaction, including
+            // the receipt ledger projection, share one semantic revision.
+            ledgerRevision.localRevision = sharedRevision
             ledgerRevision.digestVersion = RecordDigestV1.version
             ledgerRevision.digestHex = try RecordDigestV1.sha256Hex(
                 recordType: ledgerRecordType,

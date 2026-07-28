@@ -32,6 +32,13 @@ struct JourneyView: View {
                     CountdownLedgerView()
                 }
             }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: .unmanualLocalDataChanged
+                )
+            ) { _ in
+                refreshToken &+= 1
+            }
     }
 
     private func presentRecordEditor() {

@@ -154,7 +154,7 @@ struct Batch1FixtureCounts: Codable, Equatable, Sendable {
         journeyEntries: 7_300,
         labRecords: 1_200,
         migrationIssues: 0,
-        revisions: 23_414
+        revisions: 25_819
     )
 
     let profiles: Int
@@ -265,12 +265,103 @@ enum Batch1V7FoundationContract {
         + Batch1V5PersonalTimelineCounts.expected.canonicalFacts
         + Batch1V6CountdownCounts.expected.canonicalFacts
         + Batch1V7CountdownIntegrityCounts.expected.canonicalFacts + 1
-    static let activatedRevisionCount = Batch1FixtureCounts.expected.revisions
-    // Updating the existing receipt-ledger revision consumes one additional
-    // local-revision sequence value without increasing the revision count.
-    static let nextLocalRevision = Int64(activatedRevisionCount + 2)
+    static let activatedRevisionCount = activatedFactCount
+    // V5 reconciles its 6,000 additive facts and the receipt-ledger projection
+    // as one semantic transaction, so those revisions share one local
+    // sequence value. Later V6/V7 backfills retain their frozen allocation.
+    static let nextLocalRevision: Int64 = 17_417
+}
+
+enum Batch1V8FoundationContract {
+    // V8 adds onboarding progress and adoption-state facts and rewrites the
+    // existing preferences revision. All three facts share one local revision
+    // as one semantic backfill transaction, so the sequence advances one
+    // value while the revision/fact counts grow by two.
+    static let activatedFactCount =
+        Batch1V7FoundationContract.activatedFactCount + 2
+    static let activatedRevisionCount =
+        Batch1V7FoundationContract.activatedRevisionCount + 2
+    static let nextLocalRevision =
+        Batch1V7FoundationContract.nextLocalRevision + 1
     static let quickWriteAddedFactCount = 2
-    static let postQuickWriteRevisionCount = activatedRevisionCount + quickWriteAddedFactCount
+    static let postQuickWriteRevisionCount =
+        activatedRevisionCount + quickWriteAddedFactCount
+    static let postQuickWriteNextLocalRevision = nextLocalRevision + 1
+}
+
+struct Batch1V9HrtJourneyCounts: Codable, Equatable, Sendable {
+    static let expected = Batch1V9HrtJourneyCounts(
+        lifecycleEvents: 1,
+        backfillStates: 1
+    )
+
+    let lifecycleEvents: Int
+    let backfillStates: Int
+
+    var canonicalFacts: Int {
+        lifecycleEvents + backfillStates
+    }
+}
+
+enum Batch1V9FoundationContract {
+    // The five-year legacy source has one HRT profile, so V9 adds one
+    // migrated-snapshot event and one lifecycle backfill-state revision in a
+    // single reserved local revision.
+    static let activatedFactCount =
+        Batch1V8FoundationContract.activatedFactCount
+        + Batch1V9HrtJourneyCounts.expected.canonicalFacts
+    static let activatedRevisionCount =
+        Batch1V8FoundationContract.activatedRevisionCount
+        + Batch1V9HrtJourneyCounts.expected.canonicalFacts
+    static let nextLocalRevision =
+        Batch1V8FoundationContract.nextLocalRevision + 1
+    static let quickWriteAddedFactCount = 2
+    static let postQuickWriteRevisionCount =
+        activatedRevisionCount + quickWriteAddedFactCount
+    static let postQuickWriteNextLocalRevision = nextLocalRevision + 1
+}
+
+struct Batch1V10ParentRecordCounts: Codable, Equatable, Sendable {
+    static let expected = Batch1V10ParentRecordCounts(
+        lifecycleHeads: 1_200,
+        mutationEvents: 1_200,
+        labCorrectionSnapshots: 0,
+        labResultCorrectionSnapshots: 0,
+        statusCorrectionSnapshots: 0,
+        deletionTombstones: 0,
+        backfillStates: 1
+    )
+
+    let lifecycleHeads: Int
+    let mutationEvents: Int
+    let labCorrectionSnapshots: Int
+    let labResultCorrectionSnapshots: Int
+    let statusCorrectionSnapshots: Int
+    let deletionTombstones: Int
+    let backfillStates: Int
+
+    var canonicalFacts: Int {
+        lifecycleHeads + mutationEvents + labCorrectionSnapshots
+            + labResultCorrectionSnapshots + statusCorrectionSnapshots
+            + deletionTombstones + backfillStates
+    }
+}
+
+enum Batch1V10FoundationContract {
+    // The five-year legacy source has 1,200 canonical lab samples and no
+    // status observations. V10 adds one lifecycle head and one migrated root
+    // per parent, plus a single backfill-state fact, in one reserved revision.
+    static let activatedFactCount =
+        Batch1V9FoundationContract.activatedFactCount
+        + Batch1V10ParentRecordCounts.expected.canonicalFacts
+    static let activatedRevisionCount =
+        Batch1V9FoundationContract.activatedRevisionCount
+        + Batch1V10ParentRecordCounts.expected.canonicalFacts
+    static let nextLocalRevision =
+        Batch1V9FoundationContract.nextLocalRevision + 1
+    static let quickWriteAddedFactCount = 2
+    static let postQuickWriteRevisionCount =
+        activatedRevisionCount + quickWriteAddedFactCount
     static let postQuickWriteNextLocalRevision = nextLocalRevision + 1
 }
 

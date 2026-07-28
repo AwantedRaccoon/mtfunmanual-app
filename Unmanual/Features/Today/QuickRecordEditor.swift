@@ -37,11 +37,23 @@ struct QuickRecordEditor: View {
         )
     }
 
+    private var canDismiss: Bool {
+        EditorWriteDismissalPolicy.allowsDismiss(
+            isWriting: isSaving
+        )
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    JourneyRecordHeader(cancel: dismiss.callAsFunction)
+                    JourneyRecordHeader(
+                        isCancelEnabled: canDismiss,
+                        cancel: {
+                            guard canDismiss else { return }
+                            dismiss()
+                        }
+                    )
 
                     JourneyRecordIntro()
                         .padding(.top, 24)
@@ -105,6 +117,7 @@ struct QuickRecordEditor: View {
             .onAppear { isTextFocused = autofocus }
         }
         .tint(theme.indigo)
+        .interactiveDismissDisabled(!canDismiss)
         .localSaveErrorAlert(message: $saveErrorMessage)
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -227,6 +240,7 @@ private struct JourneyRecordHeader: View {
     @Environment(AppTheme.self) private var theme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    let isCancelEnabled: Bool
     let cancel: () -> Void
 
     var body: some View {
@@ -237,6 +251,8 @@ private struct JourneyRecordHeader: View {
                         .font(.body.weight(.semibold))
                         .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                         .buttonStyle(.plain)
+                        .disabled(!isCancelEnabled)
+                        .opacity(isCancelEnabled ? 1 : 0.46)
                     Text("LOCAL / JOURNEY")
                         .font(.caption2.weight(.bold))
                 }
@@ -247,6 +263,8 @@ private struct JourneyRecordHeader: View {
                         .font(.body.weight(.semibold))
                         .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                         .buttonStyle(.plain)
+                        .disabled(!isCancelEnabled)
+                        .opacity(isCancelEnabled ? 1 : 0.46)
 
                     Spacer()
 

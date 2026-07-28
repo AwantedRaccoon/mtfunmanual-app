@@ -168,7 +168,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         let didClear = await runtime.suspendForRecoveryAndClearOwnedPending()
         XCTAssertTrue(didClear)
         await client.releaseAuthorization()
-        await authorizationTask.value
+        _ = await authorizationTask.value
 
         let pending = await client.pendingRequests()
         XCTAssertTrue(pending.isEmpty)
@@ -496,7 +496,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
         let store = try makeRuntimeStore()
         let runtime = LocalReminderRuntime(client: AuthorizationFailureNotificationClient())
 
-        await runtime.requestAuthorizationAndReconcile(
+        let result = await runtime.requestAuthorizationAndReconcile(
             reader: store.reader,
             writer: store.writer,
             now: referenceDate,
@@ -510,6 +510,32 @@ final class LocalReminderSchedulingTests: XCTestCase {
         XCTAssertEqual(snapshot.coverage.status, .schedulingFailed)
         XCTAssertEqual(snapshot.coverage.lastErrorCode, "authorization-request-failed")
         XCTAssertEqual(runtime.lastErrorCode, "authorization-request-failed")
+        XCTAssertEqual(result.outcome, .requestFailed)
+        XCTAssertTrue(result.reconciliationSettled)
+    }
+
+    @MainActor
+    func testAuthorizationDenialReturnsStructuredOutcomeAndBlockedCoverage()
+        async throws {
+        let store = try makeEnabledRuntimeStore()
+        let runtime = LocalReminderRuntime(
+            client: DebugDeniedNotificationClient()
+        )
+
+        let result = await runtime.requestAuthorizationAndReconcile(
+            reader: store.reader,
+            writer: store.writer,
+            now: referenceDate,
+            displayTimeZoneIdentifier: "UTC"
+        )
+
+        let snapshot = try await store.reader.todayExecutionSnapshot(
+            now: referenceDate,
+            displayTimeZoneIdentifier: "UTC"
+        )
+        XCTAssertEqual(result.outcome, .denied)
+        XCTAssertTrue(result.reconciliationSettled)
+        XCTAssertEqual(snapshot.coverage.status, .blockedByPermission)
     }
 
     @MainActor
@@ -535,7 +561,7 @@ final class LocalReminderSchedulingTests: XCTestCase {
             displayTimeZoneIdentifier: "UTC"
         )
         await client.releaseAuthorizationAsGranted()
-        await authorizationTask.value
+        _ = await authorizationTask.value
 
         let snapshot = try await store.reader.todayExecutionSnapshot(
             now: referenceDate,

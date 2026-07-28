@@ -21,6 +21,7 @@ enum AttachmentFileStoreCommitFailpoint: Equatable, Sendable {
 enum AttachmentFileStoreFailureInjection: Equatable, Sendable {
     case discard
     case markMetadataCommitted
+    case stageDeletion(UUID)
     case rollbackDeletion
     case finalizeDeletion
 }
@@ -515,6 +516,9 @@ struct AttachmentFileStore: Sendable {
         operationID: UUID
     ) throws -> AttachmentStagedDeletion {
         try prepareDirectories()
+        if failureInjection == .stageDeletion(attachment.id) {
+            throw AttachmentFileStoreFailure.simulatedInterruption
+        }
         guard AttachmentPathFacts.isOpaquePath(
             attachment.relativePath,
             attachmentID: attachment.id,
@@ -1411,6 +1415,156 @@ actor AttachmentMutationService {
         }
     }
 
+    func correctLabSample(
+        _ command: CorrectLabSampleCommand
+    ) async throws -> ParentRecordMutationResult {
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard previewingAttachmentIDs.isEmpty else {
+            throw AttachmentMutationFailure.previewInProgress
+        }
+        guard acquireMutationLease() else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        defer { releaseMutationLease() }
+        let result = try await writer.correctLabSample(command)
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        return result
+    }
+
+    func correctStatusObservation(
+        _ command: CorrectStatusObservationCommand
+    ) async throws -> ParentRecordMutationResult {
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard previewingAttachmentIDs.isEmpty else {
+            throw AttachmentMutationFailure.previewInProgress
+        }
+        guard acquireMutationLease() else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        defer { releaseMutationLease() }
+        let result = try await writer.correctStatusObservation(command)
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        return result
+    }
+
+    func deleteParentRecord(
+        impact: ParentRecordDeletionImpact,
+        committedAt: Date = Date(),
+        writeFailureInjection: AppWriteFailureInjection? = nil
+    ) async throws -> ParentRecordMutationResult {
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard previewingAttachmentIDs.isEmpty else {
+            throw AttachmentMutationFailure.previewInProgress
+        }
+        guard acquireMutationLease() else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        defer { releaseMutationLease() }
+
+        try await writer.validateParentRecordDeletionImpact(impact)
+
+        let pairs = impact.attachments.sorted {
+            $0.id.uuidString < $1.id.uuidString
+        }.map {
+            ParentRecordDeletionAttachment(
+                attachment: $0,
+                deletionOperationID: UUID()
+            )
+        }
+        let attachmentIDs = Set(pairs.map(\.attachment.id))
+        guard deletingAttachmentIDs.isDisjoint(with: attachmentIDs) else {
+            throw AttachmentMutationFailure.mutationInProgress
+        }
+        deletingAttachmentIDs.formUnion(attachmentIDs)
+        defer { deletingAttachmentIDs.subtract(attachmentIDs) }
+
+        var staged: [AttachmentStagedDeletion] = []
+        do {
+            for pair in pairs {
+                let deletion = try await ioQueue.perform { [fileStore] in
+                    try fileStore.stageDeletion(
+                        attachment: pair.attachment,
+                        operationID: pair.deletionOperationID
+                    )
+                }
+                staged.append(deletion)
+            }
+        } catch {
+            do {
+                try await rollbackParentDeletions(staged)
+            } catch {
+                await requireRecovery()
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            if Self.requiresRecovery(error) {
+                await requireRecovery()
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            throw error
+        }
+
+        if recoveryLatch.isInvalidated {
+            do {
+                try await rollbackParentDeletions(staged)
+            } catch {
+                await requireRecovery()
+            }
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+
+        let result: ParentRecordMutationResult
+        do {
+            result = try await writer.deleteParentRecord(
+                DeleteParentRecordCommand(
+                    parentType: impact.parentType,
+                    parentID: impact.parentID,
+                    expectedHead: impact.expectedHead,
+                    expectedImpactDigest: impact.impactDigest,
+                    attachments: pairs,
+                    committedAt: committedAt
+                ),
+                failureInjection: writeFailureInjection
+            )
+        } catch {
+            let recoveryWasRequired = recoveryLatch.isInvalidated
+            do {
+                try await rollbackParentDeletions(staged)
+            } catch {
+                await requireRecovery()
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            if recoveryWasRequired {
+                throw AttachmentMutationFailure.recoveryRequired
+            }
+            throw error
+        }
+
+        do {
+            for deletion in staged {
+                try await ioQueue.perform { [fileStore] in
+                    try fileStore.finalizeDeletion(deletion)
+                }
+            }
+        } catch {
+            await requireRecovery()
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        guard !recoveryLatch.isInvalidated else {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+        return result
+    }
+
     func beginPreview(_ attachment: AttachmentSnapshot) async throws -> URL {
         guard !recoveryLatch.isInvalidated else {
             throw AttachmentMutationFailure.recoveryRequired
@@ -1643,6 +1797,28 @@ actor AttachmentMutationService {
                 try fileStore.discard(operationID: attachment.operationID)
             } catch {
                 if firstFailure == nil { firstFailure = error }
+            }
+        }
+        if firstFailure != nil {
+            throw AttachmentMutationFailure.recoveryRequired
+        }
+    }
+
+    private func rollbackParentDeletions(
+        _ staged: [AttachmentStagedDeletion]
+    ) async throws {
+        var firstFailure: Error?
+        for deletion in staged.reversed() {
+            do {
+                try await ioQueue.perform { [fileStore] in
+                    try fileStore.rollbackDeletion(
+                        operationID: deletion.operationID
+                    )
+                }
+            } catch {
+                if firstFailure == nil {
+                    firstFailure = error
+                }
             }
         }
         if firstFailure != nil {

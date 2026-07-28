@@ -12,8 +12,14 @@ enum DemoDataSeeder {
         if arguments.contains("-unmanual-today-execution") {
             try? await seedTodayExecution(container: container)
         }
+        if arguments.contains("-unmanual-onboarding-eligible-regimen") {
+            try? await seedTodayExecution(container: container)
+        }
         if arguments.contains("-unmanual-countdown-due") {
             try? await seedDueCountdown(container: container)
+        }
+        if arguments.contains("-unmanual-lab-trend") {
+            try? await seedLabTrend(container: container)
         }
     }
 
@@ -175,6 +181,126 @@ enum DemoDataSeeder {
                 timestamp: timestamp
             )
         )
+    }
+
+    private static func seedLabTrend(
+        container: ModelContainer
+    ) async throws {
+        let context = container.mainContext
+        guard try context.fetchCount(
+            FetchDescriptor<LabSampleRecord>()
+        ) == 0 else { return }
+        let writer = AppWriteActor(modelContainer: container)
+        let definitionID = UUID(
+            uuidString: "89000000-0000-0000-0000-000000000001"
+        )!
+        let testosteroneDefinitionID = UUID(
+            uuidString: "89000000-0000-0000-0000-000000000002"
+        )!
+        let fixtures: [
+            (
+                sampleID: UUID,
+                resultID: UUID,
+                rawValue: String,
+                unit: String,
+                instant: Date
+            )
+        ] = [
+            (
+                UUID(
+                    uuidString:
+                        "89000000-0000-0000-0000-000000000101"
+                )!,
+                UUID(
+                    uuidString:
+                        "89000000-0000-0000-0000-000000000201"
+                )!,
+                "< 150",
+                "pmol/L",
+                Date(timeIntervalSince1970: 1_735_689_600)
+            ),
+            (
+                UUID(
+                    uuidString:
+                        "89000000-0000-0000-0000-000000000102"
+                )!,
+                UUID(
+                    uuidString:
+                        "89000000-0000-0000-0000-000000000202"
+                )!,
+                "0.16",
+                "nmol/L",
+                Date(timeIntervalSince1970: 1_738_368_000)
+            ),
+            (
+                UUID(
+                    uuidString:
+                        "89000000-0000-0000-0000-000000000103"
+                )!,
+                UUID(
+                    uuidString:
+                        "89000000-0000-0000-0000-000000000203"
+                )!,
+                "172.5",
+                "pmol/L",
+                Date(timeIntervalSince1970: 1_741_046_400)
+            )
+        ]
+        for (index, fixture) in fixtures.enumerated() {
+            let timestamp = try HistoricalTimestamp.captured(
+                instant: fixture.instant,
+                timeZoneIdentifier: "UTC",
+                precision: .minute,
+                provenance: .userEntered
+            )
+            _ = try await writer.createLabSample(
+                CreateLabSampleCommand(
+                    operationID: UUID(),
+                    sampleID: fixture.sampleID,
+                    timestamp: timestamp,
+                    newDefinitions: index == 0
+                        ? [
+                            LabItemDefinitionInput(
+                                id: definitionID,
+                                displayName: "雌二醇",
+                                code: "E2"
+                            ),
+                            LabItemDefinitionInput(
+                                id: testosteroneDefinitionID,
+                                displayName: "睾酮",
+                                code: "T"
+                            )
+                        ]
+                        : [],
+                    results: [
+                        LabResultInput(
+                            id: fixture.resultID,
+                            itemDefinitionID: definitionID,
+                            rawValueOriginal: fixture.rawValue,
+                            unitOriginal: fixture.unit,
+                            assayOrVariantOriginal: "方法 A"
+                        )
+                    ] + (
+                        index == fixtures.count - 1
+                            ? [
+                                LabResultInput(
+                                    id: UUID(
+                                        uuidString:
+                                            "89000000-0000-0000-0000-000000000204"
+                                    )!,
+                                    itemDefinitionID:
+                                        testosteroneDefinitionID,
+                                    rawValueOriginal: "0.46",
+                                    unitOriginal: "ng/mL",
+                                    assayOrVariantOriginal: "方法 A"
+                                )
+                            ]
+                            : []
+                    ),
+                    committedAt: fixture.instant
+                )
+            )
+        }
     }
 }
 #endif

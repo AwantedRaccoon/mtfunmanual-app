@@ -25,6 +25,7 @@ struct Batch1PerformanceContract: Equatable {
         version: "1.0.0",
         warmupCount: 1,
         sampleCount: 20,
+        testExecutionTimeAllowanceSeconds: 3_600,
         operations: Batch1PerformanceOperation.allCases,
         thresholdNanoseconds: [:]
     )
@@ -32,6 +33,7 @@ struct Batch1PerformanceContract: Equatable {
     let version: String
     let warmupCount: Int
     let sampleCount: Int
+    let testExecutionTimeAllowanceSeconds: TimeInterval
     let operations: [Batch1PerformanceOperation]
     let thresholdNanoseconds: [Batch1PerformanceOperation: Int64]
 }

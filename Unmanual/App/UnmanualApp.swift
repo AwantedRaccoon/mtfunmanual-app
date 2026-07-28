@@ -8,7 +8,25 @@ struct UnmanualApp: App {
     @UIApplicationDelegateAdaptor(AppNotificationDelegate.self) private var notificationDelegate
     @State private var theme = AppTheme()
     @State private var dataRuntime = AppDataRuntime()
-    @State private var reminderRuntime = LocalReminderRuntime()
+    @State private var reminderRuntime: LocalReminderRuntime
+
+    init() {
+#if DEBUG
+        let client: any LocalNotificationClient =
+            ProcessInfo.processInfo.arguments.contains(
+                "-unmanual-notification-denied"
+            )
+            ? DebugDeniedNotificationClient()
+            : UserNotificationClient()
+        _reminderRuntime = State(
+            initialValue: LocalReminderRuntime(client: client)
+        )
+#else
+        _reminderRuntime = State(
+            initialValue: LocalReminderRuntime()
+        )
+#endif
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -200,6 +218,10 @@ struct UnmanualApp: App {
             QuickRecordEditor(autofocus: false)
         } else if ProcessInfo.processInfo.arguments.contains("-unmanual-countdown") {
             CountdownEditor()
+        } else if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-hrt-editor"
+        ) {
+            StartDateEditor()
         } else if ProcessInfo.processInfo.arguments.contains("-unmanual-regimen-editor") {
             RegimenVersionEditor(
                 initialMedications: [
@@ -223,11 +245,15 @@ struct UnmanualApp: App {
                     )
                 ]
             )
-        } else {
+        } else if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-skip-onboarding"
+        ) {
             AppShellView()
+        } else {
+            OnboardingGateView()
         }
 #else
-        AppShellView()
+        OnboardingGateView()
 #endif
     }
 }
