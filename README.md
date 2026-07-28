@@ -11,7 +11,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 > - App 版本：`1.0`（build `1`）；`V2.5` 只是内部视觉迭代名。
 > - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3、Batch 5、正式首次设置、HRT 历程生命周期，以及 Batch 5 的趋势与父记录生命周期专项，均已完成本地实现。Batch 4 库存不进入 App 1.0，保留阶段编号但后置为需求验证项。
 > - 当前位置：当前本地工作树使用 Schema V10，已把 HRT 暂停/恢复与多周期、化验趋势与确定性同维单位换算、化验/状态父记录的 append-only 纠错和终态删除接入正式读写、统一时间线与恢复合同，并完成本轮迁移、完整性、温和模式、可选表面、附件并发和大字号可达性回归收口。这里的“完成”只限于源码、自动化、Simulator 与独立审查范围，不包含真机或 App Store 门禁。
-> - GitHub 状态：Stage 0–3、Batch 5 与 Batch 3 Countdown 完整闭环阶段快照已进入 `origin/main`；库存后置、正式 onboarding、HRT 生命周期、化验趋势和父记录生命周期仍在当前本地任务分支，尚未推送或合并。它们都是阶段报告，不是 GitHub Release。任何后续推送与合并仍需要维护者当次明确批准。
+> - GitHub 状态：Stage 0–3、Batch 5、Batch 3 Countdown、库存后置，以及正式 onboarding、HRT 生命周期、化验趋势和父记录生命周期阶段快照均已进入 `origin/main`。它们都是阶段报告，不是 GitHub Release；后续功能仍须先在任务分支完成审查，并取得维护者当次批准后才能合并。
 > - 发布状态：尚未达到 App Store release-ready，也尚未开始发布前真机测试。
 
 ## 我们在哪里
@@ -194,7 +194,7 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 
 “源码可以提交到 GitHub”和“App 可以上架”是两件事：
 
-- **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告、Batch 5 的化验/状态/附件/统一时间线，以及 Batch 3 Countdown 完整闭环均已进入 `origin/main`。库存后置、正式 onboarding、HRT 生命周期、化验趋势和父记录生命周期仍在当前本地任务分支，尚未推送或合并。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
+- **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告、Batch 5 的化验/状态/附件/统一时间线、Batch 3 Countdown、库存后置，以及正式 onboarding、HRT 生命周期、化验趋势和父记录生命周期均已进入 `origin/main`。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
 - **App Store**：当前不 ready。主要剩余项是 Batch 6–9 的隐私控制、正式报告/备份、经许可公共内容、确定性分析，以及真机、签名 Release Candidate、发行主体/地区、隐私与医疗分类、内容授权等发布门禁；库存不再是 1.0 发布前置条件；
 - 任何 `git push`、TestFlight 上传或 App Store 提交都需要当次明确授权，不由本地构建或测试自动触发。
 
