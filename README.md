@@ -6,25 +6,29 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 网站负责解释“这件事通常是什么”，App 负责帮助用户看见“这件事在我身上是怎样发生的”。完整知识内容仍由 [mtfbook.com](https://mtfbook.com/) 提供。
 
-> **当前状态（2026-07-25）**
+> **当前状态（2026-07-27）**
 >
 > - App 版本：`1.0`（build `1`）；`V2.5` 只是内部视觉迭代名。
-> - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3 与 Batch 5 已在 Simulator 与自动化范围内完成。Batch 4 库存已决定不进入 App 1.0，保留阶段编号但后置为需求验证项。
-> - 当前位置：Batch 3 已补齐 Countdown 完整生命周期、统一设备本地提醒、旧数据复核与时间线闭环；2026-07-25 的完整复核修复了提醒 fail-closed、重复状态转换、历史时区、温和模式、读取错误、稳定分页和终态时间事件绑定缺口，并通过新的全量自动化回归。真机通知、文件保护、系统备份恢复、最低设备性能与完整辅助技术人工矩阵仍保留到发布候选阶段。
-> - GitHub 状态：Stage 0–3、Batch 5 与本次 Batch 3 Countdown 完整闭环阶段快照均已进入 `origin/main`；它们是阶段报告，不是 GitHub Release。任何后续推送与合并仍需要维护者当次明确批准。
+> - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3、Batch 5、正式首次设置、HRT 历程生命周期，以及 Batch 5 的趋势与父记录生命周期专项，均已完成本地实现。Batch 4 库存不进入 App 1.0，保留阶段编号但后置为需求验证项。
+> - 当前位置：当前本地工作树使用 Schema V10，已把 HRT 暂停/恢复与多周期、化验趋势与确定性同维单位换算、化验/状态父记录的 append-only 纠错和终态删除接入正式读写、统一时间线与恢复合同，并完成本轮迁移、完整性、温和模式、可选表面、附件并发和大字号可达性回归收口。这里的“完成”只限于源码、自动化、Simulator 与独立审查范围，不包含真机或 App Store 门禁。
+> - GitHub 状态：Stage 0–3、Batch 5 与 Batch 3 Countdown 完整闭环阶段快照已进入 `origin/main`；库存后置、正式 onboarding、HRT 生命周期、化验趋势和父记录生命周期仍在当前本地任务分支，尚未推送或合并。它们都是阶段报告，不是 GitHub Release。任何后续推送与合并仍需要维护者当次明确批准。
 > - 发布状态：尚未达到 App Store release-ready，也尚未开始发布前真机测试。
 
 ## 我们在哪里
 
-目前落地的是一套可迁移、可恢复、可审计的本地数据底座，以及稳定的时间事实、方案版本、今日执行、Countdown 生命周期、本地提醒、化验、状态、附件与统一个人时间线。用户可以封存个人方案、查看确定性派生的当日计划、记录已使用或跳过、追加纠错、管理一个当前目标日、为计划和 Countdown 开启中性内容的设备本地提醒，并在本机保存化验与状态记录。
+目前落地的是一套可迁移、可恢复、可审计的本地数据底座，以及正式首次设置、稳定的时间事实、HRT 暂停/恢复与多周期、方案版本、今日执行、Countdown 生命周期、本地提醒、化验、状态、附件与统一个人时间线。新用户先了解真实存储边界，再建立可供 Today 确定性使用的封存方案；之后可以查看当日计划、记录已使用或跳过、追加纠错、管理 HRT 历程与一个当前目标日、为计划和 Countdown 开启中性内容的设备本地提醒，并在本机保存、回看、比较、更正或删除化验与状态记录。
 
-五个已启动阶段的当前进展是：
+当前已落地的阶段与专项进展是：
 
 - **Batch 0 — 合同冻结**：确认 App 1.0、iOS 17+、本地优先、无 App 主动联网、`.systemManaged` 系统备份边界，以及时间、执行、化验和数据谱系的跨模块合同；当时冻结的库存安全合同保留为历史边界，但不再构成 App 1.0 的实现范围；
 - **Batch 1 — 数据安全底座**：实现 V1 → V2 bridge、generation copy/journal/pointer、幂等 backfill、revision/digest、Recovery Mode、读写 actor、有界查询和性能证据 harness；代码与 Simulator 自动化已完成，真机文件保护、系统备份恢复和最低设备性能仍是发布门禁；
 - **Batch 2 — 时间与方案版本核心**：实现 additive Schema V3、civil date、historical timestamp、草稿/封存方案、组成项与计划数据、当前/未来/历史解析、变更校样和历史记录关联。
 - **Batch 3 — 今日执行、Countdown 与本地提醒**：实现 additive Schema V4、V6 与 V7、四类确定性 occurrence、append-only 执行事实与纠错、一次 snooze、完整 Countdown 生命周期、typed command 审计、提醒偏好、覆盖投影和 UserNotifications 统一设备本地调度。
 - **Batch 5 — 化验、状态、附件与统一时间线**：实现 additive Schema V5、结构化化验样本与结果、可版本化状态指标、本机私有附件存储、旧化验幂等回填，以及跨化验、状态、执行与方案的有界统一时间线；未加入 App 主动联网、云同步或第三方运行时依赖。
+- **正式首次设置 — Schema V8**：新安装在主标签页之前进入可恢复的根门禁；隐私说明先于敏感资料写入，封存方案是唯一必需业务设置，开始日、提醒和 Countdown 可明确跳过。legacy 与 V7 升级使用 grandfathering，读取或迁移不一致时 fail closed。
+- **HRT 历程生命周期 — Schema V9**：把单一开始日扩展为可审计的开始、暂停、恢复与多个半开区间周期；Today 同时显示当前周期日，以及从首次开始后经过的自然日（包括暂停日），暂停时不伪造当前周期天数。生命周期事件进入统一时间线，温和模式使用中性名称；暂停不会改写已封存方案、执行事实、提醒偏好、化验或状态关系。
+- **化验趋势与确定性单位换算 — ADR 0012**：按稳定项目身份和检测变体读取有界历史，原始值与原始单位始终保留；只允许规则表中冻结的同维、纯比例显示换算，未知单位、比较符边界和不可比较数据不会被伪装成连续趋势。
+- **父记录纠错与删除 — Schema V10 / ADR 0013**：化验与状态使用 append-only lifecycle，不原地覆盖 V5 原始事实；纠错先显示完整变化复核，终态删除先冻结关联影响，并把附件文件、元数据、数据库事件、receipt、revision 与 Recovery journal 纳入同一事务边界。correction/delete 的 command digest 会从 typed snapshot、前序 head、删除影响和附件 operation manifest 重新计算，不只依赖 event/receipt 互相相等。
 
 ### Batch 3 本次阶段实现
 
@@ -78,24 +82,71 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 - **入口与回看**：旅程页可以新增化验与状态、查看附件和归档指标；Today 的最近化验来自 V5 canonical sample，并可直接打开同一条时间线详情。
 - **完整性与恢复**：启动时恢复未完成附件 journal 并审计活动附件；缺失、越界或校验失败会进入 Recovery Mode，不把损坏状态伪装成正常启动。
 
-## 当前实现
+### 正式 onboarding 本次阶段实现
 
-- “今天”：HRT 天数、完整 Countdown、快速记录，以及按封存方案派生的执行台账；可记录已使用/跳过、追加纠错、稍后提醒并管理本地提醒；
-- “旅程”：通过统一时间线回看化验、状态、执行、方案和终态 Countdown 事件，可新增结构化化验与状态记录，并管理当前及历史目标日；
+- **根门禁与准确恢复**：App 在构造主标签页前读取专用 onboarding 快照；新安装从隐私说明开始，进程退出后按持久化的准确步骤恢复。读取错误、重复事实、超限或不一致引用不会被当作空资料绕过。
+- **六步克制流程**：依次覆盖隐私与系统备份边界、可选开始日、必需封存方案、可选本地提醒、可选 Countdown 和完成核对；不要求录入库存，也不把草稿或待迁移复核方案当成有效方案。
+- **明确权限边界**：进入提醒步骤不会申请通知权限。只有用户选择具体计划时段、看过中性锁屏预览并确认后才请求系统权限；“用户选择了提醒”和“系统实际已安排”分别读取并呈现，权限拒绝、受限或调和失败不会删除方案，也不会伪装成已成功安排。
+- **V8 安全采用**：V8 只新增 onboarding progress 与 backfill facts；V7 先复制到 inactive generation，完成回填、关系与 digest 校验、附件树审计和文件保护检查后才切换 pointer。legacy 与 V7 用户明确 grandfathered，新用户不会被误判为旧用户。
+- **事务与并发保护**：步骤转换带 expected-step 门禁；完成状态、用户偏好、revision 与 dataset metadata 同事务提交。提醒绑定精确的 schedule rule ID 与 revision，避免旧页面为已变化的计划开启提醒。
+- **完成前修改与再次进入**：完成核对页修改某项时会重新打开对应的持久化步骤，清除需要重新确认的跳过事实；档案页使用与快照绑定的单一呈现状态再次打开设置，避免旧页面闭包造成永久“正在读取”。
+- **可访问性与回归**：六个步骤覆盖手机、平板、横屏与最大辅助字号渲染；UI 回归覆盖新装门禁、进程重启续走、方案硬门禁、可选步骤、权限拒绝、完成页修改、错误 fail-closed、档案再次进入和大字号横屏可达性。
+
+### 化验趋势与父记录生命周期本次阶段实现
+
+- **趋势读取而非二次事实源**：趋势从当前有效化验记录即时投影，不新增可漂移的缓存表；按稳定 `itemDefinitionID`、检测变体、发生时刻与稳定 ID 分组排序，同日多次结果全部保留。
+- **确定性显示换算**：换算表带稳定规则 ID 与版本，只覆盖已冻结的同维单位组合；Decimal 计算保留原始输入，换算仅改变显示，不改写记录、参考区间或医疗含义。未知单位、跨维单位和不精确比较符会明确分组或只进入台账。
+- **可读趋势界面**：化验详情可进入项目变化页；折线不是唯一信息载体，每个点都有日期、原始值、显示值、单位和检测变体对应的台账行。普通模式与温和模式使用不同表面标题，但用户主动打开的事实仍如实显示。
+- **Append-only 纠错**：化验和状态的最初录入事实永久保留；每次纠错追加带前后 facts digest、operation receipt、revision 与完整历史时间的事件。`nil`、空字符串、原始 Decimal、检测变体、结果增删与重排不会被界面静默归一化。
+- **终态父记录删除**：删除前先显示结果、附件与纠错次数影响并冻结 digest；确认时在全局 mutation lease 内再次核对 head、revision 和附件集合。附件逐个进入 recoverable trash，数据库失败会回滚，回滚或 finalize 不完整会进入 Recovery，不把部分删除伪装成成功。
+- **V9 → V10 安全采用**：旧 generation 复制到 inactive V10，完成 lifecycle backfill、事件链、revision/digest、附件树、文件保护和持久化重开验证后才切换 pointer；删除后的记录从正常详情、Today、趋势和统一时间线消失，但保留不含医疗正文的审计墓碑。
+
+### 2026-07-27 全量回归收口
+
+- **迁移与完整性**：HRT 生命周期迁移统一使用秒级 canonical timestamp，迁移事件、状态、revision 与 metadata 不再因分数秒产生不一致；收据台账只接受正常同 revision 写入，或有明确 Countdown backfill marker 证明的相邻 reconciliation revision，任意后续 revision 前移会 fail closed。HRT 生命周期损坏会进入 Recovery，不把损坏事实伪装成正常状态。
+- **可选表面与有界读取**：没有 HRT 历程或化验记录时，Today 不显示虚假的可选模块；化验趋势改为按目标项目分批定向读取，即使存在超过 4,096 条无关活动结果，也不会因此误判目标趋势损坏。
+- **纠错、附件与温和模式**：化验纠错界面支持结果顺序调整并在变化复核中明确展示；父记录 mutation 期间会阻断附件并发操作；化验的 Today、Journey、详情与趋势表面统一遵守温和模式。终态删除预览逐个冻结附件的稳定 UUID 身份，不能仅凭数量、大小或摘要把附件互换当作同一集合。
+- **大字号可达性**：自定义标签栏在 Accessibility 5 下验证存在且位于屏内；关键主动作验证存在、位于标签栏上方且可点击，不再把 accessibility tree 中的屏外元素误算为可达。
+
+## 功能完成度
+
+这里的“已完成”只表示源码、自动化与 Simulator 范围内已经闭环并通过独立审查，不表示真机或 App Store 发布门禁已经通过。“实施中”不会因为已经有 ADR、模型或测试草稿而提前计入已实现。
+
+| 能力 | 当前状态 | 已闭环范围或剩余边界 |
+| --- | --- | --- |
+| 数据安全、迁移与恢复底座 | 已完成本地实现；真机门禁待验证 | V1 → V10 migration、generation copy/journal/pointer、revision/digest、Recovery Mode、有界读写与性能证据 harness 已落地 |
+| 正式 onboarding | 已完成（本地，Simulator / 自动化范围） | 隐私说明、可选开始日、必需封存方案、可选提醒与 Countdown、准确续走、grandfathering 与 V7 → V8 安全采用 |
+| 方案版本与 Today 执行 | 已完成（Simulator / 自动化范围） | 草稿/封存方案、四类 occurrence、已使用/跳过、append-only 纠错、一次 snooze 与本地提醒 |
+| Countdown | 已完成（Simulator / 自动化范围） | 建立、修改、到期后继续、完成、归档、删除、替换、统一提醒与时间线 |
+| 化验、状态、附件与统一时间线 | 已完成（Simulator / 自动化范围） | 结构化录入、状态观察、私有附件、跨来源回看与有效 V10 父记录投影 |
+| HRT 暂停、恢复与多周期 | 已完成（Simulator / 自动化范围） | V9 repository、审计事件、canonical 秒级迁移、receipt/ledger 原子性、V8 → V9 安全采用、Today 状态、管理界面、统一时间线与温和模式 |
+| 化验趋势与确定性单位换算 | 已完成（Simulator / 自动化范围） | 稳定项目身份、变体分组、目标项目分批有界读取、冻结规则版本、同维显示换算、台账与温和模式 |
+| 化验/状态父记录纠错与删除 | 已完成（Simulator / 自动化范围） | V10 append-only 纠错、结果重排与完整变化复核、关联影响预览、稳定附件身份、附件事务、终态删除、恢复与并发门禁 |
+| 库存与 lot ledger | 已移出 App 1.0 | 不是遗漏或发布待办；只有真实需求得到验证并重新立项后才会评估 |
+| 隐私控制、报告/备份、公共内容、确定性分析与发布硬化 | 计划中 | 分别属于 Batch 6–9，详见下方 Roadmap |
+
+### 已闭环的当前能力
+
+- 正式 onboarding：先说明本地存储、系统管理备份和当前尚未实现的隐私能力，再建立必需封存方案；开始日、提醒和 Countdown 可跳过，完成后可从“档案”再次进入相关设置；
+- “今天”：基于 HRT 多周期事实显示当前周期日，以及从首次开始后经过的自然日（包括暂停日），并提供暂停/恢复入口；同时展示完整 Countdown、快速记录和按封存方案派生的执行台账，可记录已使用/跳过、追加纠错、稍后提醒并管理本地提醒；
+- “旅程”：通过统一时间线回看 HRT 历程、化验、状态、执行、方案和终态 Countdown 事件；可新增结构化化验与状态记录、查看单项趋势、追加纠错或在关联影响复核后终态删除，并管理当前及历史目标日；
 - “方案”：用 civil date 区分当前、未来和历史版本；方案组成可保存为草稿，经变更与历史关联影响核对后封存；
-- “检查”：保留 legacy 入口兼容，同时由 V5 `LabSample` / `LabResult` 作为新的 canonical 化验事实；
+- “检查”：保留 legacy 入口兼容，V5 `LabSample` / `LabResult` 是不可变原始事实，V10 lifecycle leaf 是当前有效投影；
 - “档案”：查看本机记录概况；当前实现只在 DEBUG 暴露 JSON v1 导入/导出原型，它尚不是完整或安全恢复协议；
 - SwiftData 本地存储、真实旧库迁移、generation 恢复与 Recovery Mode，不要求注册账号；
 - 1.0 采用系统管理备份：App 不主动上传或实时同步，iOS 可能按用户设置将 App 数据纳入系统备份；
 - iPhone 与 iPad 原生 SwiftUI 界面，最低支持 iOS 17。
 
+### 不再属于 App 1.0
+
 库存与 lot ledger 已明确移出 App 1.0。App 1.0 继续使用 Batch 3 已实现的“封存方案 → 今日事项 → 中性设备本地提醒”，不要求用户维护批次、余量、开封日或有效期；库存不再是 App Store 发布阻塞项。若未来用户研究证明存在足够需求，将重新立项并建立新的产品与架构决策。
+
+### 尚未实现或尚未闭环
 
 尚未实现或尚未闭环的主要能力包括：
 
-- 正式首次使用引导，以及 HRT 暂停、恢复和多周期管理；
-- 化验趋势、冻结单位换算规则，以及化验/状态父记录的纠错与删除；
-- 应用锁、最近任务遮挡、完整关联删除预览、全 App 数据删除/重置和 generation 清理合同；
+- HRT 任意历史周期的 append-only 纠错，以及是否需要让方案或提醒随暂停联动，仍需另立合同；当前暂停只改变历程状态，不改写方案、执行或提醒事实；
+- 应用锁、最近任务遮挡、跨全 App 的关联删除与数据清单、全 App 数据删除/重置和 generation 清理合同；
 - 正式就诊摘要、PDF/CSV、Readable JSON v2、安全恢复和含附件的完整备份；
 - 经许可与人工复核的正式药品目录、构建期公共内容包、离线资料搜索与收藏；
 - 带来源、适用边界和规则版本的确定性方案分析；
@@ -105,21 +156,22 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 ## 最近验证
 
-2026-07-25 的最近一次 Simulator / 自动化基线：
+2026-07-27 当前本地 Schema V10 Simulator / 自动化基线：
 
 - generic iOS Simulator 无签名 Debug build 通过；
-- 单元、集成、渲染与 UI 测试合计 `422/422` 通过，其中普通测试 `394/394`、UI 测试 `28/28`；
-- 当前 V7 源码的 Release 合同测试 `9/9` 通过，其中包含一轮真实五年 worker 正确性回归；
-- 当前 V7 源码的完整 Release-config Simulator performance preflight 为 `1/1`，完成 1 次预热与 20 个正式样本。该结果只证明 harness 与证据记录在当前源码上完整运行；`acceptance = not-evaluated`，数值阈值与跨设备冻结 fixture 仍未确定，不能称为最低设备或发布性能通过；
+- 单元、集成与多尺寸渲染 `504/504`、完整 UI `50/50` 通过，合计 `554/554`；
+- V10 回归覆盖新装、legacy adoption、V7 → V8、V8 → V9、V9 → V10、新 generation pointer 中断恢复、pointer 前附件树与文件保护审计、onboarding 准确步骤持久化、HRT 多周期与迁移原子性，以及趋势定向读取、分组/换算、父记录连续纠错、结果重排、时间线重排、并发、附件 stage、稳定附件身份、数据库回滚、rollback/finalize Recovery 和 mutation 后持久化重开；
+- 当前 V10 Release-config 合同测试 `9/9` 通过；它包含一轮真实五年 worker 正确性回归，但不等同于完整 20 样本性能 preflight；
+- 当前 V10 完整 Release-config Simulator performance preflight `1/1` 通过，完成 1 次预热与 20 个正式样本；结果继续是 `acceptance = not-evaluated`，只证明当前 harness 与证据链可完整执行，不能称为数值性能、最低设备或真机门禁通过；
 - 隐私清单已声明 App 容器文件元数据与用户明确选择文件元数据的 Required Reason API 用途，并通过 plist 语法检查；最终 Archive privacy report 仍属于发布门禁；
-- 渲染矩阵覆盖 320×568、390×844、430×932、768×1024、844×390 横屏，以及 320×568 最大辅助字号场景；Countdown 最大辅助字号页面另通过触控区域、元素说明、文字裁切与语义自动审计；
+- 渲染矩阵覆盖 320×568、390×844、430×932、768×1024、844×390 横屏，以及 320×568 最大辅助字号场景；HRT 管理、化验趋势与父记录纠错/删除均有独立状态矩阵，Countdown 最大辅助字号页面另通过触控区域、元素说明、文字裁切与语义自动审计；
+- 父记录的真实 UI 自动化目前覆盖一条化验“纠错 → 结果重排 → 完整变化复核 → 保存 → 影响预览 → 终态删除”主流程；状态记录纠错、结果增删、`nil` 与空字符串区分、过期页面重载、取消/重新进入和真实 Recovery 表面仍属于发布前人工设备矩阵，不以 repository 测试或静态渲染冒充完整 UI 覆盖；
 - 自动渲染测试只验证冻结尺寸下能生成非空、高对比的画面；完整 VoiceOver、外接键盘、键盘遮挡、安全区和减少动态效果仍需要人工设备矩阵，不能由截图测试替代。
-
-这些证据证明当前代码在 Simulator 和自动化边界内通过了既定基线，不代表 Batch 1 的整体完成门禁、真机或发布门禁已经通过。尚待整个 App 进入发布候选阶段后统一验证：真机文件保护与锁屏 I/O、系统备份与恢复、动态无网络、最低设备 Release 性能、完整 VoiceOver 和全状态人工矩阵。
+这些证据证明当前 V10 工作树在 Simulator 和自动化边界内通过，不代表 Batch 1 的整体完成门禁、真机或发布门禁已经通过。尚待整个 App 进入发布候选阶段后统一验证：真机文件保护与锁屏 I/O、系统备份与恢复、动态无网络、最低设备 Release 性能、完整 VoiceOver 和全状态人工矩阵。
 
 ## Roadmap
 
-Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生命周期与统一提醒由 ADR 0008 冻结。ADR 0009 已正式将库存从 App 1.0 后置；Batch 4 保留编号以维持既有文档和阶段引用稳定，不再构成 1.0 实现或发布门禁。其余项目在对应 ADR 接受前仍是路线图，不是已经实现的工程事实。
+Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生命周期与统一提醒由 ADR 0008 冻结，正式 onboarding 与 V8 采用策略由 ADR 0010 冻结，HRT 历程生命周期由 ADR 0011 冻结，化验趋势与父记录生命周期分别由 ADR 0012、0013 冻结。ADR 0009 已正式将库存从 App 1.0 后置；Batch 4 保留编号以维持既有文档和阶段引用稳定，不再构成 1.0 实现或发布门禁。ADR 已接受只表示合同已决定，不等于对应功能已经实现。
 
 | 阶段 | 状态 | 目标 |
 | --- | --- | --- |
@@ -129,6 +181,9 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 | **Batch 3** | **已完成（Simulator / 自动化范围）** | 今日执行、Countdown 完整生命周期与统一设备本地提醒 |
 | Batch 4 | 已移出 App 1.0；后置验证 | 库存与 lot ledger 仅在真实需求得到验证后重新立项 |
 | **Batch 5** | **已完成（Simulator / 自动化范围）** | 化验、状态、附件与统一时间线 |
+| 正式 onboarding | 已完成（Simulator / 自动化范围） | 根门禁、隐私说明、必需方案、可选提醒与 V8 安全采用 |
+| HRT 历程生命周期 / Schema V9 | 已完成（Simulator / 自动化范围） | 暂停、恢复、多周期、Today 投影、统一时间线、温和模式与 V8 → V9 安全采用 |
+| Batch 5 后续专项 / Schema V10 | 已完成（Simulator / 自动化范围） | 化验趋势、确定性同维单位换算、化验/状态父记录 append-only 纠错与终态删除 |
 | Batch 6 | 计划中 | 隐私与数据控制 |
 | Batch 7 | 计划中 | 报告与完整备份 |
 | Batch 8A | 计划中 | 构建期公共内容包 |
@@ -139,8 +194,8 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 
 “源码可以提交到 GitHub”和“App 可以上架”是两件事：
 
-- **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告、Batch 5 的化验/状态/附件/统一时间线，以及本次 Batch 3 Countdown 完整闭环均已进入 `origin/main`。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
-- **App Store**：当前不 ready。仍需完成尚未闭环的首用、周期和化验能力，Batch 6–9 的产品能力，以及真机、签名 Release Candidate、发行主体/地区、隐私与医疗分类、内容授权等发布门禁；库存不再是 1.0 发布前置条件；
+- **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告、Batch 5 的化验/状态/附件/统一时间线，以及 Batch 3 Countdown 完整闭环均已进入 `origin/main`。库存后置、正式 onboarding、HRT 生命周期、化验趋势和父记录生命周期仍在当前本地任务分支，尚未推送或合并。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
+- **App Store**：当前不 ready。主要剩余项是 Batch 6–9 的隐私控制、正式报告/备份、经许可公共内容、确定性分析，以及真机、签名 Release Candidate、发行主体/地区、隐私与医疗分类、内容授权等发布门禁；库存不再是 1.0 发布前置条件；
 - 任何 `git push`、TestFlight 上传或 App Store 提交都需要当次明确授权，不由本地构建或测试自动触发。
 
 ## 产品原则
@@ -228,7 +283,7 @@ docs/              产品、视觉与技术决策
 project.yml        XcodeGen 工程定义
 ```
 
-当前公开进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与基础本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，化验、状态、附件与个人时间线见 [ADR 0007](docs/architecture/0007-labs-status-attachments-and-personal-timeline.md)，Countdown 生命周期与统一本地提醒见 [ADR 0008](docs/architecture/0008-countdown-lifecycle-and-unified-local-reminders.md)，库存后置决策见 [ADR 0009](docs/architecture/0009-inventory-deferred-from-app-1.0.md)，工程约束见 [AGENTS.md](AGENTS.md)。
+历史早期进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)；它不是当前状态事实源。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与基础本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，化验、状态、附件与个人时间线见 [ADR 0007](docs/architecture/0007-labs-status-attachments-and-personal-timeline.md)，Countdown 生命周期与统一本地提醒见 [ADR 0008](docs/architecture/0008-countdown-lifecycle-and-unified-local-reminders.md)，库存后置决策见 [ADR 0009](docs/architecture/0009-inventory-deferred-from-app-1.0.md)，正式 onboarding 与 V8 采用策略见 [ADR 0010](docs/architecture/0010-formal-onboarding-and-v8-adoption.md)，HRT 历程生命周期见 [ADR 0011](docs/architecture/0011-hrt-journey-lifecycle-and-multiple-cycles.md)，化验趋势与确定性单位换算见 [ADR 0012](docs/architecture/0012-lab-trends-and-deterministic-unit-conversion.md)，父记录纠错与删除见 [ADR 0013](docs/architecture/0013-parent-record-correction-and-deletion.md)，工程约束见 [AGENTS.md](AGENTS.md)。
 
 ## 参与贡献
 

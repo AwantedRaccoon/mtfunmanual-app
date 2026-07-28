@@ -98,7 +98,8 @@ final class RecoveryModeUITests: XCTestCase {
         app.launchArguments = [
             "-unmanual-recovery-once",
             "corruptionSuspected",
-            "-unmanual-empty-store"
+            "-unmanual-empty-store",
+            "-unmanual-skip-onboarding"
         ]
         if maximumDynamicType {
             app.launchArguments.append("-unmanual-ui-test-accessibility5")
@@ -623,7 +624,10 @@ final class SystemBackupDisclosureUITests: XCTestCase {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["-unmanual-empty-store"] + arguments
+        app.launchArguments = [
+            "-unmanual-empty-store",
+            "-unmanual-skip-onboarding"
+        ] + arguments
         if maximumDynamicType {
             app.launchArguments.append("-unmanual-ui-test-accessibility5")
         }

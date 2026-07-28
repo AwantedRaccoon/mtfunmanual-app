@@ -6,6 +6,49 @@ import XCTest
 
 @MainActor
 final class AppDataRuntimeTests: XCTestCase {
+#if DEBUG
+    func testUITestStoreSelectionRequiresUUIDAndKeepsResetCleanupExplicit()
+        throws {
+        let id = UUID()
+        XCTAssertEqual(
+            try DebugUITestStoreConfiguration.selection(
+                arguments: [
+                    "-unmanual-ui-test-store-id",
+                    id.uuidString,
+                    "-unmanual-ui-test-reset-store"
+                ]
+            ),
+            DebugUITestStoreConfiguration.Selection(
+                id: id,
+                resetsBeforeOpen: true,
+                cleansUp: false
+            )
+        )
+        XCTAssertNil(
+            try DebugUITestStoreConfiguration.selection(arguments: [])
+        )
+        XCTAssertThrowsError(
+            try DebugUITestStoreConfiguration.selection(
+                arguments: [
+                    "-unmanual-ui-test-store-id",
+                    "../production"
+                ]
+            )
+        ) {
+            XCTAssertEqual($0 as? AppDataFailure, .storageUnavailable)
+        }
+        XCTAssertThrowsError(
+            try DebugUITestStoreConfiguration.selection(
+                arguments: [
+                    "-unmanual-ui-test-cleanup-store"
+                ]
+            )
+        ) {
+            XCTAssertEqual($0 as? AppDataFailure, .storageUnavailable)
+        }
+    }
+#endif
+
     func testTabBarSwitchesToTwoColumnGridForAccessibilityText() {
         XCTAssertEqual(AppTabBarLayout.mode(for: .large), .singleRow)
         XCTAssertEqual(AppTabBarLayout.mode(for: .accessibility1), .twoColumnGrid)

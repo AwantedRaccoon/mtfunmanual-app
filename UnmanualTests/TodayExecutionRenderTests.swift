@@ -5,6 +5,15 @@ import XCTest
 
 @MainActor
 final class TodayExecutionRenderTests: XCTestCase {
+    func testEditorDismissalIsBlockedOnlyWhileAWriteIsInFlight() {
+        XCTAssertTrue(
+            EditorWriteDismissalPolicy.allowsDismiss(isWriting: false)
+        )
+        XCTAssertFalse(
+            EditorWriteDismissalPolicy.allowsDismiss(isWriting: true)
+        )
+    }
+
     func testLatestTodayRefreshGateRejectsAnEarlierCompletion() {
         var gate = TodayLatestRequestGate()
 

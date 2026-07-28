@@ -97,11 +97,14 @@ xcodebuild \
   -only-testing:UnmanualPerformanceTests/Batch1ReleasePerformanceTests/testFiveYearReleasePerformance \
   -parallel-testing-enabled NO \
   -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 3600 \
   -maximum-test-execution-time-allowance 3600 \
   CODE_SIGNING_ALLOWED=NO \
   ENABLE_TESTABILITY=YES \
   test
 ```
+
+测试合同自身也必须把 `executionTimeAllowance` 固定为 3,600 秒。`default` 明确未声明时的命令行默认值，测试自身声明避免调用者漏传该参数，`maximum` 继续作为一小时硬上限；不得通过关闭 timeout 或减少 20 个正式样本绕过门禁。
 
 导出附件：
 

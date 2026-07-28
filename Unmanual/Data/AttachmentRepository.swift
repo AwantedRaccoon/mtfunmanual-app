@@ -360,12 +360,20 @@ extension AppWriteActor {
             )
             descriptor.fetchLimit = 1
             exists = try !modelContext.fetch(descriptor).isEmpty
+                && parentLifecycleAllowsAttachment(
+                    type: .labSample,
+                    id: ownerID
+                )
         case .statusObservation:
             var descriptor = FetchDescriptor<StatusObservationRecord>(
                 predicate: #Predicate { $0.id == ownerID }
             )
             descriptor.fetchLimit = 1
             exists = try !modelContext.fetch(descriptor).isEmpty
+                && parentLifecycleAllowsAttachment(
+                    type: .statusObservation,
+                    id: ownerID
+                )
         case .journeyEntry:
             var descriptor = FetchDescriptor<JourneyEntry>(
                 predicate: #Predicate { $0.id == ownerID }
@@ -381,10 +389,8 @@ extension AppWriteActor {
     ) throws {
         guard attachment.ownerType == .labSample else { return }
         let sampleID = attachment.ownerID
-        let resultCount = try modelContext.fetchCount(
-            FetchDescriptor<LabResultRecord>(
-                predicate: #Predicate { $0.sampleID == sampleID }
-            )
+        let resultCount = try effectiveLabResultCount(
+            sampleID: sampleID
         )
         guard resultCount == 0 else { return }
         let ownerType = AttachmentOwnerType.labSample.rawValue
@@ -399,6 +405,95 @@ extension AppWriteActor {
         )
         guard activeAttachmentCount > 1 else {
             throw PersonalTimelineWriteFailure.lastAttachmentRequired
+        }
+    }
+
+    private var supportsParentRecordLifecycle: Bool {
+        modelContext.container.schema.entities.contains {
+            $0.name == "ParentRecordLifecycleHeadRecord"
+        }
+    }
+
+    private func parentLifecycleAllowsAttachment(
+        type: ParentRecordType,
+        id: UUID
+    ) throws -> Bool {
+        guard supportsParentRecordLifecycle else { return true }
+        let key = type.recordKey(parentID: id)
+        var descriptor =
+            FetchDescriptor<ParentRecordLifecycleHeadRecord>(
+                predicate: #Predicate { $0.parentKey == key }
+            )
+        descriptor.fetchLimit = 2
+        let heads = try modelContext.fetch(descriptor)
+        guard heads.count == 1,
+              let head = heads.first,
+              head.parentType == type,
+              head.parentID == id,
+              let lifecycle = head.lifecycle else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        return lifecycle == .active
+    }
+
+    private func effectiveLabResultCount(
+        sampleID: UUID
+    ) throws -> Int {
+        guard supportsParentRecordLifecycle else {
+            return try modelContext.fetchCount(
+                FetchDescriptor<LabResultRecord>(
+                    predicate: #Predicate {
+                        $0.sampleID == sampleID
+                    }
+                )
+            )
+        }
+        let key = ParentRecordType.labSample.recordKey(
+            parentID: sampleID
+        )
+        var headDescriptor =
+            FetchDescriptor<ParentRecordLifecycleHeadRecord>(
+                predicate: #Predicate { $0.parentKey == key }
+            )
+        headDescriptor.fetchLimit = 2
+        let heads = try modelContext.fetch(headDescriptor)
+        guard heads.count == 1,
+              let head = heads.first,
+              head.lifecycle == .active else {
+            throw PersonalTimelineWriteFailure.staleRecord
+        }
+        let eventID = head.latestEventID
+        var eventDescriptor =
+            FetchDescriptor<ParentRecordMutationEventRecord>(
+                predicate: #Predicate { $0.id == eventID }
+            )
+        eventDescriptor.fetchLimit = 2
+        let events = try modelContext.fetch(eventDescriptor)
+        guard events.count == 1, let event = events.first else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        switch event.kind {
+        case .migratedSnapshot, .createdSnapshot:
+            return try modelContext.fetchCount(
+                FetchDescriptor<LabResultRecord>(
+                    predicate: #Predicate {
+                        $0.sampleID == sampleID
+                    }
+                )
+            )
+        case .corrected:
+            guard let correctionID = event.payloadID else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            return try modelContext.fetchCount(
+                FetchDescriptor<LabResultCorrectionSnapshotRecord>(
+                    predicate: #Predicate {
+                        $0.correctionSnapshotID == correctionID
+                    }
+                )
+            )
+        case .deleted, .none:
+            throw PersonalTimelineWriteFailure.staleRecord
         }
     }
 

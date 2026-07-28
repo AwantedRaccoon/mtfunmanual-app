@@ -116,17 +116,21 @@ struct RegimenVersionSnapshot: Identifiable, Equatable, Sendable {
 struct TodaySnapshot: Equatable, Sendable {
     static let empty = TodaySnapshot(
         profile: nil,
+        hrtJourney: nil,
         countdown: nil,
         regimens: [],
         labRecords: [],
-        entries: []
+        entries: [],
+        gentleModeEnabled: false
     )
 
     let profile: HRTProfileSnapshot?
+    let hrtJourney: HrtJourneySnapshot?
     let countdown: CountdownTodaySnapshot?
     let regimens: [RegimenVersionSnapshot]
     let labRecords: [LabRecordSnapshot]
     let entries: [JourneyEntrySnapshot]
+    let gentleModeEnabled: Bool
 }
 
 struct RegimenOverviewSnapshot: Equatable, Sendable {
@@ -153,6 +157,7 @@ struct CoreRegimenItemSnapshot: Identifiable, Equatable, Sendable {
 
 struct CoreScheduleRuleSnapshot: Identifiable, Equatable, Sendable {
     let id: UUID
+    let revision: Int
     let kind: ScheduleRuleKind
     let localTimes: String
     let weekdays: String
@@ -197,6 +202,7 @@ struct CoreRegimenOverviewSnapshot: Equatable, Sendable {
         history: [],
         drafts: [],
         labRecords: [],
+        latestLabSample: nil,
         reviewIssueCount: 0,
         isTimelineAmbiguous: false
     )
@@ -206,6 +212,7 @@ struct CoreRegimenOverviewSnapshot: Equatable, Sendable {
     let history: [CoreRegimenVersionSnapshot]
     let drafts: [CoreRegimenVersionSnapshot]
     let labRecords: [LabRecordSnapshot]
+    let latestLabSample: LabSampleSnapshot?
     let reviewIssueCount: Int
     let isTimelineAmbiguous: Bool
 
@@ -341,9 +348,16 @@ actor AppReadActor {
             instant: Date(),
             timeZoneIdentifier: displayTimeZoneIdentifier
         ).localDate
+        let hasHrtJourneyLifecycleSchema =
+            modelContext.container.schema.entities.contains {
+                $0.name == "HrtJourneyLifecycleBackfillState"
+            }
         return TodaySnapshot(
             profile: try canonicalProfileSnapshot(legacyProfile: profiles.first)
                 ?? profiles.first.map(profileSnapshot),
+            hrtJourney: hasHrtJourneyLifecycleSchema
+                ? try hrtJourneySnapshot(asOf: today)
+                : nil,
             countdown: try countdownTodaySnapshot(
                 today: today,
                 displayTimeZoneIdentifier: displayTimeZoneIdentifier
@@ -372,7 +386,8 @@ actor AppReadActor {
                     regimenVersionID: historical.regimenVersionID,
                     historicalTimestamp: historical.timestamp
                 )
-            }
+            },
+            gentleModeEnabled: try gentleModeSnapshot().isEnabled
         )
     }
 
@@ -485,6 +500,7 @@ actor AppReadActor {
                     historicalTimestamp: historical.timestamp
                 )
             },
+            latestLabSample: try latestCanonicalLabSample(),
             reviewIssueCount: issues.filter {
                 $0.kind == .overlappingCanonicalRegimen
                     || $0.kind == .missingCanonicalRegimenAssociation
@@ -492,6 +508,27 @@ actor AppReadActor {
             }.count,
             isTimelineAmbiguous: projection.isAmbiguous
         )
+    }
+
+    private func latestCanonicalLabSample() throws -> LabSampleSnapshot? {
+        let sourceType = "LabSampleRecord"
+        var descriptor = FetchDescriptor<HistoricalTimeRecord>(
+            predicate: #Predicate {
+                $0.sourceRecordType == sourceType
+            },
+            sortBy: [
+                SortDescriptor(\.instant, order: .reverse),
+                SortDescriptor(\.recordKey, order: .reverse)
+            ]
+        )
+        descriptor.fetchLimit = 1
+        guard let time = try modelContext.fetch(descriptor).first else {
+            return nil
+        }
+        guard time.historicalTimestamp != nil else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        return try labSample(id: time.sourceRecordID)
     }
 
     func archiveSnapshot() throws -> AppArchiveSnapshot {
@@ -739,18 +776,44 @@ actor AppReadActor {
             return nil
         }
         var periodDescriptor = FetchDescriptor<HrtPeriodRecord>()
-        periodDescriptor.fetchLimit = 512
-        let activePeriod = try modelContext.fetch(periodDescriptor)
-            .filter { $0.endDate == nil }
-            .sorted {
-                guard let lhs = $0.startDate, let rhs = $1.startDate else {
-                    return $0.id.uuidString < $1.id.uuidString
-                }
-                return lhs != rhs ? lhs > rhs : $0.id.uuidString > $1.id.uuidString
+        periodDescriptor.fetchLimit =
+            HrtJourneyProjection.maximumPeriodCount + 1
+        let periodRecords = try modelContext.fetch(periodDescriptor)
+        guard periodRecords.count
+                <= HrtJourneyProjection.maximumPeriodCount else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let periodFacts = try periodRecords.map { record in
+            guard let startDate = record.startDate,
+                  (record.endYear == nil
+                    && record.endMonth == nil
+                    && record.endDay == nil)
+                    || record.endDate != nil else {
+                throw AppDataFailure.corruptionSuspected
             }
-            .first
+            return HrtPeriodFact(
+                id: record.id,
+                startDate: startDate,
+                endDate: record.endDate,
+                note: record.note
+            )
+        }
+        let periods: [HrtPeriodFact]
+        do {
+            periods = try HrtJourneyProjection.validate(
+                firstEverStartDate: firstDate,
+                periods: periodFacts
+            )
+        } catch {
+            throw AppDataFailure.corruptionSuspected
+        }
+        guard let latestPeriod = periods.last else {
+            throw AppDataFailure.corruptionSuspected
+        }
         let startDate = try displayDate(from: firstDate)
-        let activeStart = try activePeriod?.startDate.map(displayDate) ?? startDate
+        let activeStart = try displayDate(
+            from: latestPeriod.startDate
+        )
         return HRTProfileSnapshot(
             id: legacyProfile?.id ?? CoreTimeRegimenBackfill.stableUUID(for: profile.singletonKey),
             startDate: startDate,
@@ -811,6 +874,7 @@ actor AppReadActor {
     private func scheduleSnapshot(_ schedule: ScheduleRuleRecord) -> CoreScheduleRuleSnapshot {
         CoreScheduleRuleSnapshot(
             id: schedule.id,
+            revision: schedule.revision,
             kind: schedule.kind,
             localTimes: schedule.localTimes,
             weekdays: schedule.weekdays,

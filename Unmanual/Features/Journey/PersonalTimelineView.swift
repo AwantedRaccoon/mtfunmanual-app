@@ -46,6 +46,76 @@ enum TimelineReadFailurePolicy {
     }
 }
 
+enum TimelinePageModeResolution: Equatable {
+    case append
+    case reloadFirstPage
+}
+
+enum TimelinePageModePolicy {
+    static func resolution(
+        currentGentleModeEnabled: Bool,
+        incomingGentleModeEnabled: Bool
+    ) -> TimelinePageModeResolution {
+        currentGentleModeEnabled == incomingGentleModeEnabled
+            ? .append
+            : .reloadFirstPage
+    }
+}
+
+enum TimelinePrivacyMode: Equatable {
+    case unresolved
+    case standard
+    case gentle
+
+    init(gentleModeEnabled: Bool?) {
+        switch gentleModeEnabled {
+        case nil: self = .unresolved
+        case false: self = .standard
+        case true: self = .gentle
+        }
+    }
+
+    var isResolved: Bool {
+        self != .unresolved
+    }
+
+    var usesGentleSurfaceCopy: Bool {
+        self != .standard
+    }
+
+    var journeySubtitle: String {
+        if self == .unresolved {
+            return "正在读取本地时间线与显示偏好。"
+        }
+        return LabSurfaceDisplayPolicy.copy(
+            gentleModeEnabled: usesGentleSurfaceCopy
+        ).journeySubtitle
+    }
+}
+
+enum TimelinePrivacyPresentationState: Equatable {
+    case loading
+    case retryableError
+    case recovery
+    case content
+}
+
+enum TimelinePrivacyPresentationPolicy {
+    static func state(
+        privacyMode: TimelinePrivacyMode,
+        firstPageErrorMessage: String?,
+        hasIntegrityFailure: Bool
+    ) -> TimelinePrivacyPresentationState {
+        if hasIntegrityFailure {
+            return .recovery
+        }
+        if firstPageErrorMessage != nil {
+            return .retryableError
+        }
+        return privacyMode.isResolved ? .content : .loading
+    }
+}
+
 struct AttachmentPreviewRequestGate {
     private var currentToken = 0
     private var isActive = true
@@ -96,6 +166,22 @@ enum AttachmentPreviewAdmission {
     }
 }
 
+enum ParentRecordAttachmentActionGate {
+    static func allowsAction(
+        isPreparingParentMutation: Bool,
+        isDeletingAttachment: Bool,
+        isPreviewRequestInFlight: Bool,
+        presentedAttachmentID: UUID?
+    ) -> Bool {
+        !isPreparingParentMutation
+            && !isDeletingAttachment
+            && AttachmentPreviewAdmission.canBegin(
+                isRequestInFlight: isPreviewRequestInFlight,
+                presentedAttachmentID: presentedAttachmentID
+            )
+    }
+}
+
 @MainActor
 struct PersonalTimelineView: View {
     @Environment(AppTheme.self) private var theme
@@ -104,11 +190,13 @@ struct PersonalTimelineView: View {
     private var integrityFailureHandler
     @State private var items: [PersonalTimelineItem] = []
     @State private var nextCursor: PersonalTimelineCursor?
-    @State private var isLoading = false
+    @State private var isLoading = true
     @State private var requestEpoch = TimelineRequestEpochGate()
     @State private var errorMessage: String?
+    @State private var paginationErrorMessage: String?
     @State private var hasIntegrityFailure = false
     @State private var selectedDetail: PersonalTimelineItem?
+    @State private var gentleModeEnabled: Bool?
 
     let refreshToken: Int
     @Binding private var requestedItem: PersonalTimelineItem?
@@ -125,14 +213,27 @@ struct PersonalTimelineView: View {
     }
 
     var body: some View {
+        let privacyMode = TimelinePrivacyMode(
+            gentleModeEnabled: gentleModeEnabled
+        )
+        let presentationState =
+            TimelinePrivacyPresentationPolicy.state(
+                privacyMode: privacyMode,
+                firstPageErrorMessage: errorMessage,
+                hasIntegrityFailure: hasIntegrityFailure
+            )
         V25Page {
             VStack(alignment: .leading, spacing: 0) {
                 V25PageHeader(
                     register: "JOURNEY / TIMELINE",
                     title: "旅程",
-                    subtitle: "化验、状态、执行与片段，按事实发生的时间放在一起。",
-                    status: hasIntegrityFailure
+                    subtitle: privacyMode.journeySubtitle,
+                    status: presentationState == .recovery
                         ? "需要检查"
+                        : presentationState == .retryableError
+                        ? "读取失败"
+                        : presentationState == .loading
+                        ? "正在读取"
                         : (
                             items.isEmpty
                                 ? "尚无记录"
@@ -143,21 +244,64 @@ struct PersonalTimelineView: View {
                                 )
                         )
                 )
-                if !hasIntegrityFailure {
+                if presentationState == .content {
                     JourneyPageRecordAction(action: recordAction)
                         .padding(.top, 14)
                 }
 
-                if items.isEmpty, !isLoading, !hasIntegrityFailure {
+                if presentationState == .loading {
+                    ProgressView("正在读取本地时间线")
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: 120
+                        )
+                        .padding(.top, 18)
+                        .accessibilityIdentifier(
+                            "timeline.privacyLoading"
+                        )
+                } else if presentationState == .retryableError,
+                          let errorMessage {
+                    timelineReadFailure(
+                        title: "时间线暂时无法读取",
+                        message: errorMessage,
+                        allowsRetry: true
+                    )
+                    .padding(.top, 18)
+                } else if presentationState == .recovery,
+                          let errorMessage {
+                    timelineReadFailure(
+                        title: "本地资料需要检查",
+                        message: errorMessage,
+                        allowsRetry: false
+                    )
+                    .padding(.top, 18)
+                } else if items.isEmpty,
+                          !isLoading,
+                          !hasIntegrityFailure {
                     emptyState
                         .padding(.top, 18)
                 } else {
                     LazyVStack(spacing: 0) {
                         ForEach(items, id: \.rowIdentity) { item in
                             NavigationLink {
-                                PersonalTimelineDetailView(item: item)
+                                PersonalTimelineDetailView(
+                                    item: item,
+                                    gentleModeEnabled:
+                                        privacyMode
+                                        .usesGentleSurfaceCopy,
+                                    onMutation: {
+                                        Task {
+                                            await refreshFirstPage()
+                                        }
+                                    }
+                                )
                             } label: {
-                                PersonalTimelineRow(item: item)
+                                PersonalTimelineRow(
+                                    item: item,
+                                    gentleModeEnabled:
+                                        privacyMode
+                                        .usesGentleSurfaceCopy
+                                )
                             }
                             .buttonStyle(.plain)
                         }
@@ -165,7 +309,8 @@ struct PersonalTimelineView: View {
                     .padding(.top, 18)
                 }
 
-                if nextCursor != nil {
+                if presentationState == .content,
+                   nextCursor != nil {
                     Button(isLoading ? "正在读取…" : "加载更早记录") {
                         loadMore()
                     }
@@ -174,11 +319,15 @@ struct PersonalTimelineView: View {
                     .padding(.top, 18)
                     .accessibilityIdentifier("timeline.loadOlder")
                 }
-                if let errorMessage {
-                    Text(errorMessage)
+                if presentationState == .content,
+                   let paginationErrorMessage {
+                    Text(paginationErrorMessage)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.vermilionText)
                         .padding(.top, 12)
+                        .accessibilityIdentifier(
+                            "timeline.paginationError"
+                        )
                 }
                 V25PrivacyFooter(text: "记录保存在 App 私有存储；时间线是读取投影，不另存一份副本")
                     .padding(.bottom, 42)
@@ -192,7 +341,16 @@ struct PersonalTimelineView: View {
             )
         ) {
             if let selectedDetail {
-                PersonalTimelineDetailView(item: selectedDetail)
+                PersonalTimelineDetailView(
+                    item: selectedDetail,
+                    gentleModeEnabled:
+                        privacyMode.usesGentleSurfaceCopy,
+                    onMutation: {
+                        Task {
+                            await refreshFirstPage()
+                        }
+                    }
+                )
             }
         }
         .task(id: refreshToken) {
@@ -208,7 +366,15 @@ struct PersonalTimelineView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("还没有时间线")
                 .font(theme.display(24, relativeTo: .title3))
-            Text("添加化验、状态或普通记录后，它会按发生时间出现在这里。")
+            Text(
+                LabSurfaceDisplayPolicy.copy(
+                    gentleModeEnabled:
+                        TimelinePrivacyMode(
+                            gentleModeEnabled:
+                                gentleModeEnabled
+                        ).usesGentleSurfaceCopy
+                ).timelineEmptyDetail
+            )
                 .font(.subheadline)
                 .foregroundStyle(theme.secondaryText)
         }
@@ -218,21 +384,69 @@ struct PersonalTimelineView: View {
         .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
     }
 
+    private func timelineReadFailure(
+        title: String,
+        message: String,
+        allowsRetry: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline.weight(.black))
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            if allowsRetry {
+                Button("重新读取") {
+                    Task { await refreshFirstPage() }
+                }
+                .buttonStyle(V25SecondaryButtonStyle())
+                .accessibilityIdentifier("timeline.retryRead")
+            }
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.paper)
+        .overlay {
+            Rectangle().stroke(
+                hasIntegrityFailure
+                    ? theme.vermilion
+                    : theme.indigo,
+                lineWidth: 1.5
+            )
+        }
+        .accessibilityIdentifier(
+            hasIntegrityFailure
+                ? "timeline.integrityError"
+                : "timeline.readError"
+        )
+    }
+
     private func refreshFirstPage() async {
-        guard let reader else { return }
         let requestToken = requestEpoch.beginRefresh()
+        gentleModeEnabled = nil
         isLoading = true
+        errorMessage = nil
+        paginationErrorMessage = nil
+        hasIntegrityFailure = false
         defer {
             if requestEpoch.isCurrent(requestToken) {
                 isLoading = false
             }
+        }
+        guard let reader else {
+            errorMessage =
+                "本地资料尚未准备好，请稍后重新读取。"
+            return
         }
         do {
             let page = try await reader.personalTimelinePage(limit: 50)
             guard requestEpoch.isCurrent(requestToken) else { return }
             items = page.items
             nextCursor = page.nextCursor
+            gentleModeEnabled = page.gentleModeEnabled
             errorMessage = nil
+            paginationErrorMessage = nil
             hasIntegrityFailure = false
         } catch {
             applyReadFailure(
@@ -256,12 +470,30 @@ struct PersonalTimelineView: View {
             do {
                 let page = try await reader.personalTimelinePage(after: cursor, limit: 50)
                 guard requestEpoch.isCurrent(requestToken) else { return }
+                guard let currentGentleModeEnabled =
+                        gentleModeEnabled else {
+                    await refreshFirstPage()
+                    return
+                }
+                guard TimelinePageModePolicy.resolution(
+                    currentGentleModeEnabled:
+                        currentGentleModeEnabled,
+                    incomingGentleModeEnabled:
+                        page.gentleModeEnabled
+                ) == .append else {
+                    items = []
+                    nextCursor = nil
+                    gentleModeEnabled = nil
+                    await refreshFirstPage()
+                    return
+                }
                 let existing = Set(items.map { "\($0.kind.rawValue):\($0.id)" })
                 items.append(contentsOf: page.items.filter {
                     !existing.contains("\($0.kind.rawValue):\($0.id)")
                 })
                 nextCursor = page.nextCursor
-                errorMessage = nil
+                gentleModeEnabled = page.gentleModeEnabled
+                paginationErrorMessage = nil
                 hasIntegrityFailure = false
             } catch {
                 applyReadFailure(
@@ -286,18 +518,27 @@ struct PersonalTimelineView: View {
         case .ignore:
             return
         case let .retryable(message):
-            errorMessage = message
+            if context == .olderPage {
+                paginationErrorMessage = message
+            } else {
+                errorMessage = message
+            }
         case let .requireRecovery(message):
             items = []
             nextCursor = nil
+            gentleModeEnabled = nil
             hasIntegrityFailure = true
             errorMessage = message
+            paginationErrorMessage = nil
             integrityFailureHandler?()
         }
     }
 
     private func openRequestedDetail() {
-        guard let requestedItem else { return }
+        guard gentleModeEnabled != nil,
+              errorMessage == nil,
+              !hasIntegrityFailure,
+              let requestedItem else { return }
         selectedDetail = requestedItem
         self.requestedItem = nil
     }
@@ -306,6 +547,7 @@ struct PersonalTimelineView: View {
 private struct PersonalTimelineRow: View {
     @Environment(AppTheme.self) private var theme
     let item: PersonalTimelineItem
+    let gentleModeEnabled: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -372,12 +614,16 @@ private struct PersonalTimelineRow: View {
 
     private var kindLabel: String {
         switch item.kind {
-        case .labSample: "LAB / 化验"
+        case .labSample:
+            LabSurfaceDisplayPolicy.copy(
+                gentleModeEnabled: gentleModeEnabled
+            ).timelineKindLabel
         case .statusObservation: "STATUS / 状态"
         case .journeyEntry: "NOTE / 片段"
         case .administration: "ACTION / 执行"
         case .countdown: "DATE / 倒计时"
         case .regimenVersion: "REGIMEN / 方案"
+        case .hrtJourney: "JOURNEY / 历程"
         }
     }
 
@@ -389,6 +635,7 @@ private struct PersonalTimelineRow: View {
         case .administration: theme.mustard
         case .countdown: theme.rose
         case .regimenVersion: theme.indigo
+        case .hrtJourney: theme.blue
         }
     }
 
@@ -400,12 +647,64 @@ private struct PersonalTimelineRow: View {
         case .administration: theme.mustardText
         case .countdown: theme.vermilionText
         case .regimenVersion: theme.indigo
+        case .hrtJourney: theme.blueText
         }
+    }
+}
+
+struct PersonalTimelineDetailHeader: Equatable {
+    let title: String
+    let detail: String
+}
+
+func personalTimelineDetailHeader(
+    item: PersonalTimelineItem,
+    lab: LabSampleSnapshot?,
+    status: StatusObservationSnapshot?,
+    recordWasDeleted: Bool,
+    gentleModeEnabled: Bool = false
+) -> PersonalTimelineDetailHeader {
+    let labSurfaceCopy = LabSurfaceDisplayPolicy.copy(
+        gentleModeEnabled: gentleModeEnabled
+    )
+    if recordWasDeleted {
+        return PersonalTimelineDetailHeader(
+            title: "记录已删除",
+            detail: labSurfaceCopy.deletedRecordDetail
+        )
+    }
+    if let lab {
+        return PersonalTimelineDetailHeader(
+            title: labSurfaceCopy.timelineRecordTitle,
+            detail: lab.results.isEmpty
+                ? "仅附件"
+                : "\(lab.results.count) 个结果"
+        )
+    }
+    if let status {
+        return PersonalTimelineDetailHeader(
+            title: status.metricNameSnapshot,
+            detail: status.levelDisplayText
+        )
+    }
+    switch item.kind {
+    case .labSample, .statusObservation:
+        return PersonalTimelineDetailHeader(
+            title: "本地记录",
+            detail: "正在读取最新内容"
+        )
+    case .journeyEntry, .administration, .countdown,
+         .regimenVersion, .hrtJourney:
+        return PersonalTimelineDetailHeader(
+            title: item.title,
+            detail: item.detail
+        )
     }
 }
 
 @MainActor
 private struct PersonalTimelineDetailView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(AppTheme.self) private var theme
     @Environment(\.appReadActor) private var reader
     @Environment(\.attachmentMutationService) private var attachmentService
@@ -424,14 +723,34 @@ private struct PersonalTimelineDetailView: View {
     @State private var previewReleaseTask: Task<Void, Never>?
     @State private var deletingAttachmentIDs: Set<UUID> = []
     @State private var attachmentError: String?
+    @State private var headToken: ParentRecordHeadToken?
+    @State private var deletionImpact: ParentRecordDeletionImpact?
+    @State private var isPreparingMutation = false
+    @State private var showsLabCorrection = false
+    @State private var showsStatusCorrection = false
+    @State private var showsDeletion = false
+    @State private var recordWasDeleted = false
+    @State private var mutationError: String?
     let item: PersonalTimelineItem
+    let gentleModeEnabled: Bool
+    let onMutation: () -> Void
+
+    private var currentHeader: PersonalTimelineDetailHeader {
+        personalTimelineDetailHeader(
+            item: item,
+            lab: lab,
+            status: status,
+            recordWasDeleted: recordWasDeleted,
+            gentleModeEnabled: gentleModeEnabled
+        )
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text(item.title)
+                Text(currentHeader.title)
                     .font(theme.display(32, relativeTo: .title))
-                Text(item.detail)
+                Text(currentHeader.detail)
                     .font(.subheadline)
                     .foregroundStyle(theme.secondaryText)
                 Rectangle().fill(theme.indigo).frame(height: 2)
@@ -455,6 +774,29 @@ private struct PersonalTimelineDetailView: View {
                 } else if !hasLoaded {
                     ProgressView("正在读取本地记录…")
                         .frame(maxWidth: .infinity, minHeight: 100)
+                } else if recordWasDeleted {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("记录已删除")
+                            .font(theme.display(24, relativeTo: .title2))
+                        Text(
+                            LabSurfaceDisplayPolicy.copy(
+                                gentleModeEnabled:
+                                    gentleModeEnabled
+                            ).deletedRecordDetail
+                        )
+                            .font(.subheadline)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    .padding(15)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(theme.paper)
+                    .overlay {
+                        Rectangle().stroke(
+                            theme.indigo,
+                            lineWidth: 1.5
+                        )
+                    }
+                    .accessibilityIdentifier("parentRecord.deleted")
                 } else if let lab {
                     if let notice = lab.associationState.reviewNotice {
                         associationReviewNotice(notice)
@@ -486,13 +828,37 @@ private struct PersonalTimelineDetailView: View {
                                ).isEmpty {
                                 factRow("检测方法 / 变体", variant)
                             }
+                            NavigationLink {
+                                LabTrendView(
+                                    seed: result,
+                                    gentleModeEnabled:
+                                        gentleModeEnabled
+                                )
+                            } label: {
+                                Text(
+                                    LabSurfaceDisplayPolicy.copy(
+                                        gentleModeEnabled:
+                                            gentleModeEnabled
+                                    ).trendActionTitle
+                                )
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        minHeight: 44
+                                    )
+                            }
+                            .buttonStyle(V25SecondaryButtonStyle())
+                            .accessibilityIdentifier(
+                                "labResult.trend.\(result.id.uuidString.lowercased())"
+                            )
                         }
                         .padding(.vertical, 12)
                         .overlay(alignment: .bottom) {
                             Rectangle().fill(theme.indigo.opacity(0.5)).frame(height: 1)
                         }
                     }
-                    Text("数值按原报告保存。App 不判断正常或异常，也不自动换算单位。")
+                    Text(
+                        "数值按原报告保存。App 不判断正常或异常；只有你在趋势页选择时，才按版本化规则派生显示单位。"
+                    )
                         .font(.caption)
                         .foregroundStyle(theme.secondaryText)
                 } else if let status {
@@ -509,6 +875,53 @@ private struct PersonalTimelineDetailView: View {
                     factRow("记录", item.detail)
                 }
 
+                if detailError == nil,
+                   !recordWasDeleted,
+                   lab != nil || status != nil {
+                    V25SectionHeader(
+                        title: "记录操作",
+                        detail: "追加更正或删除"
+                    )
+                    Button {
+                        prepareCorrection()
+                    } label: {
+                        Text(
+                            isPreparingMutation
+                                ? "正在读取当前版本…"
+                                : "更正这条记录"
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                    }
+                    .buttonStyle(V25SecondaryButtonStyle())
+                    .disabled(
+                        isPreparingMutation
+                            || isPreviewRequestInFlight
+                            || previewAttachmentID != nil
+                    )
+                    .accessibilityIdentifier("parentRecord.correct")
+                    Button(role: .destructive) {
+                        prepareDeletion()
+                    } label: {
+                        Text(
+                            isPreparingMutation
+                                ? "正在计算影响…"
+                                : "删除这条记录"
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                    }
+                    .buttonStyle(V25SecondaryButtonStyle())
+                    .disabled(
+                        isPreparingMutation
+                            || isPreviewRequestInFlight
+                            || previewAttachmentID != nil
+                    )
+                    .accessibilityIdentifier("parentRecord.delete")
+                }
+                if let mutationError {
+                    Text(mutationError)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.vermilionText)
+                }
                 if detailError == nil, !attachments.isEmpty {
                     V25SectionHeader(title: "附件", detail: "\(attachments.count) 个")
                     ForEach(attachments) { attachment in
@@ -540,9 +953,14 @@ private struct PersonalTimelineDetailView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(
-                                deletingAttachmentIDs.contains(attachment.id)
-                                    || !AttachmentPreviewAdmission.canBegin(
-                                        isRequestInFlight:
+                                !ParentRecordAttachmentActionGate
+                                    .allowsAction(
+                                        isPreparingParentMutation:
+                                            isPreparingMutation,
+                                        isDeletingAttachment:
+                                            deletingAttachmentIDs
+                                                .contains(attachment.id),
+                                        isPreviewRequestInFlight:
                                             isPreviewRequestInFlight,
                                         presentedAttachmentID:
                                             previewAttachmentID
@@ -556,9 +974,18 @@ private struct PersonalTimelineDetailView: View {
                             }
                             .accessibilityLabel("删除附件 \(attachment.originalFilename)")
                             .disabled(
-                                deletingAttachmentIDs.contains(attachment.id)
-                                    || isPreviewRequestInFlight
-                                    || previewAttachmentID != nil
+                                !ParentRecordAttachmentActionGate
+                                    .allowsAction(
+                                        isPreparingParentMutation:
+                                            isPreparingMutation,
+                                        isDeletingAttachment:
+                                            deletingAttachmentIDs
+                                                .contains(attachment.id),
+                                        isPreviewRequestInFlight:
+                                            isPreviewRequestInFlight,
+                                        presentedAttachmentID:
+                                            previewAttachmentID
+                                    )
                             )
                         }
                         .overlay(alignment: .bottom) {
@@ -600,6 +1027,36 @@ private struct PersonalTimelineDetailView: View {
         }
         .onAppear {
             previewRequestGate.activate()
+        }
+        .sheet(isPresented: $showsLabCorrection) {
+            if let lab, let headToken {
+                LabSampleCorrectionEditor(
+                    snapshot: lab,
+                    head: headToken,
+                    attachmentCount: attachments.count,
+                    onSaved: mutationCompleted
+                )
+            }
+        }
+        .sheet(isPresented: $showsStatusCorrection) {
+            if let status, let headToken {
+                StatusObservationCorrectionEditor(
+                    snapshot: status,
+                    head: headToken,
+                    onSaved: mutationCompleted
+                )
+            }
+        }
+        .sheet(isPresented: $showsDeletion) {
+            if let deletionImpact {
+                ParentRecordDeletionSheet(
+                    impact: deletionImpact,
+                    onDeleted: {
+                        onMutation()
+                        dismiss()
+                    }
+                )
+            }
         }
         .task { await load() }
     }
@@ -705,13 +1162,31 @@ private struct PersonalTimelineDetailView: View {
         guard let reader else { return }
         hasLoaded = false
         detailError = nil
+        mutationError = nil
+        recordWasDeleted = false
         do {
             switch item.kind {
             case .labSample:
-                guard let loaded = try await reader.labSample(id: item.id) else {
+                guard let loaded = try await reader.labSample(
+                    id: item.id
+                ) else {
+                    if try await reader.parentRecordIsDeleted(
+                        type: .labSample,
+                        id: item.id
+                    ) {
+                        recordWasDeleted = true
+                        attachments = []
+                        hasLoaded = true
+                        return
+                    }
                     throw AppDataFailure.corruptionSuspected
                 }
                 lab = loaded
+                status = nil
+                headToken = try await reader.parentRecordHeadToken(
+                    type: .labSample,
+                    id: item.id
+                )
                 attachments = try await reader.attachments(
                     ownerType: .labSample,
                     ownerID: item.id
@@ -720,9 +1195,23 @@ private struct PersonalTimelineDetailView: View {
                 guard let loaded = try await reader.statusObservation(
                     id: item.id
                 ) else {
+                    if try await reader.parentRecordIsDeleted(
+                        type: .statusObservation,
+                        id: item.id
+                    ) {
+                        recordWasDeleted = true
+                        attachments = []
+                        hasLoaded = true
+                        return
+                    }
                     throw AppDataFailure.corruptionSuspected
                 }
                 status = loaded
+                lab = nil
+                headToken = try await reader.parentRecordHeadToken(
+                    type: .statusObservation,
+                    id: item.id
+                )
                 attachments = try await reader.attachments(
                     ownerType: .statusObservation,
                     ownerID: item.id
@@ -732,13 +1221,14 @@ private struct PersonalTimelineDetailView: View {
                     ownerType: .journeyEntry,
                     ownerID: item.id
                 )
-            case .administration, .countdown, .regimenVersion:
+            case .administration, .countdown, .regimenVersion, .hrtJourney:
                 break
             }
             hasLoaded = true
         } catch {
             lab = nil
             status = nil
+            headToken = nil
             attachments = []
             hasLoaded = true
             if error as? AppDataFailure == .corruptionSuspected {
@@ -750,6 +1240,68 @@ private struct PersonalTimelineDetailView: View {
                     "暂时无法读取这条本地记录，原资料没有被修改。"
             }
         }
+    }
+
+    private func prepareCorrection() {
+        guard lab != nil || status != nil else { return }
+        isPreparingMutation = true
+        mutationError = nil
+        Task {
+            defer { isPreparingMutation = false }
+            await load()
+            guard detailError == nil,
+                  !recordWasDeleted,
+                  headToken != nil else {
+                mutationError =
+                    "暂时无法准备更正；原记录没有被修改。"
+                return
+            }
+            if lab != nil {
+                showsLabCorrection = true
+            } else if status != nil {
+                showsStatusCorrection = true
+            }
+        }
+    }
+
+    private func prepareDeletion() {
+        guard let reader else { return }
+        let parentType: ParentRecordType
+        if lab != nil {
+            parentType = .labSample
+        } else if status != nil {
+            parentType = .statusObservation
+        } else {
+            return
+        }
+        isPreparingMutation = true
+        mutationError = nil
+        Task {
+            defer { isPreparingMutation = false }
+            do {
+                deletionImpact =
+                    try await reader.parentRecordDeletionImpact(
+                        type: parentType,
+                        id: item.id
+                    )
+                showsDeletion = true
+            } catch {
+                if error as? AppDataFailure
+                    == .corruptionSuspected {
+                    mutationError =
+                        "本地记录没有通过完整性检查。App 将进入恢复模式。"
+                    integrityFailureHandler?()
+                } else {
+                    mutationError =
+                        "暂时无法计算删除影响；原记录没有被修改。"
+                }
+            }
+        }
+    }
+
+    private func mutationCompleted() {
+        onMutation()
+        Task { await load() }
     }
 
     private func delete(_ attachment: AttachmentSnapshot) {

@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-enum LabItemDefinitionKind: String, Codable, Sendable {
+enum LabItemDefinitionKind: String, Codable, Equatable, Sendable {
     case custom
     case bundled
 }

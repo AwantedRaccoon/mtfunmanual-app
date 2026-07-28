@@ -358,28 +358,43 @@ private struct LedgerHormoneRow: View {
 struct LedgerHormoneFact: Identifiable {
     let order: Int
     let descriptor: LedgerHormoneDescriptor
-    let record: LabRecordSnapshot?
+    let record: LedgerLabDisplayRecord?
 
     var id: String { descriptor.code }
+}
+
+struct LedgerLabDisplayRecord: Equatable {
+    let rawValue: String
+    let unit: String
 }
 
 struct LedgerHormoneDescriptor: Identifiable {
     let code: String
     let name: String
-    let aliases: Set<String>
+    let bundledStableID: String?
 
     var id: String { code }
 
-    func matches(itemCode: String) -> Bool {
-        aliases.contains(itemCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased())
+    func matches(
+        definitionKind: LabItemDefinitionKind,
+        bundledStableID candidate: String?
+    ) -> Bool {
+        guard definitionKind == .bundled,
+              let bundledStableID else {
+            return false
+        }
+        return candidate == bundledStableID
     }
 
+    // Formal Release catalog identities are intentionally unset until their
+    // sources, licenses, stable IDs, and human review ownership are accepted.
+    // User-editable display names and codes must never be treated as identity.
     static let all: [LedgerHormoneDescriptor] = [
-        .init(code: "E2", name: "雌二醇", aliases: ["E2", "ESTRADIOL"]),
-        .init(code: "T", name: "睾酮", aliases: ["T", "TESTOSTERONE", "TESTO"]),
-        .init(code: "LH", name: "促黄体生成素", aliases: ["LH"]),
-        .init(code: "FSH", name: "促卵泡生成素", aliases: ["FSH"]),
-        .init(code: "PRL", name: "泌乳素", aliases: ["PRL", "PROLACTIN"]),
-        .init(code: "P", name: "孕酮", aliases: ["P", "P4", "PROG", "PROGESTERONE"])
+        .init(code: "E2", name: "雌二醇", bundledStableID: nil),
+        .init(code: "T", name: "睾酮", bundledStableID: nil),
+        .init(code: "LH", name: "促黄体生成素", bundledStableID: nil),
+        .init(code: "FSH", name: "促卵泡生成素", bundledStableID: nil),
+        .init(code: "PRL", name: "泌乳素", bundledStableID: nil),
+        .init(code: "P", name: "孕酮", bundledStableID: nil)
     ]
 }

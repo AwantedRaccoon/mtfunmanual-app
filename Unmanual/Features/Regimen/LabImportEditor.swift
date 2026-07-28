@@ -49,6 +49,12 @@ struct LabImportEditor: View {
         completedCount > 0 && !hasIncompleteEntry
     }
 
+    private var canDismiss: Bool {
+        EditorWriteDismissalPolicy.allowsDismiss(
+            isWriting: isSaving
+        )
+    }
+
     var body: some View {
         NavigationStack {
             V25EditorPage(
@@ -56,7 +62,11 @@ struct LabImportEditor: View {
                 eyebrow: "NEW SAMPLE",
                 title: "导入检查记录",
                 detail: "选择采样日期，填写这次报告中的项目；没有记录的项目可以留空。",
-                cancel: dismiss.callAsFunction
+                isCancelEnabled: canDismiss,
+                cancel: {
+                    guard canDismiss else { return }
+                    dismiss()
+                }
             ) {
                 V25SectionHeader(
                     title: "采样信息",
@@ -98,6 +108,7 @@ struct LabImportEditor: View {
             }
         }
         .tint(theme.indigo)
+        .interactiveDismissDisabled(!canDismiss)
         .task { await loadRegimens() }
         .task(id: Calendar.autoupdatingCurrent.startOfDay(for: sampledAt)) {
             await loadExistingRecordCount()

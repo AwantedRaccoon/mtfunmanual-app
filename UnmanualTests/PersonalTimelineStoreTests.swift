@@ -445,6 +445,232 @@ final class PersonalTimelineStoreTests: XCTestCase {
         )
     }
 
+    func testCompletedBackfillReconcilesLegacyLabAddedByRetiredWriter() throws {
+        let container =
+            try AppModelContainerFactory.makeInMemoryPersonalTimelineContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: "UTC"
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+        let first = try PersonalTimelineBackfill.run(in: container)
+        XCTAssertTrue(first.didComplete)
+        let preflight = ModelContext(container)
+        let nextRevisionBeforeReconciliation = try XCTUnwrap(
+            try preflight.fetch(FetchDescriptor<DatasetMetadata>()).first
+        ).nextLocalRevision
+
+        let legacyID = UUID(
+            uuidString: "79797979-7979-7979-7979-797979797979"
+        )!
+        let sampledAt = Date(timeIntervalSince1970: 1_721_234_560)
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: sampledAt,
+            timeZoneIdentifier: "UTC",
+            precision: .minute,
+            provenance: .userEntered
+        )
+        let context = ModelContext(container)
+        context.insert(
+            LabRecord(
+                id: legacyID,
+                itemName: "雌二醇",
+                itemCode: "E2",
+                rawValue: "< 172.50",
+                numericValue: 172.5,
+                unit: "pmol/L",
+                sampledAt: sampledAt,
+                referenceRangeOriginal: "实验室原文",
+                contextNote: "退休入口遗留",
+                createdAt: sampledAt
+            )
+        )
+        context.insert(
+            HistoricalTimeRecord(
+                sourceRecordType: "LabRecord",
+                sourceRecordID: legacyID,
+                timestamp: timestamp,
+                legacyAssociationID: nil,
+                resolvedRegimenVersionID: nil,
+                associationState: .missing
+            )
+        )
+        try context.save()
+
+        let reconciled = try PersonalTimelineBackfill.run(in: container)
+        let again = try PersonalTimelineBackfill.run(in: container)
+        XCTAssertTrue(reconciled.didComplete)
+        XCTAssertTrue(reconciled.didChangeStore)
+        XCTAssertFalse(again.didChangeStore)
+
+        let verification = ModelContext(container)
+        let sampleID = PersonalTimelineBackfill.legacySampleID(
+            for: legacyID
+        )
+        XCTAssertEqual(
+            try verification.fetch(
+                FetchDescriptor<LabSampleRecord>(
+                    predicate: #Predicate { $0.id == sampleID }
+                )
+            ).count,
+            1
+        )
+        let metadata = try XCTUnwrap(
+            try verification.fetch(
+                FetchDescriptor<DatasetMetadata>()
+            ).first
+        )
+        XCTAssertEqual(
+            metadata.nextLocalRevision,
+            nextRevisionBeforeReconciliation + 1
+        )
+        let sharedRevisions = try verification.fetch(
+            FetchDescriptor<RecordRevision>(
+                predicate: #Predicate {
+                    $0.localRevision
+                        == nextRevisionBeforeReconciliation
+                }
+            )
+        )
+        XCTAssertEqual(sharedRevisions.count, 6)
+        XCTAssertEqual(
+            Set(sharedRevisions.map(\.localRevision)),
+            Set([nextRevisionBeforeReconciliation])
+        )
+        let ledgerKey =
+            "OperationReceiptLedgerRecord:"
+            + TodayExecutionDigestV1.receiptLedgerID.uuidString.lowercased()
+        let ledgerRevision = try XCTUnwrap(
+            try verification.fetch(
+                FetchDescriptor<RecordRevision>(
+                    predicate: #Predicate {
+                        $0.recordKey == ledgerKey
+                    }
+                )
+            ).first
+        )
+        XCTAssertEqual(
+            ledgerRevision.localRevision,
+            nextRevisionBeforeReconciliation
+        )
+        XCTAssertEqual(
+            try verification.fetch(
+                FetchDescriptor<LabResultRecord>(
+                    predicate: #Predicate { $0.id == legacyID }
+                )
+            ).count,
+            1
+        )
+    }
+
+    func testLegacyReconciliationRejectsConflictingCanonicalMirror() throws {
+        let container =
+            try AppModelContainerFactory.makeInMemoryPersonalTimelineContainer()
+        let legacyID = UUID(
+            uuidString: "78787878-7878-7878-7878-787878787878"
+        )!
+        let sampledAt = Date(timeIntervalSince1970: 1_721_234_560)
+        let context = ModelContext(container)
+        context.insert(
+            LabRecord(
+                id: legacyID,
+                itemName: "雌二醇",
+                itemCode: "E2",
+                rawValue: "172.5",
+                numericValue: 172.5,
+                unit: "pmol/L",
+                sampledAt: sampledAt,
+                createdAt: sampledAt
+            )
+        )
+        try context.save()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: "UTC"
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+
+        let tamper = ModelContext(container)
+        let result = try XCTUnwrap(
+            try tamper.fetch(
+                FetchDescriptor<LabResultRecord>(
+                    predicate: #Predicate { $0.id == legacyID }
+                )
+            ).first
+        )
+        result.unitOriginal = "ng/mL"
+        try tamper.save()
+
+        XCTAssertThrowsError(
+            try PersonalTimelineBackfill.run(in: container)
+        ) {
+            XCTAssertEqual($0 as? AppDataFailure, .migrationFailed)
+        }
+    }
+
+    func testRetiredLabImportAPIUsesCanonicalSampleOnCurrentSchema()
+        async throws {
+        let container =
+            try AppModelContainerFactory.makeInMemoryPersonalTimelineContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: "UTC"
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        let writer = AppWriteActor(modelContainer: container)
+        let sampledAt = Date(timeIntervalSince1970: 1_721_234_560)
+
+        let savedCount = try await writer.saveLabImport(
+            SaveLabImportCommand(
+                entries: [
+                    LabImportEntry(
+                        itemName: "雌二醇",
+                        itemCode: "E2",
+                        rawValue: " 172.5 ",
+                        unit: " pmol/L "
+                    ),
+                    LabImportEntry(
+                        itemName: "睾酮",
+                        itemCode: "T",
+                        rawValue: "1.2",
+                        unit: "nmol/L"
+                    )
+                ],
+                sampledAt: sampledAt,
+                regimenVersionID: nil,
+                timeZoneIdentifier: "UTC",
+                committedAt: sampledAt
+            )
+        )
+
+        let context = ModelContext(container)
+        XCTAssertEqual(savedCount, 2)
+        XCTAssertEqual(
+            try context.fetchCount(FetchDescriptor<LabRecord>()),
+            0
+        )
+        XCTAssertEqual(
+            try context.fetchCount(FetchDescriptor<LabSampleRecord>()),
+            1
+        )
+        XCTAssertEqual(
+            try context.fetchCount(FetchDescriptor<LabResultRecord>()),
+            2
+        )
+        let results = try context.fetch(
+            FetchDescriptor<LabResultRecord>(
+                sortBy: [SortDescriptor(\.sortOrder)]
+            )
+        )
+        XCTAssertEqual(results.first?.rawValueOriginal, " 172.5 ")
+        XCTAssertEqual(results.first?.unitOriginal, " pmol/L ")
+    }
+
     func testLaterSampleCanReuseAnExistingDefinitionWithoutUnitConversion() async throws {
         let container = try preparedContainer()
         let writer = AppWriteActor(modelContainer: container)

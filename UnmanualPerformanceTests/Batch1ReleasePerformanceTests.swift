@@ -3,6 +3,7 @@ import XCTest
 @MainActor
 final class Batch1ReleasePerformanceTests: XCTestCase {
     func testFiveYearReleasePerformance() async throws {
+        executionTimeAllowance = Batch1PerformanceContract.v1.testExecutionTimeAllowanceSeconds
 #if targetEnvironment(simulator)
         let isSimulator = true
 #else

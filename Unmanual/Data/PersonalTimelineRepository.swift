@@ -89,6 +89,8 @@ struct LabSampleCommitResult: Equatable, Sendable {
 struct LabResultSnapshot: Identifiable, Equatable, Sendable {
     let id: UUID
     let itemDefinitionID: UUID
+    let itemDefinitionKind: LabItemDefinitionKind
+    let bundledStableID: String?
     let itemNameSnapshot: String
     let itemCodeSnapshot: String
     let rawValueOriginal: String
@@ -188,6 +190,7 @@ extension AppWriteActor {
                     )
                 }
 
+                var persistedResults: [LabResultRecord] = []
                 for (index, input) in normalized.results.enumerated() {
                     guard let definition = normalized.definitionByID[input.itemDefinitionID] else {
                         throw PersonalTimelineWriteFailure.invalidInput
@@ -208,6 +211,7 @@ extension AppWriteActor {
                         operationID: command.operationID,
                         createdAt: command.committedAt
                     )
+                    persistedResults.append(record)
                     modelContext.insert(record)
                     try upsertRevision(
                         recordType: "LabResultRecord",
@@ -273,6 +277,13 @@ extension AppWriteActor {
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
+                try insertCreatedLabParentRoot(
+                    sample: sample,
+                    results: persistedResults,
+                    commandDigest: commandDigest,
+                    reservation: reservation,
+                    committedAt: command.committedAt
+                )
                 try insertOperationReceipt(
                     OperationReceiptRecord(
                         operationID: command.operationID,
@@ -283,6 +294,7 @@ extension AppWriteActor {
                     ),
                     reservation: reservation
                 )
+                try validateParentRecordLifecycleAfterCreation()
                 try markCommitted(at: command.committedAt)
                 result = LabSampleCommitResult(sampleID: sample.id, didCreate: true)
             }
@@ -517,7 +529,7 @@ extension AppReadActor {
         }
     }
 
-    func labSample(id: UUID) throws -> LabSampleSnapshot? {
+    func baseLabSample(id: UUID) throws -> LabSampleSnapshot? {
         var sampleDescriptor = FetchDescriptor<LabSampleRecord>(
             predicate: #Predicate { $0.id == id }
         )
@@ -555,6 +567,23 @@ extension AppReadActor {
                 <= PersonalTimelineCapacity.maximumLabResultsPerSample else {
             throw AppDataFailure.corruptionSuspected
         }
+        let definitionIDs = Array(Set(results.map(\.itemDefinitionID)))
+        var definitionDescriptor =
+            FetchDescriptor<LabItemDefinitionRecord>(
+                predicate: #Predicate {
+                    definitionIDs.contains($0.id)
+                }
+            )
+        definitionDescriptor.fetchLimit = definitionIDs.count + 1
+        let definitions = try modelContext.fetch(definitionDescriptor)
+        let definitionByID = try AppDataIndex.checkedUniqueMap(
+            definitions,
+            keyedBy: \.id,
+            failure: .corruptionSuspected
+        )
+        guard definitions.count == definitionIDs.count else {
+            throw AppDataFailure.corruptionSuspected
+        }
 
         return LabSampleSnapshot(
             id: sample.id,
@@ -563,10 +592,20 @@ extension AppReadActor {
             associationState: associationState,
             specimenOriginal: sample.specimenOriginal,
             contextNote: sample.contextNote,
-            results: results.map {
-                LabResultSnapshot(
+            results: try results.map {
+                guard let definition = definitionByID[$0.itemDefinitionID],
+                      let kind = LabItemDefinitionKind(
+                          rawValue: definition.kindRawValue
+                      ),
+                      kind != .bundled
+                        || definition.bundledStableID?.isEmpty == false else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+                return LabResultSnapshot(
                     id: $0.id,
                     itemDefinitionID: $0.itemDefinitionID,
+                    itemDefinitionKind: kind,
+                    bundledStableID: definition.bundledStableID,
                     itemNameSnapshot: $0.itemNameSnapshot,
                     itemCodeSnapshot: $0.itemCodeSnapshot,
                     rawValueOriginal: $0.rawValueOriginal,

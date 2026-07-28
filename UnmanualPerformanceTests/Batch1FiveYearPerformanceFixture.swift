@@ -480,6 +480,44 @@ actor Batch1PerformanceWorker {
         let countdownIntegrityStates = try context.fetch(
             FetchDescriptor<CountdownIntegrityBackfillState>()
         )
+        let onboardingProgress = try context.fetch(
+            FetchDescriptor<OnboardingProgressRecord>()
+        )
+        let onboardingStates = try context.fetch(
+            FetchDescriptor<OnboardingBackfillState>()
+        )
+        let hrtJourneyEvents = try context.fetch(
+            FetchDescriptor<HrtJourneyLifecycleEventRecord>()
+        )
+        let hrtJourneyStates = try context.fetch(
+            FetchDescriptor<HrtJourneyLifecycleBackfillState>()
+        )
+        let parentRecordCounts = Batch1V10ParentRecordCounts(
+            lifecycleHeads: try context.fetchCount(
+                FetchDescriptor<ParentRecordLifecycleHeadRecord>()
+            ),
+            mutationEvents: try context.fetchCount(
+                FetchDescriptor<ParentRecordMutationEventRecord>()
+            ),
+            labCorrectionSnapshots: try context.fetchCount(
+                FetchDescriptor<LabSampleCorrectionSnapshotRecord>()
+            ),
+            labResultCorrectionSnapshots: try context.fetchCount(
+                FetchDescriptor<LabResultCorrectionSnapshotRecord>()
+            ),
+            statusCorrectionSnapshots: try context.fetchCount(
+                FetchDescriptor<StatusObservationCorrectionSnapshotRecord>()
+            ),
+            deletionTombstones: try context.fetchCount(
+                FetchDescriptor<ParentRecordDeletionTombstoneRecord>()
+            ),
+            backfillStates: try context.fetchCount(
+                FetchDescriptor<ParentRecordLifecycleBackfillState>()
+            )
+        )
+        let parentRecordStates = try context.fetch(
+            FetchDescriptor<ParentRecordLifecycleBackfillState>()
+        )
         let pointer = try GenerationPointerStore(layout: layout).read()
         guard metadata.count == 1,
               states.count == 1,
@@ -493,14 +531,35 @@ actor Batch1PerformanceWorker {
               countdownIntegrityStates.count == 1,
               countdownIntegrityStates.first?.sourceSchemaVersion == "7.0.0",
               countdownIntegrityStates.first?.completedAt != nil,
+              onboardingProgress.count == 1,
+              onboardingProgress.first?.step == .completed,
+              onboardingProgress.first?.completedAt != nil,
+              onboardingStates.count == 1,
+              onboardingStates.first?.source == .legacyAdoption,
+              onboardingStates.first?.completedAt != nil,
+              hrtJourneyEvents.count
+                  == Batch1V9HrtJourneyCounts.expected.lifecycleEvents,
+              hrtJourneyEvents.first?.kind == .migratedSnapshot,
+              hrtJourneyStates.count
+                  == Batch1V9HrtJourneyCounts.expected.backfillStates,
+              // This fixture enters through the unversioned legacy-adoption
+              // path and is backfilled directly by the current V9 schema.
+              // Existing V8 generations use "8.0.0" in the separate
+              // V8-to-V9 upgrade path.
+              hrtJourneyStates.first?.sourceSchemaVersion == "9.0.0",
+              hrtJourneyStates.first?.completedAt != nil,
+              parentRecordCounts
+                  == Batch1V10ParentRecordCounts.expected,
+              parentRecordStates.first?.sourceSchemaVersion == "9.0.0",
+              parentRecordStates.first?.completedAt != nil,
               metadata.first?.nextLocalRevision
-                  == Batch1V7FoundationContract.nextLocalRevision,
+                  == Batch1V10FoundationContract.nextLocalRevision,
               pointer.origin == .legacyAdoption,
-              pointer.schemaVersion == "7.0.0",
+              pointer.schemaVersion == "10.0.0",
               pointer.minimumFactCount
-                  == Batch1V7FoundationContract.activatedFactCount,
+                  == Batch1V10FoundationContract.activatedFactCount,
               pointer.minimumRevisionCount
-                  == Batch1V7FoundationContract.activatedRevisionCount,
+                  == Batch1V10FoundationContract.activatedRevisionCount,
               pointer.datasetID == metadata.first?.datasetID else {
             throw WorkerError.invalidFoundationMetadata(
                 [
@@ -509,12 +568,19 @@ actor Batch1PerformanceWorker {
                     "core=\(coreStates.count):\(coreStates.first?.completedAt != nil)",
                     "timeline=\(personalTimelineStates.count):\(personalTimelineStates.first?.completedAt != nil)",
                     "countdown=\(countdownStates.count):\(countdownStates.first?.completedAt != nil)",
-                    "countdownIntegrity=\(countdownIntegrityStates.count):\(countdownIntegrityStates.first?.completedAt != nil)",
+                    "countdownIntegrity=\(countdownIntegrityStates.count):\(countdownIntegrityStates.first?.sourceSchemaVersion ?? "nil"):\(countdownIntegrityStates.first?.completedAt != nil)",
+                    "onboarding=\(onboardingProgress.count):\(onboardingProgress.first?.step?.rawValue ?? "nil"):\(onboardingProgress.first?.completedAt != nil)",
+                    "onboardingState=\(onboardingStates.count):\(onboardingStates.first?.source?.rawValue ?? "nil"):\(onboardingStates.first?.completedAt != nil)",
+                    "hrtJourneyEvents=\(hrtJourneyEvents.count):\(hrtJourneyEvents.first?.kindRawValue ?? "nil")",
+                    "hrtJourneyState=\(hrtJourneyStates.count):\(hrtJourneyStates.first?.sourceSchemaVersion ?? "nil"):\(hrtJourneyStates.first?.completedAt != nil)",
+                    "parentRecords=\(parentRecordCounts)",
+                    "parentRecordState=\(parentRecordStates.count):\(parentRecordStates.first?.sourceSchemaVersion ?? "nil"):\(parentRecordStates.first?.completedAt != nil)",
                     "next=\(metadata.first?.nextLocalRevision.description ?? "nil")",
                     "origin=\(pointer.origin.rawValue)",
                     "schema=\(pointer.schemaVersion)",
                     "facts=\(pointer.minimumFactCount)",
-                    "revisions=\(pointer.minimumRevisionCount)"
+                    "revisions=\(pointer.minimumRevisionCount)",
+                    "datasetMatch=\(pointer.datasetID == metadata.first?.datasetID)"
                 ].joined(separator: ",")
             )
         }
@@ -560,10 +626,10 @@ actor Batch1PerformanceWorker {
               try context.fetchCount(FetchDescriptor<JourneyEntry>()) == 7_301,
               try context.fetchCount(FetchDescriptor<HistoricalTimeRecord>()) == 9_701,
               try context.fetchCount(FetchDescriptor<RecordRevision>())
-                  == Batch1V7FoundationContract.postQuickWriteRevisionCount,
+                  == Batch1V10FoundationContract.postQuickWriteRevisionCount,
               revision?.recordKey == "JourneyEntry:" + recordID.uuidString.lowercased(),
               revision?.localRevision
-                  == Batch1V7FoundationContract.nextLocalRevision,
+                  == Batch1V10FoundationContract.nextLocalRevision,
               revision?.datasetID == metadata?.datasetID,
               revision?.digestVersion == RecordDigestV1.version,
               revision?.digestHex.isEmpty == false,
@@ -572,14 +638,14 @@ actor Batch1PerformanceWorker {
               historical?.instant == committedAt,
               historical?.associationStateRawValue == HistoricalAssociationState.resolved.rawValue,
               historicalRevision?.localRevision
-                  == Batch1V7FoundationContract.nextLocalRevision,
+                  == Batch1V10FoundationContract.nextLocalRevision,
               historicalRevision?.datasetID == metadata?.datasetID,
               historicalRevision?.digestVersion == RecordDigestV1.version,
               historicalRevision?.digestHex.isEmpty == false,
               historicalRevision?.committedAt == committedAt,
               metadata?.lastCommittedAt == committedAt,
               metadata?.nextLocalRevision
-                  == Batch1V7FoundationContract
+                  == Batch1V10FoundationContract
                       .postQuickWriteNextLocalRevision else {
             throw WorkerError.quickWriteNotReadable
         }

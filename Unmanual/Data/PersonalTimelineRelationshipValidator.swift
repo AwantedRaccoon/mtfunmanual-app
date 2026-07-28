@@ -40,16 +40,35 @@ enum PersonalTimelineRelationshipValidator {
             keyedBy: \.id,
             failure: failure
         )
+        guard samples.allSatisfy({
+            $0.createdAt.timeIntervalSince1970.isFinite
+        }) else {
+            throw failure
+        }
         let results = try context.fetch(FetchDescriptor<LabResultRecord>())
         guard Set(results.map(\.id)).count == results.count,
               results.allSatisfy({ result in
-                  sampleByID[result.sampleID] != nil
+                  guard let parsed = try? LabDecimalValue.parse(
+                      result.rawValueOriginal
+                  ) else {
+                      return false
+                  }
+                  return sampleByID[result.sampleID] != nil
                       && definitionByID[result.itemDefinitionID] != nil
                       && result.operationID == sampleByID[result.sampleID]?.operationID
                       && result.comparatorRawValue.map {
                           LabValueComparator(rawValue: $0) != nil
                       } != false
-                      && (try? LabDecimalValue.parse(result.canonicalDecimalString)) != nil
+                      && parsed.comparator?.rawValue
+                        == result.comparatorRawValue
+                      && parsed.canonicalDecimal
+                        == result.canonicalDecimalString
+                      && !result.unitOriginal
+                        .trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        )
+                        .isEmpty
+                      && result.createdAt.timeIntervalSince1970.isFinite
               }) else {
             throw failure
         }

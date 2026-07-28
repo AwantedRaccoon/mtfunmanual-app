@@ -286,6 +286,11 @@ actor AppWriteActor {
         _ command: SetStartDateCommand,
         failureInjection: AppWriteFailureInjection? = nil
     ) throws {
+        guard !modelContext.container.schema.entities.contains(where: {
+            $0.name == "HrtJourneyLifecycleEventRecord"
+        }) else {
+            throw AppWriteFailure.invalidInput
+        }
         let canonicalDate: CivilDateFact
         do {
             canonicalDate = try HistoricalTimestamp.captured(
@@ -730,6 +735,12 @@ actor AppWriteActor {
 
     @discardableResult
     func saveLabImport(_ command: SaveLabImportCommand) throws -> Int {
+        if modelContext.container.schema.entities.contains(where: {
+            $0.name == "LabSampleRecord"
+        }) {
+            return try saveCanonicalLabImport(command)
+        }
+
         let completedEntries = command.entries.filter(\.isComplete)
         guard !completedEntries.isEmpty else { throw AppWriteFailure.invalidInput }
         let normalizedSampledAt = Self.normalizedInstant(
@@ -803,6 +814,60 @@ actor AppWriteActor {
         }
     }
 
+    private func saveCanonicalLabImport(
+        _ command: SaveLabImportCommand
+    ) throws -> Int {
+        let completedEntries = command.entries.filter(\.isComplete)
+        guard !completedEntries.isEmpty,
+              completedEntries.allSatisfy({
+                  !$0.itemName
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
+              }) else {
+            throw AppWriteFailure.invalidInput
+        }
+        let normalizedSampledAt = Self.normalizedInstant(
+            command.sampledAt,
+            precision: command.precision
+        )
+        let timestamp: HistoricalTimestamp
+        do {
+            timestamp = try HistoricalTimestamp.captured(
+                instant: normalizedSampledAt,
+                timeZoneIdentifier: command.timeZoneIdentifier,
+                precision: command.precision,
+                provenance: .userEntered
+            )
+        } catch {
+            throw AppWriteFailure.invalidInput
+        }
+
+        let definitions = completedEntries.map {
+            LabItemDefinitionInput(
+                id: UUID(),
+                displayName: $0.itemName,
+                code: $0.itemCode
+            )
+        }
+        let results = zip(completedEntries, definitions).map {
+            LabResultInput(
+                itemDefinitionID: $0.1.id,
+                rawValueOriginal: $0.0.rawValue,
+                unitOriginal: $0.0.unit
+            )
+        }
+        _ = try createLabSample(
+            CreateLabSampleCommand(
+                operationID: UUID(),
+                timestamp: timestamp,
+                newDefinitions: definitions,
+                results: results,
+                committedAt: command.committedAt
+            )
+        )
+        return completedEntries.count
+    }
+
     private static func normalizedInstant(
         _ instant: Date,
         precision: HistoricalTimestampPrecision
@@ -823,28 +888,39 @@ actor AppWriteActor {
     }
 
     func reserveRevision(committedAt: Date) throws -> ReservedRevision {
-        _ = try RecordDigestV1.timestampMicroseconds(committedAt)
         var reservation: ReservedRevision?
-        let singletonKey = DatasetMetadata.fixedKey
         try modelContext.transaction {
-            var descriptor = FetchDescriptor<DatasetMetadata>(
-                predicate: #Predicate { $0.singletonKey == singletonKey }
+            reservation = try reserveRevisionInCurrentTransaction(
+                committedAt: committedAt
             )
-            descriptor.fetchLimit = 1
-            guard let metadata = try modelContext.fetch(descriptor).first else {
-                throw AppWriteFailure.missingFoundation
-            }
-            guard metadata.nextLocalRevision > 0,
-                  metadata.nextLocalRevision < Int64.max else {
-                throw AppWriteFailure.revisionExhausted
-            }
-            reservation = ReservedRevision(
-                datasetID: metadata.datasetID,
-                localRevision: metadata.nextLocalRevision
-            )
-            metadata.nextLocalRevision += 1
         }
         guard let reservation else { throw AppWriteFailure.missingFoundation }
+        return reservation
+    }
+
+    func reserveRevisionInCurrentTransaction(
+        committedAt: Date
+    ) throws -> ReservedRevision {
+        _ = try RecordDigestV1.timestampMicroseconds(committedAt)
+        let singletonKey = DatasetMetadata.fixedKey
+        var descriptor = FetchDescriptor<DatasetMetadata>(
+            predicate: #Predicate { $0.singletonKey == singletonKey }
+        )
+        descriptor.fetchLimit = 2
+        let records = try modelContext.fetch(descriptor)
+        guard records.count == 1,
+              let metadata = records.first else {
+            throw AppWriteFailure.missingFoundation
+        }
+        guard metadata.nextLocalRevision > 0,
+              metadata.nextLocalRevision < Int64.max else {
+            throw AppWriteFailure.revisionExhausted
+        }
+        let reservation = ReservedRevision(
+            datasetID: metadata.datasetID,
+            localRevision: metadata.nextLocalRevision
+        )
+        metadata.nextLocalRevision += 1
         return reservation
     }
 
@@ -1057,9 +1133,71 @@ struct AppDataWriter: Sendable {
         await revalidateProtectionAfterCommit()
     }
 
+    func createHrtJourney(
+        _ command: CreateHrtJourneyCommand
+    ) async throws -> HrtJourneyMutationResult {
+        let result = try await storage.createHrtJourney(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func correctHrtJourneyFirstStart(
+        _ command: CorrectHrtJourneyFirstStartCommand
+    ) async throws -> HrtJourneyMutationResult {
+        let result = try await storage.correctHrtJourneyFirstStart(
+            command
+        )
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func pauseHrtJourney(
+        _ command: PauseHrtJourneyCommand
+    ) async throws -> HrtJourneyMutationResult {
+        let result = try await storage.pauseHrtJourney(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func resumeHrtJourney(
+        _ command: ResumeHrtJourneyCommand
+    ) async throws -> HrtJourneyMutationResult {
+        let result = try await storage.resumeHrtJourney(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
     func setGentleMode(_ command: SetGentleModeCommand) async throws {
         try await storage.setGentleMode(command)
         await revalidateProtectionAfterCommit()
+    }
+
+    func updateOnboardingProgress(
+        _ command: UpdateOnboardingProgressCommand
+    ) async throws -> OnboardingProgressResult {
+        let result = try await storage.updateOnboardingProgress(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func completeOnboarding(
+        _ command: CompleteOnboardingCommand
+    ) async throws -> CompleteOnboardingResult {
+        let result = try await storage.completeOnboarding(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
     }
 
     func saveCountdown(_ command: SaveCountdownCommand) async throws {
@@ -1232,6 +1370,46 @@ struct AppDataWriter: Sendable {
         let result = try await storage.recordStatusObservation(command)
         if result.didCreate { await revalidateProtectionAfterCommit() }
         return result
+    }
+
+    func correctLabSample(
+        _ command: CorrectLabSampleCommand
+    ) async throws -> ParentRecordMutationResult {
+        let result = try await storage.correctLabSample(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func correctStatusObservation(
+        _ command: CorrectStatusObservationCommand
+    ) async throws -> ParentRecordMutationResult {
+        let result = try await storage.correctStatusObservation(command)
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func deleteParentRecord(
+        _ command: DeleteParentRecordCommand,
+        failureInjection: AppWriteFailureInjection? = nil
+    ) async throws -> ParentRecordMutationResult {
+        let result = try await storage.deleteParentRecord(
+            command,
+            failureInjection: failureInjection
+        )
+        if result.didApply {
+            await revalidateProtectionAfterCommit()
+        }
+        return result
+    }
+
+    func validateParentRecordDeletionImpact(
+        _ impact: ParentRecordDeletionImpact
+    ) async throws {
+        try await storage.validateParentRecordDeletionImpact(impact)
     }
 
     func archiveStatusMetric(

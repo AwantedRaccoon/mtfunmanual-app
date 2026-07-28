@@ -4,9 +4,36 @@ import SwiftUI
 struct LocalReminderConsentSheet: View {
     @Environment(AppTheme.self) private var theme
 
-    let item: TodayExecutionItemSnapshot
+    let displayName: String
+    let confirmAccessibilityIdentifier: String
     let cancel: () -> Void
     let confirm: () -> Void
+
+    init(
+        item: TodayExecutionItemSnapshot,
+        cancel: @escaping () -> Void,
+        confirm: @escaping () -> Void
+    ) {
+        self.displayName = item.occurrence.displayName
+        self.confirmAccessibilityIdentifier =
+            "today.execution.reminder.confirm"
+        self.cancel = cancel
+        self.confirm = confirm
+    }
+
+    init(
+        displayName: String,
+        confirmAccessibilityIdentifier: String =
+            "onboarding.reminder.confirm",
+        cancel: @escaping () -> Void,
+        confirm: @escaping () -> Void
+    ) {
+        self.displayName = displayName
+        self.confirmAccessibilityIdentifier =
+            confirmAccessibilityIdentifier
+        self.cancel = cancel
+        self.confirm = confirm
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,7 +87,7 @@ struct LocalReminderConsentSheet: View {
                         Rectangle().stroke(theme.indigo, lineWidth: 1.5)
                     }
 
-                    Text("此设置会应用到“\(item.occurrence.displayName)”这条计划的未来时间。")
+                    Text("此设置会应用到“\(displayName)”这条计划的未来时间。")
                         .font(.caption)
                         .foregroundStyle(theme.secondaryText)
                 }
@@ -69,7 +96,9 @@ struct LocalReminderConsentSheet: View {
 
             Button("继续并请求系统权限", action: confirm)
                 .buttonStyle(V25PrimaryButtonStyle())
-                .accessibilityIdentifier("today.execution.reminder.confirm")
+                .accessibilityIdentifier(
+                    confirmAccessibilityIdentifier
+                )
                 .padding(.horizontal, V25Theme.pagePadding)
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity)

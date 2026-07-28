@@ -5,7 +5,11 @@ final class RegimenUITests: XCTestCase {
     func testScheduleEditorSavesAPlanWithoutRequestingNotificationPermission() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-unmanual-empty-store", "-unmanual-regimen-editor"]
+        app.launchArguments = [
+            "-unmanual-empty-store",
+            "-unmanual-skip-onboarding",
+            "-unmanual-regimen-editor"
+        ]
         app.launch()
 
         let schedule = app.buttons.matching(
@@ -26,7 +30,11 @@ final class RegimenUITests: XCTestCase {
     func testDraftPreviewCancelAndSealFlow() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-unmanual-empty-store", "-unmanual-regimen-editor"]
+        app.launchArguments = [
+            "-unmanual-empty-store",
+            "-unmanual-skip-onboarding",
+            "-unmanual-regimen-editor"
+        ]
         app.launch()
 
         let title = app.textFields["regimen.title"]

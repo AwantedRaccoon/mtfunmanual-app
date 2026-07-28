@@ -200,7 +200,7 @@ private actor AppDataBootstrapWorker {
     private var hasConsumedOneTimeRecoveryFailure = false
 #endif
 
-    func open() throws -> BootstrappedAppDataStore {
+    func open() async throws -> BootstrappedAppDataStore {
 #if DEBUG
         switch DebugRecoveryLaunchConfiguration.mode(
             arguments: ProcessInfo.processInfo.arguments,
@@ -214,29 +214,27 @@ private actor AppDataBootstrapWorker {
         case .once, nil:
             break
         }
+        if let testStore = try DebugUITestStoreConfiguration.selection(
+            arguments: ProcessInfo.processInfo.arguments
+        ) {
+            let urls = try DebugUITestStoreConfiguration.urls(
+                for: testStore.id
+            )
+            if (testStore.resetsBeforeOpen || testStore.cleansUp),
+               FileManager.default.fileExists(atPath: urls.root.path) {
+                try FileManager.default.removeItem(at: urls.root)
+            }
+            if testStore.cleansUp {
+                return try await makeInMemoryDebugStore()
+            }
+            return try AppDataStoreBootstrapper(
+                layout: urls.layout,
+                backupPolicy: .production,
+                fileProtectionVerificationMode: .simulatorTestHarness
+            ).open()
+        }
         if ProcessInfo.processInfo.arguments.contains("-unmanual-empty-store") {
-            let container = try AppModelContainerFactory
-                .makeInMemoryCountdownLifecycleContainer()
-            _ = try LegacyV1Backfill.run(in: container)
-            _ = try CoreTimeRegimenBackfill.run(
-                in: container,
-                assumedTimeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
-            )
-            _ = try TodayExecutionBackfill.run(in: container)
-            _ = try PersonalTimelineBackfill.run(in: container)
-            _ = try CountdownLifecycleBackfill.run(in: container)
-            return BootstrappedAppDataStore(
-                container: container,
-                generationID: UUID(),
-                storeURL: URL(fileURLWithPath: "/debug-only/in-memory.store"),
-                origin: .newInstall,
-                protectionReport: StoreFileProtectionReport(
-                    entries: [],
-                    requiresPhysicalDeviceValidation: true
-                ),
-                attachmentRootURL: FileManager.default.temporaryDirectory
-                    .appendingPathComponent("Unmanual-DebugAttachments", isDirectory: true)
-            )
+            return try await makeInMemoryDebugStore()
         }
 #endif
         let layout = try AppDataStoreLayout.production()
@@ -245,9 +243,201 @@ private actor AppDataBootstrapWorker {
             backupPolicy: .production
         ).open()
     }
+
+#if DEBUG
+    private func makeInMemoryDebugStore()
+        async throws -> BootstrappedAppDataStore {
+        let container = try AppModelContainerFactory
+            .makeInMemoryParentRecordLifecycleContainer()
+        _ = try LegacyV1Backfill.run(in: container)
+        _ = try CoreTimeRegimenBackfill.run(
+            in: container,
+            assumedTimeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+        )
+        _ = try TodayExecutionBackfill.run(in: container)
+        _ = try PersonalTimelineBackfill.run(in: container)
+        _ = try CountdownLifecycleBackfill.run(in: container)
+        _ = try OnboardingBackfill.run(
+            in: container,
+            source: .newInstallV8
+        )
+        _ = try HrtJourneyLifecycleBackfill.run(
+            in: container,
+            sourceSchemaVersion: "9.0.0"
+        )
+        _ = try ParentRecordLifecycleBackfill.run(
+            in: container,
+            sourceSchemaVersion: "9.0.0"
+        )
+        try await seedDebugHrtJourneyIfRequested(in: container)
+        return BootstrappedAppDataStore(
+            container: container,
+            generationID: UUID(),
+            storeURL: URL(fileURLWithPath: "/debug-only/in-memory.store"),
+            origin: .newInstall,
+            protectionReport: StoreFileProtectionReport(
+                entries: [],
+                requiresPhysicalDeviceValidation: true
+            ),
+            attachmentRootURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(
+                    "Unmanual-DebugAttachments",
+                    isDirectory: true
+                )
+        )
+    }
+
+    private func seedDebugHrtJourneyIfRequested(
+        in container: ModelContainer
+    ) async throws {
+        let arguments = ProcessInfo.processInfo.arguments
+        let wantsActive = arguments.contains(
+            "-unmanual-hrt-active-fixture"
+        )
+        let wantsPaused = arguments.contains(
+            "-unmanual-hrt-paused-fixture"
+        )
+        guard wantsActive || wantsPaused else { return }
+
+        let now = Date()
+        let timeZoneIdentifier =
+            TimeZone.autoupdatingCurrent.identifier
+        let timestamp = try HistoricalTimestamp.captured(
+            instant: now,
+            timeZoneIdentifier: timeZoneIdentifier,
+            precision: .second,
+            provenance: .userEntered
+        )
+        guard let startInstant = Calendar.autoupdatingCurrent.date(
+            byAdding: .day,
+            value: -10,
+            to: now
+        ) else {
+            throw AppDataFailure.migrationFailed
+        }
+        let startDate = try HistoricalTimestamp.captured(
+            instant: startInstant,
+            timeZoneIdentifier: timeZoneIdentifier
+        ).localDate
+        let writer = AppWriteActor(modelContainer: container)
+        let created = try await writer.createHrtJourney(
+            CreateHrtJourneyCommand(
+                startDate: startDate,
+                note: "DEBUG UI fixture",
+                timestamp: timestamp
+            )
+        )
+        guard wantsPaused else { return }
+        guard let pauseInstant = Calendar.autoupdatingCurrent.date(
+            byAdding: .day,
+            value: -1,
+            to: now
+        ) else {
+            throw AppDataFailure.migrationFailed
+        }
+        let pauseDate = try HistoricalTimestamp.captured(
+            instant: pauseInstant,
+            timeZoneIdentifier: timeZoneIdentifier
+        ).localDate
+        _ = try await writer.pauseHrtJourney(
+            PauseHrtJourneyCommand(
+                expectedLatestEventID: created.eventID,
+                expectedOpenPeriodID: created.periodID,
+                pauseDate: pauseDate,
+                note: "DEBUG UI fixture",
+                timestamp: timestamp
+            )
+        )
+    }
+#endif
 }
 
 #if DEBUG
+enum DebugUITestStoreConfiguration {
+    struct Selection: Equatable {
+        let id: UUID
+        let resetsBeforeOpen: Bool
+        let cleansUp: Bool
+    }
+
+    static func selection(arguments: [String]) throws -> Selection? {
+        let hasStoreArgument = arguments.contains(
+            "-unmanual-ui-test-store-id"
+        )
+        let hasStoreMutationArgument = arguments.contains(
+            "-unmanual-ui-test-reset-store"
+        ) || arguments.contains(
+            "-unmanual-ui-test-cleanup-store"
+        )
+        guard hasStoreArgument || hasStoreMutationArgument else {
+            return nil
+        }
+        guard let value = value(
+            after: "-unmanual-ui-test-store-id",
+            in: arguments
+        ),
+        let id = UUID(uuidString: value) else {
+            throw AppDataFailure.storageUnavailable
+        }
+        return Selection(
+            id: id,
+            resetsBeforeOpen: arguments.contains(
+                "-unmanual-ui-test-reset-store"
+            ),
+            cleansUp: arguments.contains(
+                "-unmanual-ui-test-cleanup-store"
+            )
+        )
+    }
+
+    static func urls(
+        for id: UUID
+    ) throws -> (root: URL, layout: AppDataStoreLayout) {
+        guard let applicationSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            throw AppDataFailure.storageUnavailable
+        }
+        let root = applicationSupport
+            .appendingPathComponent(
+                "UnmanualUITestStores",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                id.uuidString.lowercased(),
+                isDirectory: true
+            )
+        return (
+            root,
+            AppDataStoreLayout(
+                rootURL: root.appendingPathComponent(
+                    "Managed",
+                    isDirectory: true
+                ),
+                legacyStoreURL: root
+                    .appendingPathComponent(
+                        "Legacy",
+                        isDirectory: true
+                    )
+                    .appendingPathComponent("default.store")
+            )
+        )
+    }
+
+    private static func value(
+        after flag: String,
+        in arguments: [String]
+    ) -> String? {
+        arguments.firstIndex(of: flag)
+            .flatMap { flagIndex in
+                arguments.indices.contains(flagIndex + 1)
+                    ? arguments[flagIndex + 1]
+                    : nil
+            }
+    }
+}
+
 enum DebugRecoveryLaunchConfiguration {
     enum Mode: Equatable {
         case always(AppDataFailure)

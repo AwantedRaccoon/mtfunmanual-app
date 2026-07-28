@@ -323,6 +323,12 @@ extension AppWriteActor {
                     reservation: reservation,
                     committedAt: command.committedAt
                 )
+                try insertCreatedStatusParentRoot(
+                    observation: observation,
+                    commandDigest: digest,
+                    reservation: reservation,
+                    committedAt: command.committedAt
+                )
                 for input in preparedAttachments {
                     let attachment = AttachmentRecord(
                         id: input.attachmentID,
@@ -379,6 +385,7 @@ extension AppWriteActor {
                     ),
                     reservation: reservation
                 )
+                try validateParentRecordLifecycleAfterCreation()
                 try markCommitted(at: command.committedAt)
                 result = StatusObservationCommitResult(
                     observationID: observation.id,
@@ -612,7 +619,7 @@ extension AppReadActor {
         }
     }
 
-    func statusObservation(id: UUID) throws -> StatusObservationSnapshot? {
+    func baseStatusObservation(id: UUID) throws -> StatusObservationSnapshot? {
         var descriptor = FetchDescriptor<StatusObservationRecord>(
             predicate: #Predicate { $0.id == id }
         )

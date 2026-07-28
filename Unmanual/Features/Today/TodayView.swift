@@ -38,10 +38,12 @@ struct TodayView: View {
         V25Page {
             V25TodayHome(
                 profile: snapshot.profile,
+                hrtJourney: snapshot.hrtJourney,
                 countdown: snapshot.countdown,
                 regimens: coreRegimenOverview.current.map { [$0] } ?? [],
                 latestLab: latestLabItem,
                 entries: snapshot.entries,
+                gentleModeEnabled: snapshot.gentleModeEnabled,
                 quickRecordAction: { presentedSheet = .quickRecord },
                 startDateAction: { presentedSheet = .startDate },
                 countdownAction: { presentedSheet = .countdown },
@@ -154,7 +156,9 @@ struct TodayView: View {
             let updated = try await appReadActor.todaySnapshot()
             guard contentRefreshGate.isCurrent(request) else { return }
             snapshot = updated
-            latestLabItem = try await appReadActor.latestLabTimelineItem()
+            latestLabItem = try await appReadActor.latestLabTimelineItem(
+                gentleModeEnabled: updated.gentleModeEnabled
+            )
             guard contentRefreshGate.isCurrent(request) else { return }
             coreRegimenOverview = try await appReadActor
                 .coreRegimenOverview(asOf: today)

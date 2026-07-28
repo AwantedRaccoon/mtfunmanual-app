@@ -8,6 +8,7 @@ enum PersonalTimelineItemKind: String, Codable, Equatable, Sendable {
     case administration
     case countdown
     case regimenVersion
+    case hrtJourney
 
     var rank: Int {
         switch self {
@@ -17,6 +18,7 @@ enum PersonalTimelineItemKind: String, Codable, Equatable, Sendable {
         case .countdown: 3
         case .journeyEntry: 4
         case .regimenVersion: 5
+        case .hrtJourney: 6
         }
     }
 }
@@ -46,10 +48,62 @@ struct PersonalTimelineCursor: Equatable, Sendable {
 struct PersonalTimelinePage: Equatable, Sendable {
     let items: [PersonalTimelineItem]
     let nextCursor: PersonalTimelineCursor?
+    let gentleModeEnabled: Bool
 }
 
 extension AppReadActor {
-    func latestLabTimelineItem() throws -> PersonalTimelineItem? {
+    func latestLabTimelineItem(
+        gentleModeEnabled frozenGentleModeEnabled: Bool? = nil
+    ) throws -> PersonalTimelineItem? {
+        let gentleModeEnabled = try frozenGentleModeEnabled
+            ?? gentleModeSnapshot().isEnabled
+        let surfaceCopy = LabSurfaceDisplayPolicy.copy(
+            gentleModeEnabled: gentleModeEnabled
+        )
+        if hasParentRecordLifecycleProjection {
+            try ParentRecordLifecycleValidator.validate(
+                in: modelContext,
+                failure: .corruptionSuspected
+            )
+            let labType = ParentRecordType.labSample.rawValue
+            let active = ParentRecordLifecycle.active.rawValue
+            var descriptor =
+                FetchDescriptor<ParentRecordLifecycleHeadRecord>(
+                    predicate: #Predicate {
+                        $0.parentTypeRawValue == labType
+                            && $0.lifecycleRawValue == active
+                    },
+                    sortBy: [
+                        SortDescriptor(
+                            \.effectiveInstant,
+                            order: .reverse
+                        ),
+                        SortDescriptor(\.parentID)
+                    ]
+                )
+            descriptor.fetchLimit = 1
+            guard let head = try modelContext.fetch(descriptor).first else {
+                return nil
+            }
+            guard let sample =
+                    try parentRecordLabSampleUnchecked(
+                        id: head.parentID
+                    ),
+                  sample.timestamp == head.effectiveTimestamp else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            return PersonalTimelineItem(
+                id: sample.id,
+                kind: .labSample,
+                title: surfaceCopy.timelineRecordTitle,
+                detail: sample.results.isEmpty
+                    ? "仅附件"
+                    : "\(sample.results.count) 个结果",
+                timestamp: sample.timestamp,
+                dateOnly: nil,
+                localDate: sample.timestamp.localDate
+            )
+        }
         let sourceType = "LabSampleRecord"
         var timeDescriptor = FetchDescriptor<HistoricalTimeRecord>(
             predicate: #Predicate { $0.sourceRecordType == sourceType },
@@ -79,7 +133,7 @@ extension AppReadActor {
         return PersonalTimelineItem(
             id: sampleID,
             kind: .labSample,
-            title: "化验记录",
+            title: surfaceCopy.timelineRecordTitle,
             detail: resultCount == 0 ? "仅附件" : "\(resultCount) 个结果",
             timestamp: timestamp,
             dateOnly: nil,
@@ -94,11 +148,17 @@ extension AppReadActor {
         guard (1...100).contains(limit) else {
             throw AppDataFailure.corruptionSuspected
         }
-        let sourceTypes = [
-            "LabSampleRecord",
-            "StatusObservationRecord",
-            "JourneyEntry"
-        ]
+        let gentleModeEnabled = try gentleModeSnapshot().isEnabled
+        let labSurfaceCopy = LabSurfaceDisplayPolicy.copy(
+            gentleModeEnabled: gentleModeEnabled
+        )
+        let sourceTypes = hasParentRecordLifecycleProjection
+            ? ["JourneyEntry"]
+            : [
+                "LabSampleRecord",
+                "StatusObservationRecord",
+                "JourneyEntry"
+            ]
         var times = try sourceTypes.flatMap {
             try timedCandidates(
                 sourceType: $0,
@@ -176,7 +236,7 @@ extension AppReadActor {
                 PersonalTimelineItem(
                     id: sample.id,
                     kind: .labSample,
-                    title: "化验记录",
+                    title: labSurfaceCopy.timelineRecordTitle,
                     detail: count == 0 ? "仅附件" : "\(count) 个结果",
                     timestamp: timestamp,
                     dateOnly: nil,
@@ -293,7 +353,19 @@ extension AppReadActor {
             )
         }
 
+        if hasParentRecordLifecycleProjection {
+            items += try parentRecordTimelineItems(
+                after: cursor,
+                pageLimit: limit,
+                gentleModeEnabled: gentleModeEnabled
+            )
+        }
+
         items += try countdownTerminalTimelineItems(
+            after: cursor,
+            pageLimit: limit
+        )
+        items += try hrtJourneyTimelineItems(
             after: cursor,
             pageLimit: limit
         )
@@ -344,7 +416,142 @@ extension AppReadActor {
         let nextCursor = items.count > pageItems.count
             ? pageItems.last.map(Self.cursor)
             : nil
-        return PersonalTimelinePage(items: pageItems, nextCursor: nextCursor)
+        return PersonalTimelinePage(
+            items: pageItems,
+            nextCursor: nextCursor,
+            gentleModeEnabled: gentleModeEnabled
+        )
+    }
+
+    private var hasParentRecordLifecycleProjection: Bool {
+        modelContext.container.schema.entities.contains {
+            $0.name == "ParentRecordLifecycleHeadRecord"
+        }
+    }
+
+    private func parentRecordTimelineItems(
+        after cursor: PersonalTimelineCursor?,
+        pageLimit: Int,
+        gentleModeEnabled: Bool
+    ) throws -> [PersonalTimelineItem] {
+        guard cursor?.sortDomainRank != 1 else { return [] }
+        if cursor != nil, cursor?.instantMicroseconds == nil {
+            throw AppDataFailure.corruptionSuspected
+        }
+        try ParentRecordLifecycleValidator.validate(
+            in: modelContext,
+            failure: .corruptionSuspected
+        )
+        let active = ParentRecordLifecycle.active.rawValue
+        let tieCount: Int
+        var descriptor:
+            FetchDescriptor<ParentRecordLifecycleHeadRecord>
+        if let microseconds = cursor?.instantMicroseconds {
+            let cutoff = Date(
+                timeIntervalSince1970:
+                    Double(microseconds) / 1_000_000
+            )
+            tieCount = try modelContext.fetchCount(
+                FetchDescriptor<ParentRecordLifecycleHeadRecord>(
+                    predicate: #Predicate {
+                        $0.lifecycleRawValue == active
+                            && $0.effectiveInstant == cutoff
+                    }
+                )
+            )
+            descriptor =
+                FetchDescriptor<ParentRecordLifecycleHeadRecord>(
+                    predicate: #Predicate {
+                        $0.lifecycleRawValue == active
+                            && $0.effectiveInstant <= cutoff
+                    },
+                    sortBy: [
+                        SortDescriptor(
+                            \.effectiveInstant,
+                            order: .reverse
+                        ),
+                        SortDescriptor(\.parentTypeRawValue),
+                        SortDescriptor(\.parentID)
+                    ]
+                )
+        } else {
+            tieCount = 0
+            descriptor =
+                FetchDescriptor<ParentRecordLifecycleHeadRecord>(
+                    predicate: #Predicate {
+                        $0.lifecycleRawValue == active
+                    },
+                    sortBy: [
+                        SortDescriptor(
+                            \.effectiveInstant,
+                            order: .reverse
+                        ),
+                        SortDescriptor(\.parentTypeRawValue),
+                        SortDescriptor(\.parentID)
+                    ]
+                )
+        }
+        guard tieCount
+                <= PersonalTimelineCapacity
+                    .maximumSameInstantCursorTieCount else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let (limitWithTies, firstOverflow) =
+            pageLimit.addingReportingOverflow(tieCount)
+        let (fetchLimit, secondOverflow) =
+            limitWithTies.addingReportingOverflow(1)
+        guard !firstOverflow, !secondOverflow else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        descriptor.fetchLimit = fetchLimit
+        return try modelContext.fetch(descriptor).map { head in
+            guard let type = head.parentType,
+                  let timestamp = head.effectiveTimestamp else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            switch type {
+            case .labSample:
+                guard let sample =
+                        try parentRecordLabSampleUnchecked(
+                            id: head.parentID
+                        ),
+                      sample.timestamp == timestamp else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+                return PersonalTimelineItem(
+                    id: sample.id,
+                    kind: .labSample,
+                    title: LabSurfaceDisplayPolicy.copy(
+                        gentleModeEnabled: gentleModeEnabled
+                    ).timelineRecordTitle,
+                    detail: sample.results.isEmpty
+                        ? "仅附件"
+                        : "\(sample.results.count) 个结果",
+                    timestamp: timestamp,
+                    dateOnly: nil,
+                    localDate: timestamp.localDate
+                )
+            case .statusObservation:
+                guard let observation =
+                        try parentRecordStatusObservationUnchecked(
+                            id: head.parentID
+                        ),
+                observation.timestamp == timestamp,
+                (1...4).contains(observation.ordinalLevel) else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+                return PersonalTimelineItem(
+                    id: observation.id,
+                    kind: .statusObservation,
+                    title: observation.metricNameSnapshot,
+                    detail:
+                        "第 \(observation.ordinalLevel) 级，共 4 级",
+                    timestamp: timestamp,
+                    dateOnly: nil,
+                    localDate: timestamp.localDate
+                )
+            }
+        }
     }
 
     private func countdownTerminalTimelineItems(
@@ -524,6 +731,160 @@ extension AppReadActor {
                 dateOnly: nil,
                 localDate: timestamp.localDate
             )
+        }
+    }
+
+    private func hrtJourneyTimelineItems(
+        after cursor: PersonalTimelineCursor?,
+        pageLimit: Int
+    ) throws -> [PersonalTimelineItem] {
+        guard modelContext.container.schema.entities.contains(where: {
+            $0.name == "HrtJourneyLifecycleEventRecord"
+        }) else {
+            return []
+        }
+        guard cursor?.sortDomainRank != 1 else { return [] }
+        try HrtJourneyLifecycleValidator.validate(
+            in: modelContext,
+            failure: .corruptionSuspected
+        )
+
+        let migratedSnapshot =
+            HrtJourneyLifecycleEventKind.migratedSnapshot.rawValue
+        let cursorTieCount: Int
+        var descriptor: FetchDescriptor<HrtJourneyLifecycleEventRecord>
+        if let cursorMicroseconds = cursor?.instantMicroseconds {
+            let cutoff = Date(
+                timeIntervalSince1970:
+                    Double(cursorMicroseconds) / 1_000_000
+            )
+            cursorTieCount = try modelContext.fetchCount(
+                FetchDescriptor<HrtJourneyLifecycleEventRecord>(
+                    predicate: #Predicate {
+                        $0.kindRawValue != migratedSnapshot
+                            && $0.occurredAt == cutoff
+                    }
+                )
+            )
+            descriptor = FetchDescriptor<HrtJourneyLifecycleEventRecord>(
+                predicate: #Predicate {
+                    $0.kindRawValue != migratedSnapshot
+                        && $0.occurredAt <= cutoff
+                },
+                sortBy: [
+                    SortDescriptor(\.occurredAt, order: .reverse),
+                    SortDescriptor(\.id)
+                ]
+            )
+        } else {
+            cursorTieCount = 0
+            descriptor = FetchDescriptor<HrtJourneyLifecycleEventRecord>(
+                predicate: #Predicate {
+                    $0.kindRawValue != migratedSnapshot
+                },
+                sortBy: [
+                    SortDescriptor(\.occurredAt, order: .reverse),
+                    SortDescriptor(\.id)
+                ]
+            )
+        }
+        guard cursorTieCount
+                <= PersonalTimelineCapacity.maximumSameInstantCursorTieCount
+        else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let (limitWithTies, firstOverflow) =
+            pageLimit.addingReportingOverflow(cursorTieCount)
+        let (fetchLimit, secondOverflow) =
+            limitWithTies.addingReportingOverflow(1)
+        guard !firstOverflow, !secondOverflow else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        descriptor.fetchLimit = fetchLimit
+        let records = try modelContext.fetch(descriptor)
+
+        var preferenceDescriptor = FetchDescriptor<UserPreferencesRecord>()
+        preferenceDescriptor.fetchLimit = 2
+        let preferences = try modelContext.fetch(preferenceDescriptor)
+        guard preferences.count == 1 else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let gentleModeEnabled = preferences[0].gentleModeEnabled
+
+        return try records.map { event in
+            guard let kind = event.kind,
+                  kind != .migratedSnapshot,
+                  let transitionDate = event.transitionDate,
+                  let timestamp = event.historicalTimestamp else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            return PersonalTimelineItem(
+                id: event.id,
+                kind: .hrtJourney,
+                title: hrtJourneyTitle(
+                    kind: kind,
+                    gentleModeEnabled: gentleModeEnabled
+                ),
+                detail: hrtJourneyDetail(
+                    kind: kind,
+                    transitionDate: transitionDate,
+                    gentleModeEnabled: gentleModeEnabled
+                ),
+                timestamp: timestamp,
+                dateOnly: nil,
+                localDate: timestamp.localDate
+            )
+        }
+    }
+
+    private func hrtJourneyTitle(
+        kind: HrtJourneyLifecycleEventKind,
+        gentleModeEnabled: Bool
+    ) -> String {
+        if gentleModeEnabled {
+            switch kind {
+            case .started: "时间坐标已开始"
+            case .firstStartCorrected: "时间坐标起点已修正"
+            case .paused: "时间坐标已暂停"
+            case .resumed: "时间坐标已恢复"
+            case .migratedSnapshot: "时间坐标"
+            }
+        } else {
+            switch kind {
+            case .started: "HRT 历程已开始"
+            case .firstStartCorrected: "HRT 历程起点已修正"
+            case .paused: "HRT 历程已暂停"
+            case .resumed: "HRT 历程已恢复"
+            case .migratedSnapshot: "HRT 历程"
+            }
+        }
+    }
+
+    private func hrtJourneyDetail(
+        kind: HrtJourneyLifecycleEventKind,
+        transitionDate: CivilDateFact,
+        gentleModeEnabled: Bool
+    ) -> String {
+        let date = String(
+            format: "%04d.%02d.%02d",
+            transitionDate.year,
+            transitionDate.month,
+            transitionDate.day
+        )
+        let boundary = gentleModeEnabled
+            ? "其他计划没有改变"
+            : "方案、执行和提醒未改变"
+        switch kind {
+        case .started:
+            return "开始日：\(date)；\(boundary)"
+        case .firstStartCorrected:
+            return "起点修正为 \(date)；\(boundary)"
+        case .paused:
+            return "暂停从 \(date) 开始；\(boundary)"
+        case .resumed:
+            return "恢复日：\(date)；\(boundary)"
+        case .migratedSnapshot:
+            return boundary
         }
     }
 

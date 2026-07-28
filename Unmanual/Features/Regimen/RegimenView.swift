@@ -13,24 +13,14 @@ struct RegimenView: View {
 
     private var historicalRegimens: [CoreRegimenVersionSnapshot] { snapshot.history }
 
-    private var latestSampleRecord: LabRecordSnapshot? {
-        snapshot.labRecords.first
-    }
-
     private var latestSampleDateText: String? {
-        latestSampleRecord?.recordedShortDateText
-    }
-
-    private var latestSampleRecords: [LabRecordSnapshot] {
-        guard let latestLocalDate = latestSampleRecord?.recordedLocalDate() else { return [] }
-        return snapshot.labRecords.filter {
-            $0.recordedLocalDate() == latestLocalDate
-        }
+        snapshot.latestLabSample?.timestamp.localDate
+            .unmanualShortDateText
     }
 
     private var latestSampleRegimen: CoreRegimenVersionSnapshot? {
-        let linkedIDs = Set(latestSampleRecords.compactMap(\.regimenVersionID))
-        guard linkedIDs.count == 1, let linkedID = linkedIDs.first else {
+        guard let linkedID =
+                snapshot.latestLabSample?.regimenVersionID else {
             return nil
         }
         return snapshot.allVersions.first(where: { $0.id == linkedID })
@@ -41,8 +31,16 @@ struct RegimenView: View {
             LedgerHormoneFact(
                 order: index + 1,
                 descriptor: descriptor,
-                record: latestSampleRecords.first {
-                    descriptor.matches(itemCode: $0.itemCode)
+                record: snapshot.latestLabSample?.results.first {
+                    descriptor.matches(
+                        definitionKind: $0.itemDefinitionKind,
+                        bundledStableID: $0.bundledStableID
+                    )
+                }.map {
+                    LedgerLabDisplayRecord(
+                        rawValue: $0.rawValueOriginal,
+                        unit: $0.unitOriginal
+                    )
                 }
             )
         }
@@ -149,7 +147,7 @@ struct RegimenView: View {
             case let .editDraft(draftID):
                 RegimenVersionEditor(existingDraftID: draftID)
             case .labImport:
-                LabImportEditor()
+                LabSampleEditor()
             }
         }
     }

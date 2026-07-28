@@ -192,7 +192,11 @@ struct LabSampleEditor: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    editorHeader(register: "LOCAL / LAB", title: "添加化验")
+                    editorHeader(
+                        register: "LOCAL / LAB",
+                        title: "添加化验",
+                        isCancelEnabled: !isSaving
+                    )
                     Text("一张报告是一条样本；同一项目重复出现时，会按原顺序分别保存。")
                         .font(.subheadline)
                         .foregroundStyle(theme.secondaryText)
@@ -250,6 +254,7 @@ struct LabSampleEditor: View {
             }
         }
         .tint(theme.indigo)
+        .interactiveDismissDisabled(isSaving)
         .localSaveErrorAlert(message: $errorMessage)
         .onChange(of: photoItems) { _, newItems in
             guard !newItems.isEmpty else { return }
@@ -324,7 +329,14 @@ struct LabSampleEditor: View {
                 Picker("项目来源", selection: result.definitionID) {
                     Text("新建自定义项目").tag(UUID?.none)
                     ForEach(definitions.filter { !$0.isArchived }) { definition in
-                        Text(definition.displayName).tag(UUID?.some(definition.id))
+                        Text(
+                            LabDefinitionIdentityPresentation.label(
+                                id: definition.id,
+                                displayName: definition.displayName,
+                                code: definition.code
+                            )
+                        )
+                        .tag(UUID?.some(definition.id))
                     }
                 }
                 .pickerStyle(.menu)
@@ -516,7 +528,11 @@ struct StatusObservationEditor: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    editorHeader(register: "LOCAL / STATUS", title: "记录状态")
+                    editorHeader(
+                        register: "LOCAL / STATUS",
+                        title: "记录状态",
+                        isCancelEnabled: !isSaving
+                    )
                     Text(StatusScaleCopy.editorGuidance)
                         .font(.subheadline)
                         .foregroundStyle(theme.secondaryText)
@@ -613,6 +629,7 @@ struct StatusObservationEditor: View {
                 )
             }
         }
+        .interactiveDismissDisabled(isSaving)
         .localSaveErrorAlert(message: $errorMessage)
         .task { await loadMetrics() }
         .onChange(of: photoItems) { _, items in
@@ -724,9 +741,15 @@ struct StatusObservationEditor: View {
     }
 
     private func archivePendingMetric() {
-        guard let metricID = metricPendingArchive, let writer else { return }
+        guard !isSaving,
+              let metricID = metricPendingArchive,
+              let writer else {
+            return
+        }
         metricPendingArchive = nil
+        isSaving = true
         Task {
+            defer { isSaving = false }
             do {
                 _ = try await writer.archiveStatusMetric(
                     ArchiveStatusMetricCommand(
@@ -978,8 +1001,16 @@ struct AttachmentImportBatchState {
     }
 }
 
-private func editorHeader(register: String, title: String) -> some View {
-    StructuredEditorHeader(register: register, title: title)
+private func editorHeader(
+    register: String,
+    title: String,
+    isCancelEnabled: Bool
+) -> some View {
+    StructuredEditorHeader(
+        register: register,
+        title: title,
+        isCancelEnabled: isCancelEnabled
+    )
 }
 
 private struct StructuredEditorHeader: View {
@@ -987,11 +1018,17 @@ private struct StructuredEditorHeader: View {
     @Environment(AppTheme.self) private var theme
     let register: String
     let title: String
+    let isCancelEnabled: Bool
 
     var body: some View {
         HStack(alignment: .top) {
-            Button("取消") { dismiss() }
+            Button("取消") {
+                guard isCancelEnabled else { return }
+                dismiss()
+            }
                 .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .disabled(!isCancelEnabled)
+                .opacity(isCancelEnabled ? 1 : 0.46)
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
                 Text(register)
