@@ -58,7 +58,8 @@ final class VisitSummaryTests: XCTestCase {
             rows: [
                 ["=SUM(1,1)", "line one\nline \"two\""],
                 ["+cmd", "@value"],
-                ["-1", "\tformula"]
+                ["-1", "\tformula"],
+                ["\n=HYPERLINK(\"bad\")", "safe"]
             ]
         )
         XCTAssertEqual(
@@ -67,6 +68,7 @@ final class VisitSummaryTests: XCTestCase {
                 + "\"'=SUM(1,1)\",\"line one\nline \"\"two\"\"\"\r\n"
                 + "\"'+cmd\",\"'@value\"\r\n"
                 + "\"'-1\",\"'\tformula\"\r\n"
+                + "\"'\n=HYPERLINK(\"\"bad\"\")\",\"safe\"\r\n"
         )
         XCTAssertFalse(value.contains("\n\"+cmd\""))
     }
@@ -640,6 +642,41 @@ final class VisitSummarySnapshotServiceTests: XCTestCase {
                 associationState: .resolved
             )
         )
+        let activeAttachmentID = UUID()
+        context.insert(
+            AttachmentRecord(
+                id: activeAttachmentID,
+                ownerType: .labSample,
+                ownerID: labSampleID,
+                relativePath:
+                    "Attachments/"
+                    + activeAttachmentID.uuidString.lowercased(),
+                originalFilename: "active.png",
+                typeIdentifier: "public.png",
+                byteCount: 1,
+                sha256Hex: String(repeating: "a", count: 64),
+                operationID: UUID()
+            )
+        )
+        let deletedAttachmentID = UUID()
+        context.insert(
+            AttachmentRecord(
+                id: deletedAttachmentID,
+                ownerType: .labSample,
+                ownerID: labSampleID,
+                relativePath:
+                    "Attachments/"
+                    + deletedAttachmentID.uuidString.lowercased(),
+                originalFilename: "deleted.png",
+                typeIdentifier: "public.png",
+                byteCount: 1,
+                sha256Hex: String(repeating: "b", count: 64),
+                operationID: UUID(),
+                deleteOperationID: UUID(),
+                deletedAt:
+                    rangeStart.addingTimeInterval(12_000)
+            )
+        )
 
         let statusTimestamp = try HistoricalTimestamp.captured(
             instant: rangeStart.addingTimeInterval(14_400),
@@ -696,10 +733,13 @@ final class VisitSummarySnapshotServiceTests: XCTestCase {
         try context.save()
 
         let reader = AppReadActor(modelContainer: container)
+        var privacy = VisitSummaryPrivacySelection()
+        privacy.includePhotos = true
         let snapshot = try await reader.visitSummarySnapshot(
             configuration: VisitSummaryConfiguration(
                 start: rangeStart,
-                end: rangeEnd
+                end: rangeEnd,
+                privacy: privacy
             ),
             terminalOverlay: DataControlTerminalOverlay(
                 journeyEntryIDs: [deletedJourneyID],
@@ -719,6 +759,8 @@ final class VisitSummarySnapshotServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.statuses.map(\.id), [statusID])
         XCTAssertEqual(snapshot.questions.map(\.id), [visibleQuestionID])
         XCTAssertTrue(snapshot.events.isEmpty)
+        XCTAssertEqual(snapshot.labs.first?.attachmentCount, 1)
+        XCTAssertEqual(snapshot.disclosedAttachmentCount, 1)
         XCTAssertEqual(snapshot.labs.first?.context, "")
         XCTAssertEqual(snapshot.statuses.first?.note, "")
         XCTAssertEqual(snapshot.administrations.first?.note, "")

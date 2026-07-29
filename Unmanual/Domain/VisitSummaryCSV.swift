@@ -41,7 +41,7 @@ enum VisitSummaryCSVEncoder {
     private static func escaped(_ input: String) -> String {
         let spreadsheetSafe: String
         if let first = input.unicodeScalars.first,
-           "=+-@\t\r".unicodeScalars.contains(first) {
+           "=+-@\t\r\n".unicodeScalars.contains(first) {
             spreadsheetSafe = "'" + input
         } else {
             spreadsheetSafe = input

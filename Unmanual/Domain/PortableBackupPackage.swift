@@ -55,11 +55,59 @@ struct PortableBackupManifest: Codable, Equatable, Sendable {
     let rootSHA256: String
 }
 
-struct AuditedPortableBackup: Equatable, Sendable {
+struct AuditedPortableBackup: @unchecked Sendable {
     let packageURL: URL
     let manifest: PortableBackupManifest
     let readableDocument: PortableDataV2Document
     let packageSHA256: String
+    let packageLease: PortablePackageDirectoryLease?
+
+    init(
+        packageURL: URL,
+        manifest: PortableBackupManifest,
+        readableDocument: PortableDataV2Document,
+        packageSHA256: String,
+        packageLease: PortablePackageDirectoryLease? = nil
+    ) {
+        self.packageURL = packageURL
+        self.manifest = manifest
+        self.readableDocument = readableDocument
+        self.packageSHA256 = packageSHA256
+        self.packageLease = packageLease
+    }
+
+    func retaining(
+        _ lease: PortablePackageDirectoryLease
+    ) -> AuditedPortableBackup {
+        AuditedPortableBackup(
+            packageURL: packageURL,
+            manifest: manifest,
+            readableDocument: readableDocument,
+            packageSHA256: packageSHA256,
+            packageLease: lease
+        )
+    }
+
+    func detached() -> AuditedPortableBackup {
+        AuditedPortableBackup(
+            packageURL: packageURL,
+            manifest: manifest,
+            readableDocument: readableDocument,
+            packageSHA256: packageSHA256
+        )
+    }
+}
+
+extension AuditedPortableBackup: Equatable {
+    static func == (
+        lhs: AuditedPortableBackup,
+        rhs: AuditedPortableBackup
+    ) -> Bool {
+        lhs.packageURL == rhs.packageURL
+            && lhs.manifest == rhs.manifest
+            && lhs.readableDocument == rhs.readableDocument
+            && lhs.packageSHA256 == rhs.packageSHA256
+    }
 }
 
 enum PortableBackupLimits {
@@ -70,9 +118,22 @@ enum PortableBackupLimits {
         AttachmentFileStore.maximumFileBytes
     static let maximumAttachmentCount =
         PortableDataV2Limits.maximumAttachmentCount
+    /// The wire contract counts regular files only. A valid package may also
+    /// contain `Attachments`, `data`, and one directory per attachment.
+    static let maximumPackageDirectoryCount =
+        maximumAttachmentCount + 2
     static let maximumEntryCount = 2_100
+    /// Internal traversal budget. This is deliberately separate from the
+    /// portable format's regular-file entry count.
+    static let maximumPackageTreeNodeCount =
+        maximumEntryCount + maximumPackageDirectoryCount
     static let maximumTotalBytes: Int64 =
         2 * 1_024 * 1_024 * 1_024
+    /// `FileDocument` must materialize the complete directory wrapper in
+    /// memory. This is an internal DEBUG export capacity, not the portable
+    /// package format/import limit above.
+    static let maximumInternalResidentExportBytes: Int64 =
+        64 * 1_024 * 1_024
     static let maximumPathBytes = 512
 }
 
@@ -228,6 +289,9 @@ enum PortableBackupManifestCodec {
                 <= PortableBackupLimits.maximumAttachmentCount,
               payload.readableData.relativePath
                 == "data/readable-v2.json",
+              PortableWireValuePolicy.isValidTimestamp(
+                payload.createdAtMicroseconds
+              ),
               payload.readableData.byteCount >= 0,
               payload.readableData.byteCount
                 <= Int64(
@@ -245,7 +309,9 @@ enum PortableBackupManifestCodec {
                 entry.relativePath
             )
             guard entry.byteCount >= 0,
-                  entry.sha256Hex.count == 64,
+                  PortableWireValuePolicy.isCanonicalSHA256(
+                    entry.sha256Hex
+                  ),
                   paths.insert(entry.relativePath).inserted,
                   normalized.insert(
                     PortableBackupPathPolicy

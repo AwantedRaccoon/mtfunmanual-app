@@ -22,6 +22,22 @@ struct PortableRestorePreparedOperation: Sendable {
         AppDataControlCoordinator.ExclusiveResetLease
 }
 
+private actor PortableCleanupIntentBinding {
+    private var value: PortablePackageCleanupIntent
+
+    init(_ value: PortablePackageCleanupIntent) {
+        self.value = value
+    }
+
+    func update(_ value: PortablePackageCleanupIntent) {
+        self.value = value
+    }
+
+    func current() -> PortablePackageCleanupIntent {
+        value
+    }
+}
+
 actor PortableRestorePreparationService {
     typealias TargetAdvancer = @Sendable (
         _ journal: PortableRestoreJournal,
@@ -155,6 +171,8 @@ actor PortableRestorePreparationService {
         var journalMayBeDurable = false
         var cleanupIntent:
             PortablePackageCleanupIntent?
+        var cleanupIntentBinding:
+            PortableCleanupIntentBinding?
         do {
             let operationID = UUID()
             let journal = try await coordinator
@@ -235,11 +253,47 @@ actor PortableRestorePreparationService {
                     operationID: operationID
                 )
             cleanupIntent = intent
-            let staged = try Self.stageDurably(
+            let intentBinding =
+                PortableCleanupIntentBinding(intent)
+            cleanupIntentBinding = intentBinding
+            let staged = try await Self.stageDurably(
                 auditedPackage,
                 journal: journal,
-                layout: layout
+                layout: layout,
+                bindArtifact: {
+                    anchorIdentity,
+                    rootIdentity,
+                    packageIdentity in
+                    let bound = try await portablePackageCleanup
+                        .bind(
+                            intent,
+                            anchorIdentity:
+                                anchorIdentity,
+                            rootIdentity: rootIdentity,
+                            packageIdentity:
+                                packageIdentity
+                        )
+                    await intentBinding.update(bound)
+                },
+                recordSanitization: {
+                    anchorIdentity,
+                    rootIdentity,
+                    packageIdentity in
+                    let current = await intentBinding.current()
+                    let sanitized = try await
+                        portablePackageCleanup
+                        .recordLeaseSanitization(
+                            current,
+                            anchorIdentity:
+                                anchorIdentity,
+                            rootIdentity: rootIdentity,
+                            packageIdentity:
+                                packageIdentity
+                        )
+                    await intentBinding.update(sanitized)
+                }
             )
+            cleanupIntent = await intentBinding.current()
             guard staged.packageSHA256
                     == journal.packageRootDigest else {
                 throw PortableRestoreServiceError
@@ -304,11 +358,17 @@ actor PortableRestorePreparationService {
                 ) {
                 await coordinator.invalidate()
             } else {
-                if let cleanupIntent,
+                let currentCleanupIntent =
+                    if let cleanupIntentBinding {
+                        await cleanupIntentBinding.current()
+                    } else {
+                        cleanupIntent
+                    }
+                if let currentCleanupIntent,
                    let portablePackageCleanup {
                     do {
                         try await portablePackageCleanup
-                            .discard(cleanupIntent)
+                            .discard(currentCleanupIntent)
                     } catch {
                         await coordinator
                             .endExclusiveResetLease(
@@ -526,9 +586,18 @@ actor PortableRestorePreparationService {
             .MutationProbe = {},
         beforeStagingWrite:
             PortableManagedPathSecurity
-            .MutationProbe = {}
-    ) throws -> AuditedPortableBackup {
-        try PortableManagedPathSecurity
+            .MutationProbe = {},
+        afterStagingFirstSensitiveWrite:
+            PortableManagedPathSecurity
+            .MutationProbe = {},
+        bindArtifact:
+            PortableManagedPathSecurity
+            .ArtifactBinding = { _, _, _ in },
+        recordSanitization:
+            PortableManagedPathSecurity
+            .ArtifactSanitization = { _, _, _ in }
+    ) async throws -> AuditedPortableBackup {
+        try await PortableManagedPathSecurity
             .buildRestoreStagingPackage(
                 source: source,
                 journal: journal,
@@ -536,7 +605,13 @@ actor PortableRestorePreparationService {
                 beforeCreate:
                     beforeStagingCreate,
                 beforeWrite:
-                    beforeStagingWrite
+                    beforeStagingWrite,
+                afterFirstSensitiveWrite:
+                    afterStagingFirstSensitiveWrite,
+                bindArtifact:
+                    bindArtifact,
+                recordSanitization:
+                    recordSanitization
             )
     }
 
@@ -583,9 +658,19 @@ enum PortableRestoreTargetBuilder {
         verificationMode:
             StoreFileProtectionVerificationMode = .live,
         stopAfterPhase:
-            PortableRestorePhase? = nil
+            PortableRestorePhase? = nil,
+        afterTargetContentsRemoved:
+            PortableManagedPathSecurity.MutationProbe = {},
+        beforeMaterializeDatabase:
+            PortableManagedPathSecurity.MutationProbe = {},
+        afterDatabaseNamespaceShield:
+            PortableManagedPathSecurity.MutationProbe = {}
     ) async throws -> PortableRestoreJournal {
         var journal = initial
+        var targetLease:
+            PortableManagedPathSecurity
+            .GenerationTargetLease?
+        var targetContainer: ModelContainer?
         let journalStore = PortableRestoreJournalStore(
             layout: layout
         )
@@ -610,9 +695,15 @@ enum PortableRestoreTargetBuilder {
         }
 
         if journal.phase == .preparingTarget {
-            try prepareFreshTarget(
+            let prior = journal
+            let identity = try prepareFreshTarget(
                 journal,
                 layout: layout
+            )
+            journal.bindTargetRoot(identity)
+            try journalStore.write(
+                journal,
+                replacing: prior
             )
             journal = try advance(
                 journal,
@@ -624,19 +715,89 @@ enum PortableRestoreTargetBuilder {
             }
         }
         if journal.phase == .targetDirectoryPrepared {
+            if let priorAncestry =
+                    journal.targetAncestry {
+                let priorLease = try
+                    PortableManagedPathSecurity
+                    .GenerationTargetLease.acquire(
+                        layout: layout,
+                        generationName:
+                            journal.targetGenerationID
+                            .uuidString.lowercased(),
+                        expectedTarget:
+                            journal.targetRootIdentity,
+                        expectedAncestry:
+                            priorAncestry
+                    )
+                try priorLease
+                    .restoreNamespacePermissions()
+                let prior = journal
+                journal.clearTargetAncestry()
+                try journalStore.write(
+                    journal,
+                    replacing: prior
+                )
+            }
             // A crash may have left a partial database. The target is
-            // inactive and exactly journal-bound, so rebuild it from the
-            // already audited durable package.
-            try prepareFreshTarget(
+            // inactive and exactly journal-bound. Preserve that durable root
+            // inode while clearing and rebuilding its contents so there is no
+            // delete/create identity gap for cold-launch replay.
+            _ = try PortableManagedPathSecurity
+                .resetGenerationRootContents(
+                    generationsURL:
+                        layout.generationsURL,
+                    generationName:
+                        journal.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedIdentity:
+                        journal.targetRootIdentity,
+                    afterContentsRemoved:
+                        afterTargetContentsRemoved
+                )
+            try beforeMaterializeDatabase()
+            let lease = try PortableManagedPathSecurity
+                .GenerationTargetLease.acquire(
+                    layout: layout,
+                    generationName:
+                        journal.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedTarget:
+                        journal.targetRootIdentity
+                )
+            let ancestryPrior = journal
+            journal.bindTargetAncestry(
+                lease.ancestry
+            )
+            try journalStore.write(
+                journal,
+                replacing: ancestryPrior
+            )
+            targetLease = lease
+            try lease.verifyPublished()
+            let container = try AppModelContainerFactory
+                .makeDataControlContainer(
+                    at: layout.storeURL(
+                        for: journal.targetGenerationID
+                    )
+                )
+            try lease.verifyPublished()
+            try hardenTargetProtection(
                 journal,
                 layout: layout,
-                replaceExisting: true
+                verificationMode: verificationMode
             )
+            try lease.verifyPublished()
+            try lease.beginNamespaceShield()
+            try afterDatabaseNamespaceShield()
+            try lease.verifyPublished()
+            targetContainer = container
             try await materializeDatabase(
                 package.readableDocument,
                 journal: journal,
-                layout: layout
+                container: container
             )
+            try lease.verifyDatabaseBundle()
+            try lease.verifyPublished()
             journal = try advance(
                 journal,
                 to: .databaseWritten,
@@ -647,11 +808,37 @@ enum PortableRestoreTargetBuilder {
             }
         }
         if journal.phase == .databaseWritten {
+            let lease: PortableManagedPathSecurity
+                .GenerationTargetLease
+            if let existing = targetLease {
+                lease = existing
+            } else {
+                guard let ancestry =
+                        journal.targetAncestry else {
+                    throw PortableRestoreServiceError
+                        .unsafeTarget
+                }
+                let acquired = try
+                    PortableManagedPathSecurity
+                    .GenerationTargetLease.acquire(
+                        layout: layout,
+                        generationName:
+                            journal.targetGenerationID
+                            .uuidString.lowercased(),
+                        expectedTarget:
+                            journal.targetRootIdentity,
+                        expectedAncestry: ancestry
+                    )
+                try acquired.beginNamespaceShield()
+                targetLease = acquired
+                lease = acquired
+            }
             try installAttachments(
                 package,
                 journal: journal,
-                layout: layout
+                lease: lease
             )
+            try lease.sealFilesNamespace()
             journal = try advance(
                 journal,
                 to: .attachmentsCopied,
@@ -662,6 +849,15 @@ enum PortableRestoreTargetBuilder {
             }
         }
         if journal.phase == .attachmentsCopied {
+            let lease = try targetLease
+                ?? acquireTargetLease(
+                    journal,
+                    layout: layout
+            )
+            targetLease = lease
+            try lease.beginNamespaceShield()
+            try lease.sealFilesNamespace()
+            try lease.verifyPublished()
             journal = try advance(
                 journal,
                 to: .targetPrepared,
@@ -672,10 +868,36 @@ enum PortableRestoreTargetBuilder {
             }
         }
         if journal.phase == .targetPrepared {
+            let lease = try targetLease
+                ?? acquireTargetLease(
+                    journal,
+                    layout: layout
+            )
+            targetLease = lease
+            try lease.beginNamespaceShield()
+            try lease.sealFilesNamespace()
+            let container: ModelContainer
+            if let existing = targetContainer {
+                container = existing
+            } else {
+                container = try AppModelContainerFactory
+                    .makeDataControlContainer(
+                        at: layout.storeURL(
+                            for:
+                                journal
+                                .targetGenerationID
+                        )
+                    )
+                try lease.verifyDatabaseBundle()
+                try lease.verifyPublished()
+                targetContainer = container
+            }
             try await validateTarget(
                 journal,
                 package: package,
                 layout: layout,
+                lease: lease,
+                container: container,
                 verificationMode: verificationMode
             )
             journal = try advance(
@@ -688,6 +910,14 @@ enum PortableRestoreTargetBuilder {
             }
         }
         if journal.phase == .targetValidated {
+            let lease = try targetLease
+                ?? acquireTargetLease(
+                    journal,
+                    layout: layout
+                )
+            try lease.beginNamespaceShield()
+            try lease.sealFilesNamespace()
+            try lease.verifyPublished()
             journal = try advance(
                 journal,
                 to: .restartRequired,
@@ -701,24 +931,36 @@ enum PortableRestoreTargetBuilder {
         _ journal: PortableRestoreJournal,
         package: AuditedPortableBackup,
         layout: AppDataStoreLayout,
+        lease:
+            PortableManagedPathSecurity
+            .GenerationTargetLease,
+        container: ModelContainer,
         verificationMode:
             StoreFileProtectionVerificationMode = .live
     ) async throws {
-        let provenance = try AppDataStoreBootstrapper(
-            layout: layout,
-            fileProtectionVerificationMode:
-                verificationMode
-        ).validateGenerationForDataInventory(
-            generationID: journal.targetGenerationID,
-            schemaVersion: "12.0.0",
-            expectedDatasetID: journal.targetDatasetID
-        )
-        guard provenance.factCount == journal.factCount,
-              provenance.revisionCount
+        try lease.verifyPublished()
+        try lease.verifyDatabaseBundle()
+        guard package.packageSHA256
+                == journal.packageRootDigest,
+              package.readableDocument.payload.datasetID
+                == journal.targetDatasetID,
+              try attachmentManifestDigest(
+                package.readableDocument.payload.activeAttachments
+              ) == journal.attachmentManifestDigest else {
+            throw PortableRestoreServiceError.packageChanged
+        }
+        let capture = try await
+            DataInventoryDatabaseCaptureActor(
+                modelContainer: container
+            ).capture(layout: layout)
+        guard capture.datasetID
+                == journal.targetDatasetID,
+              capture.factCount == journal.factCount,
+              capture.revisionCount
                 == journal.revisionCount else {
             throw PortableRestoreServiceError.targetInvalid
         }
-        let active = provenance.attachments.filter {
+        let active = capture.attachments.filter {
             $0.deletedAt == nil
                 && $0.deleteOperationID == nil
         }
@@ -742,37 +984,75 @@ enum PortableRestoreTargetBuilder {
               ) == journal.attachmentManifestDigest else {
             throw PortableRestoreServiceError.targetInvalid
         }
-        let attachmentStore = AttachmentFileStore(
-            rootURL: layout.generationDirectoryURL(
-                for: journal.targetGenerationID
-            ).appending(
-                path: "Files",
-                directoryHint: .isDirectory
-            )
-        )
-        _ = try attachmentStore
-            .dataInventoryCategorySnapshots(
-                observations: provenance.attachments
-            )
-        let readOnly = try AppModelContainerFactory
-            .makeReadOnlyDataControlContainer(
-                at: layout.storeURL(
-                    for: journal.targetGenerationID
+        try lease.validateAttachments(
+            active.map {
+                let value = $0.attachment
+                return PortableDataAttachment(
+                    attachmentID: value.id,
+                    ownerType: value.ownerType.rawValue,
+                    ownerID: value.ownerID,
+                    originalFilename:
+                        value.originalFilename,
+                    typeIdentifier:
+                        value.typeIdentifier,
+                    byteCount: value.byteCount,
+                    sha256Hex: value.sha256Hex
                 )
-            )
-        let capture = try await
-            DataInventoryDatabaseCaptureActor(
-                modelContainer: readOnly
-            ).capture(layout: layout)
-        guard capture.datasetID
-                == journal.targetDatasetID,
-              capture.nextLocalRevision
+            }
+        )
+        guard capture.nextLocalRevision
                 == journal.targetNextLocalRevision,
               capture.factCount == journal.factCount,
               capture.revisionCount
                 == journal.revisionCount else {
             throw PortableRestoreServiceError.targetInvalid
         }
+        let actualDocument = try DataInventoryProductionService
+            .makePortableDocument(
+                database: capture,
+                generationID:
+                    package.readableDocument.payload
+                    .sourceGenerationID,
+                capturedAt: Date(
+                    timeIntervalSince1970: 0
+                )
+            )
+        let expectedDocument = try await
+            expectedTargetDocument(
+                package.readableDocument,
+                journal: journal,
+                layout: layout
+            )
+        guard try PortableDataV2Codec
+                .logicalStateDigest(actualDocument.payload)
+                == PortableDataV2Codec.logicalStateDigest(
+                    expectedDocument.payload
+                ) else {
+            throw PortableRestoreServiceError.targetInvalid
+        }
+        let report = try StoreFileProtectionPlan(
+            storeURL: layout.storeURL(
+                for: journal.targetGenerationID
+            ),
+            resources: layout.protectionResources(
+                for: journal.targetGenerationID
+            ),
+            backupPolicy: .systemManaged,
+            verificationMode: verificationMode
+        ).inspect()
+        guard report.isAcceptableForCurrentPlatform else {
+            throw PortableRestoreServiceError.targetInvalid
+        }
+        try lease.verifyDatabaseBundle()
+        try lease.verifyPublished()
+    }
+
+    private static func hardenTargetProtection(
+        _ journal: PortableRestoreJournal,
+        layout: AppDataStoreLayout,
+        verificationMode:
+            StoreFileProtectionVerificationMode
+    ) throws {
         let report = try StoreFileProtectionPlan(
             storeURL: layout.storeURL(
                 for: journal.targetGenerationID
@@ -788,17 +1068,86 @@ enum PortableRestoreTargetBuilder {
         }
     }
 
+    private static func expectedTargetDocument(
+        _ source: PortableDataV2Document,
+        journal: PortableRestoreJournal,
+        layout: AppDataStoreLayout
+    ) async throws -> PortableDataV2Document {
+        let container = try AppModelContainerFactory
+            .makeInMemoryDataControlContainer()
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let committedAt = Date(
+            timeIntervalSince1970:
+                TimeInterval(
+                    journal.devicePolicyCommittedAtMicroseconds
+                ) / 1_000_000
+        )
+        _ = try PortableV12RecordAdapter.insert(
+            source,
+            into: context,
+            deviceObservationDate: committedAt
+        )
+        try context.save()
+        if try sourceAppLockEnabled(source) {
+            guard let privacy = source.payload.records
+                .first(where: {
+                    $0.modelType == "PrivacyControlRecord"
+                }) else {
+                throw PortableRestoreServiceError.targetInvalid
+            }
+            _ = try await AppWriteActor(
+                modelContainer: container
+            ).setAppLock(
+                SetAppLockCommand(
+                    operationID:
+                        journal.devicePolicyOperationID,
+                    expectedLocalRevision:
+                        privacy.localRevision,
+                    expectedDigestHex: privacy.digestHex,
+                    isEnabled: false,
+                    committedAt: committedAt
+                )
+            )
+        }
+        let capture = try await
+            DataInventoryDatabaseCaptureActor(
+                modelContainer: container
+            ).capture(layout: layout)
+        return try DataInventoryProductionService
+            .makePortableDocument(
+                database: capture,
+                generationID:
+                    source.payload.sourceGenerationID,
+                capturedAt: Date(
+                    timeIntervalSince1970: 0
+                )
+            )
+    }
+
+    static func verifyTargetRootIdentity(
+        _ journal: PortableRestoreJournal,
+        layout: AppDataStoreLayout
+    ) throws {
+        do {
+            try PortableManagedPathSecurity
+                .verifyDirectoryIdentity(
+                    at: layout.generationDirectoryURL(
+                        for: journal.targetGenerationID
+                    ),
+                    expectedIdentity:
+                        journal.targetRootIdentity
+                )
+        } catch {
+            throw PortableRestoreServiceError.unsafeTarget
+        }
+    }
+
     private static func materializeDatabase(
         _ document: PortableDataV2Document,
         journal: PortableRestoreJournal,
-        layout: AppDataStoreLayout
+        container: ModelContainer
     ) async throws {
-        let container = try AppModelContainerFactory
-            .makeDataControlContainer(
-                at: layout.storeURL(
-                    for: journal.targetGenerationID
-                )
-            )
         let context = ModelContext(container)
         context.autosaveEnabled = false
         _ = try PortableV12RecordAdapter.insert(
@@ -849,101 +1198,41 @@ enum PortableRestoreTargetBuilder {
     private static func installAttachments(
         _ package: AuditedPortableBackup,
         journal: PortableRestoreJournal,
-        layout: AppDataStoreLayout
+        lease:
+            PortableManagedPathSecurity
+            .GenerationTargetLease
     ) throws {
-        let root = layout.generationDirectoryURL(
-            for: journal.targetGenerationID
-        ).appending(
-            path: "Files",
-            directoryHint: .isDirectory
+        try lease.installAttachments(
+            from: package,
+            operationID: journal.operationID
         )
-        if FileManager.default.fileExists(atPath: root.path) {
-            try FileManager.default.removeItem(at: root)
+    }
+
+    private static func acquireTargetLease(
+        _ journal: PortableRestoreJournal,
+        layout: AppDataStoreLayout
+    ) throws -> PortableManagedPathSecurity
+        .GenerationTargetLease {
+        guard let ancestry = journal.targetAncestry
+        else {
+            throw PortableRestoreServiceError.unsafeTarget
         }
-        let store = AttachmentFileStore(rootURL: root)
-        _ = try store.recover(committedAttachments: [:])
-        let attachmentRecords = Dictionary(
-            uniqueKeysWithValues:
-                package.readableDocument.payload.records
-                .filter {
-                    $0.modelType == "AttachmentRecord"
-                }
-                .map { ($0.recordID, $0) }
-        )
-        for attachment in package.readableDocument
-            .payload.activeAttachments {
-            guard let record =
-                    attachmentRecords[
-                        attachment.attachmentID
-                    ],
-                  let relativePathField =
-                    record.fields.first(
-                        where: {
-                            $0.name == "relativePath"
-                        }
-                    ),
-                  case let .string(relativePath) =
-                    try relativePathField.value
-                        .recordDigestValue(),
-                  relativePath
-                    == AttachmentPathFacts.relativePath(
-                        attachmentID:
-                            attachment.attachmentID,
-                        typeIdentifier:
-                            attachment.typeIdentifier
-                    ) else {
-                throw PortableRestoreServiceError
-                    .targetInvalid
-            }
-            let payloadURL = package.packageURL
-                .appending(
-                    path: attachment.packageRelativePath
-                )
-            let data = try PortableBackupFileAudit
-                .boundedData(
-                    payloadURL,
-                    maximumBytes: Int(
-                        AttachmentFileStore
-                            .maximumFileBytes
-                    )
-                )
-            let operationID =
-                CoreTimeRegimenBackfill.stableUUID(
-                    for:
-                        "portable-restore:"
-                        + journal.operationID.uuidString
-                        + ":"
-                        + attachment.attachmentID
-                            .uuidString
-                )
-            let staged = try store.stage(
-                data: data,
-                attachmentID: attachment.attachmentID,
-                originalFilename:
-                    attachment.originalFilename,
-                typeIdentifier:
-                    attachment.typeIdentifier,
-                operationID: operationID
+        return try PortableManagedPathSecurity
+            .GenerationTargetLease.acquire(
+                layout: layout,
+                generationName:
+                    journal.targetGenerationID
+                    .uuidString.lowercased(),
+                expectedTarget:
+                    journal.targetRootIdentity,
+                expectedAncestry: ancestry
             )
-            guard staged.byteCount == attachment.byteCount,
-                  staged.sha256Hex
-                    == attachment.sha256Hex,
-                  staged.relativePath == relativePath else {
-                throw PortableRestoreServiceError
-                    .targetInvalid
-            }
-            _ = try store.commit(staged)
-            try store.markMetadataCommitted(
-                PreparedAttachmentMetadata(staged)
-            )
-        }
     }
 
     private static func prepareFreshTarget(
         _ journal: PortableRestoreJournal,
-        layout: AppDataStoreLayout,
-        replaceExisting: Bool = false
-    ) throws {
+        layout: AppDataStoreLayout
+    ) throws -> PortableArtifactIdentity {
         let pointer = try GenerationPointerStore(
             layout: layout
         ).read()
@@ -968,34 +1257,25 @@ enum PortableRestoreTargetBuilder {
                 .uuidString.lowercased() else {
             throw PortableRestoreServiceError.unsafeTarget
         }
-        if FileManager.default.fileExists(
-            atPath: target.path
-        ) {
-            guard replaceExisting else {
-                throw PortableRestoreServiceError
-                    .unsafeTarget
-            }
-            try FileManager.default.removeItem(at: target)
+        if let bound = journal.targetRootIdentity {
+            try PortableManagedPathSecurity
+                .verifyDirectoryIdentity(
+                    at: target,
+                    expectedIdentity: bound
+                )
         }
-        for directory in [
-            target,
-            layout.storeDirectoryURL(
-                for: journal.targetGenerationID
+        let identity = try PortableManagedPathSecurity
+            .createOrResumeEmptyGenerationRoot(
+                generationsURL: generations,
+                generationName:
+                    journal.targetGenerationID
+                    .uuidString.lowercased()
             )
-        ] {
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: false,
-                attributes: [
-                    .protectionKey:
-                        FileProtectionType.complete
-                ]
-            )
-            var mutable = directory
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = false
-            try mutable.setResourceValues(values)
+        guard journal.targetRootIdentity == nil
+                || journal.targetRootIdentity == identity else {
+            throw PortableRestoreServiceError.unsafeTarget
         }
+        return identity
     }
 
     private static func requireSourcePointer(
@@ -1027,11 +1307,9 @@ enum PortableRestoreTargetBuilder {
         store: PortableRestoreJournalStore
     ) throws -> PortableRestoreJournal {
         var next = old
-        next.phase = phase
-        next.updatedAt = Date(
-            timeIntervalSince1970: floor(
-                Date().timeIntervalSince1970
-            )
+        next.advanceState(
+            to: phase,
+            updatedAt: Date()
         )
         try store.write(next, replacing: old)
         return next
@@ -1077,6 +1355,8 @@ actor PortableRestoreColdLaunchCoordinator {
         _ journal: PortableRestoreJournal,
         _ layout: AppDataStoreLayout
     ) throws -> Void
+    typealias MutationProbe =
+        PortableManagedPathSecurity.MutationProbe
 
     private let layout: AppDataStoreLayout
     private let notificationClient:
@@ -1084,6 +1364,7 @@ actor PortableRestoreColdLaunchCoordinator {
     private let verificationMode:
         StoreFileProtectionVerificationMode
     private let stagingDiscarder: StagingDiscarder?
+    private let beforePointerWrite: MutationProbe
     private let portablePackageCleanup:
         PortablePackageCleanupCoordinator
 
@@ -1094,7 +1375,9 @@ actor PortableRestoreColdLaunchCoordinator {
                 SystemDataResetNotificationClient(),
         verificationMode:
             StoreFileProtectionVerificationMode = .live,
-        stagingDiscarder: StagingDiscarder? = nil
+        stagingDiscarder: StagingDiscarder? = nil,
+        beforePointerWrite:
+            @escaping MutationProbe = {}
     ) {
         self.layout = layout
         self.notificationClient = notificationClient
@@ -1104,6 +1387,7 @@ actor PortableRestoreColdLaunchCoordinator {
                 layout: layout
             )
         self.stagingDiscarder = stagingDiscarder
+        self.beforePointerWrite = beforePointerWrite
     }
 
     func open() async throws -> BootstrappedAppDataStore {
@@ -1134,16 +1418,54 @@ actor PortableRestoreColdLaunchCoordinator {
         if journal.phase == .restartRequired {
             let package = try PortableBackupPackageAuditor
                 .audit(at: journal.stagingURL(in: layout))
+            guard package.packageSHA256
+                    == journal.packageRootDigest else {
+                throw PortableRestoreServiceError.packageChanged
+            }
+            let lease: PortableManagedPathSecurity
+                .GenerationTargetLease
+            do {
+                lease = try PortableManagedPathSecurity
+                    .GenerationTargetLease.acquire(
+                        layout: layout,
+                        generationName:
+                            journal.targetGenerationID
+                            .uuidString.lowercased(),
+                        expectedTarget:
+                            journal.targetRootIdentity,
+                        expectedAncestry:
+                            journal.targetAncestry
+                    )
+            } catch {
+                throw PortableRestoreServiceError.unsafeTarget
+            }
+            try lease.beginNamespaceShield()
+            try lease.sealFilesNamespace()
+            let targetContainer = try
+                AppModelContainerFactory
+                .makeDataControlContainer(
+                    at: layout.storeURL(
+                        for: journal.targetGenerationID
+                    )
+                )
             try await PortableRestoreTargetBuilder
                 .validateTarget(
                     journal,
                     package: package,
                     layout: layout,
+                    lease: lease,
+                    container: targetContainer,
                     verificationMode: verificationMode
                 )
+            try lease.sealActivationContents()
             let pointerStore = GenerationPointerStore(
                 layout: layout
             )
+            try PortableRestoreTargetBuilder
+                .verifyTargetRootIdentity(
+                    journal,
+                    layout: layout
+                )
             let current = try pointerStore.read()
             if current.generationID
                     == journal.sourceGenerationID,
@@ -1158,18 +1480,43 @@ actor PortableRestoreColdLaunchCoordinator {
                     minimumRevisionCount:
                         journal.revisionCount
                 )
-                try pointerStore.write(target)
-                let readback = try pointerStore.read()
-                guard readback.generationID
-                            == target.generationID,
-                      readback.datasetID
-                            == target.datasetID,
-                      readback.minimumFactCount
-                            == target.minimumFactCount,
-                      readback.minimumRevisionCount
-                            == target.minimumRevisionCount else {
-                    throw PortableRestoreServiceError
-                        .recoveryRequired
+                try PortableRestoreTargetBuilder
+                    .verifyTargetRootIdentity(
+                        journal,
+                        layout: layout
+                )
+                try beforePointerWrite()
+                try lease.verifyPublished()
+                try lease.verifyDatabaseBundle()
+                try lease.verifyActivationContents()
+                do {
+                    try pointerStore.write(target)
+                    let readback = try pointerStore.read()
+                    guard readback.generationID
+                                == target.generationID,
+                          readback.datasetID
+                                == target.datasetID,
+                          readback.minimumFactCount
+                                == target.minimumFactCount,
+                          readback.minimumRevisionCount
+                                == target.minimumRevisionCount else {
+                        throw PortableRestoreServiceError
+                            .recoveryRequired
+                    }
+                    try lease.verifyActivationContents()
+                } catch {
+                    do {
+                        try pointerStore.write(current)
+                        guard try pointerStore.read()
+                                == current else {
+                            throw PortableRestoreServiceError
+                                .recoveryRequired
+                        }
+                    } catch {
+                        throw PortableRestoreServiceError
+                            .recoveryRequired
+                    }
+                    throw error
                 }
             } else if current.generationID
                         != journal.targetGenerationID
@@ -1183,15 +1530,22 @@ actor PortableRestoreColdLaunchCoordinator {
                 journal,
                 store: journalStore
             )
+            try lease.restoreNamespacePermissions()
         }
         if journal.phase
             == .activationCleanupPending {
+            try restoreTargetNamespacePermissions(
+                journal
+            )
             try await discardStaging(journal)
             journal = try advanceToActivated(
                 journal,
                 store: journalStore
             )
         } else if journal.phase == .activated {
+            try restoreTargetNamespacePermissions(
+                journal
+            )
             // Older interrupted builds may already have committed the
             // activated phase before staging cleanup. Retry the exact,
             // journal-bound cleanup on every launch until it succeeds.
@@ -1206,6 +1560,33 @@ actor PortableRestoreColdLaunchCoordinator {
             fileProtectionVerificationMode:
                 verificationMode
         ).open()
+    }
+
+    private func restoreTargetNamespacePermissions(
+        _ journal: PortableRestoreJournal
+    ) throws {
+        let lease: PortableManagedPathSecurity
+            .GenerationTargetLease
+        do {
+            lease = try PortableManagedPathSecurity
+                .GenerationTargetLease.acquire(
+                    layout: layout,
+                    generationName:
+                        journal.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedTarget:
+                        journal.targetRootIdentity,
+                    expectedAncestry:
+                        journal.targetAncestry
+                )
+            try lease.beginNamespaceShield()
+            try lease.sealFilesNamespace()
+            try lease.verifyPublished()
+            try lease.verifyDatabaseBundle()
+            try lease.restoreNamespacePermissions()
+        } catch {
+            throw PortableRestoreServiceError.unsafeTarget
+        }
     }
 
     private func validateSourceUnchangedIfActive(
@@ -1342,11 +1723,9 @@ actor PortableRestoreColdLaunchCoordinator {
         store: PortableRestoreJournalStore
     ) throws -> PortableRestoreJournal {
         var next = old
-        next.phase = .activated
-        next.updatedAt = Date(
-            timeIntervalSince1970: floor(
-                Date().timeIntervalSince1970
-            )
+        next.advanceState(
+            to: .activated,
+            updatedAt: Date()
         )
         try store.write(next, replacing: old)
         return next
@@ -1357,11 +1736,9 @@ actor PortableRestoreColdLaunchCoordinator {
         store: PortableRestoreJournalStore
     ) throws -> PortableRestoreJournal {
         var next = old
-        next.phase = .activationCleanupPending
-        next.updatedAt = Date(
-            timeIntervalSince1970: floor(
-                Date().timeIntervalSince1970
-            )
+        next.advanceState(
+            to: .activationCleanupPending,
+            updatedAt: Date()
         )
         try store.write(next, replacing: old)
         return next

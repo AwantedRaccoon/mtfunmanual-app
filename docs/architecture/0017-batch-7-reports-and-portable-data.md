@@ -117,12 +117,28 @@ provider URL。禁止 `Data(contentsOf:)` 无界读取。V2 固定限额：
 | standalone JSON / `readable-v2.json` | 64 MiB |
 | 单附件 | 20 MiB |
 | active 附件数量 | 2,000 |
-| package entry 数 | 2,100 |
+| package 普通文件数 | 2,100 |
+| package 目录数 | 2,002 |
+| package 内部树节点数 | 4,102 |
 | package 总 bytes | 2 GiB |
 | 单模型记录数 | 250,000 |
 | 字符串 UTF-8 bytes | 1 MiB |
 | JSON 容器深度 | 64 |
 | 相对路径 UTF-8 bytes | 512 |
+
+文件、目录和内部树节点分别计数；目录不能消耗普通文件预算。合法的 2,000 个 active
+附件 package 会形成 2,002 个目录、2,002 个普通文件和 4,004 个内部节点，必须能通过
+冻结与导出。namespace 冻结按当前递归深度持有 descriptor，不按附件总数持有全部
+descriptor；该最大附件 fixture 的测试峰值是 3 个临时 descriptor。
+
+2 GiB 是 portable package 的格式与导入上限，不是当前 DEBUG/internal
+`FileDocument` 导出的常驻内存承诺。`FileWrapper` 交接必须拥有全部普通文件 bytes，
+禁止依赖 mmap；当前内部导出因此另设 64 MiB（manifest + readable data + attachments）
+内容 bytes 上限，并在冻结 namespace 或构建 wrapper 前用 checked arithmetic
+拒绝超限。该 64 MiB 不包含 Foundation 对象、目录树、provider 或系统分享界面的运行时
+开销，不能被描述成整个导出流程的总 RSS 保证。完整 2 GiB 的 file-backed 输出路径留待
+Batch 9 与真机 provider/内存证据一起冻结，不能把当前 `FileDocument` 路径描述成已经
+支持 2 GiB 导出。
 
 所有整数加法使用 checked arithmetic。解析器拒绝：
 
@@ -146,11 +162,16 @@ provider URL。禁止 `Data(contentsOf:)` 无界读取。V2 固定限额：
 2. 读取 production inventory、终态可见投影、54-model typed payload 与 active
    attachment manifest；
 3. 生成 `FrozenExportPlan`，包含 state digest、范围、数量和字节估算；
-4. 释放 lease并展示完整预览；
+4. 释放 lease，仅保留经审计的紧凑事实并展示完整预览；此时不建立或持有
+   `FileWrapper`；
 5. 用户确认时重新取得 read lease并重算 state digest；
 6. state 有任何变化即返回 `impactChanged`，不生成旧预览对应的文件；
 7. 在同一 lease 内由文件层执行“校验 → 有界复制 → 复核 hash”；
-8. 完整 staging 后核对 exact entry set/root digest，再原子交给系统 exporter。
+8. 完整 staging 后核对 exact entry set/root digest，以 `.immediate` 加
+   `.withoutMapping` 生成唯一一个拥有自有 bytes 的 wrapper，再做第二次 descriptor
+   审计；确认流程同一时刻最多持有一个 wrapper；
+9. wrapper 建立后、交给 UI 前，精确清理本次磁盘 package 与 ownership intent；
+   UI 成功、取消或失败都不再持有磁盘临时副本。
 
 所有临时文件使用 `.complete` data protection、排除系统备份、文件名不含姓名/药物，
 并在成功、取消、失败或启动恢复后清理。
@@ -161,6 +182,15 @@ canonical relative path + contract digest` 写入 App 私有的 durable cleanup 
 显式丢弃必须先把同一 intent 原子推进为 `cleanupPending`，再开始删除；删除失败保留
 `cleanupPending` 作为重试依据。只有尚未建立 live owner 的冷启动恢复可以把崩溃遗留
 的 `active` 一并推进并清理。
+
+generation pointer、migration journal、cleanup journal 与 restore journal 的控制文件
+写入共享同一套确定性原子事务：新值和旧值的 sibling 名称分别包含内容 SHA-256，
+进程内写入由同一递归锁串行化。冷启动只接受由 canonical leaf、已验证 digest 和语义
+有效 payload 共同证明的 pre-swap、post-swap 或 old-cleanup 状态；随后确定性完成
+rename 或清理。digest 不匹配、语义无效、未知 sibling、symlink、hardlink 或身份/类型
+变化均 fail closed，并保留外来条目，不得用随机临时文件名或“最后一个文件获胜”猜测
+事务结果。
+
 临时路径只能由 operation ID 重新推导；清理器不得按名称扫描目录，也不得删除未登记的
 普通或 UUID-looking sibling。删除失败时保留 intent，删除成功后再 pointer-last 移除
 intent。冷启动必须在建立任何 `ModelContainer` 前重放这些 intent；若主 restore
@@ -227,7 +257,18 @@ dry-run token 必须绑定 package root digest、本机 state digest、模式、
   owner/type/limit 或关系缺失必须在 durable restore journal 之前失败；
 - 完成关系、revision、digest、附件、保护属性和只读 reopen 后停在
   `restartRequired`；
-- 下一次冷启动且尚未打开任何 ModelContainer 时重验 target，再 pointer-last；
+- 下一次冷启动且尚未打开 active ModelContainer 时重验 target；在语义验证后为
+  Store bundle 与完整 Files tree 建立 `path + inode/type/nlink/size + mode +
+  mtime/ctime + streaming SHA-256` 内容封印；同时为 App root 到 generation 的每一级
+  祖先、Store/Files/Attachments 目录和 Files root 建立 descriptor identity、
+  mode、mtime 与 ctime 封印。App 自有目录只接受 `0700` 或已封印的 `0500`，普通
+  App 文件只接受 `0600` 或已封印的 `0400`；历史 SQLite bundle 的 `0644/0444`
+  会先规范化到 App 自有模式。激活窗口把目录设为 `0500`、普通文件设为 `0400`，
+  pointer 写入前后都复核 exact tree、内容和目录 seal；成功或可恢复失败后精确恢复为
+  `0700/0600`。通过激活钩子持有的旧可写 descriptor 对 SQLite/WAL/SHM 或 attachment
+  payload 的同 inode 写入、截断、扩展、mode/ctime ABA 或目录替换都会拒绝激活并保持
+  来源 pointer。该同步激活门禁不宣称能防御最后一次复核之后的任意恶意同进程代码；
+- 内容与 namespace 复核通过后才执行 pointer-last；
 - pointer 切换后先持久化 `activationCleanupPending`，精确清理 journal 绑定的
   staging 成功后才写入 `activated`；清理或最终 journal 写入失败都可在下次冷启动
   幂等继续，不得遗失重放依据或永久保留敏感 package；

@@ -769,6 +769,8 @@ private struct PortableV12Fixture {
                 name: $0.name,
                 value: replacement
             )
+        }.sorted {
+            $0.name < $1.name
         }
     }
 
@@ -792,6 +794,8 @@ private struct PortableV12Fixture {
                     microseconds: microseconds
                 )
             )
+        }.sorted {
+            $0.name < $1.name
         }
         let identity = try XCTUnwrap(
             fields.first {

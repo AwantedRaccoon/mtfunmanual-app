@@ -3,6 +3,71 @@ import XCTest
 @testable import Unmanual
 
 final class PortableDataV2Tests: XCTestCase {
+    func testUnknownDeviceProjectionPolicyIsRejectedWithMatchingDigest()
+        throws {
+        let document = try makeDocument()
+        var root = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: try PortableDataV2Codec
+                    .encode(document)
+            ) as? [String: Any]
+        )
+        var payloadObject = try XCTUnwrap(
+            root["payload"] as? [String: Any]
+        )
+        payloadObject["deviceProjectionPolicy"] =
+            "unknown-local-projection-contract"
+        root["payload"] = payloadObject
+        root["transportSHA256"] =
+            String(repeating: "0", count: 64)
+        let intermediateData = try JSONSerialization
+            .data(withJSONObject: root)
+        let intermediate = try JSONDecoder
+            .unmanualFoundation.decode(
+                PortableDataV2Document.self,
+                from: intermediateData
+            )
+        root["transportSHA256"] =
+            try PortableDataV2Codec.transportDigest(
+                intermediate.payload
+            )
+        let tampered = try JSONSerialization.data(
+            withJSONObject: root,
+            options: [.sortedKeys]
+        )
+
+        XCTAssertThrowsError(
+            try PortableDataV2Codec.decode(tampered)
+        ) {
+            XCTAssertEqual(
+                $0 as? PortableDataV2Error,
+                .unsupportedVersion
+            )
+        }
+    }
+
+    func testDoubleBitPatternRequiresLowercaseCanonicalHex()
+        throws {
+        let uppercase = PortableDataValue(
+            kind: .double,
+            doubleBitPatternHex: "3FF0000000000000"
+        )
+        XCTAssertThrowsError(
+            try uppercase.recordDigestValue()
+        ) {
+            XCTAssertEqual(
+                $0 as? PortableDataV2Error,
+                .invalidValue
+            )
+        }
+        XCTAssertEqual(
+            try PortableDataValue(
+                kind: .double,
+                doubleBitPatternHex: "3ff0000000000000"
+            ).recordDigestValue(),
+            .double(1)
+        )
+    }
     func testPortablePerModelRecordLimitIsFrozenAt250000() {
         XCTAssertEqual(
             PortableDataV2Limits.maximumRecordsPerModel,
@@ -448,6 +513,80 @@ final class PortableDataV2Tests: XCTestCase {
         }
     }
 
+    func testValidatorRejectsUnrepresentableTimestamp()
+        throws {
+        XCTAssertThrowsError(
+            try PortableDataV2Validator.validate(
+                payload(
+                    records: [try record()],
+                    capturedAtMicroseconds: Int64.max
+                )
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? PortableDataV2Error,
+                .invalidEnvelope
+            )
+        }
+    }
+
+    func testDecodeRejectsNonCanonicalFieldOrdering()
+        throws {
+        let original = try record()
+        let data = try encodedDocument(
+            replacing: original,
+            fields: Array(original.fields.reversed())
+        )
+
+        XCTAssertThrowsError(
+            try PortableDataV2Codec.decode(data)
+        ) {
+            XCTAssertEqual(
+                $0 as? PortableDataV2Error,
+                .invalidEnvelope
+            )
+        }
+    }
+
+    func testDecodeRejectsUppercaseRecordDigest()
+        throws {
+        let original = try record()
+        let changedRecord = PortableDataRecord(
+            modelType: original.modelType,
+            recordType: original.recordType,
+            recordID: original.recordID,
+            recordKey: original.recordKey,
+            datasetID: original.datasetID,
+            localRevision: original.localRevision,
+            committedAtMicroseconds:
+                original.committedAtMicroseconds,
+            digestVersion: original.digestVersion,
+            digestHex: original.digestHex.uppercased(),
+            fields: original.fields
+        )
+        let changedPayload = payload(records: [changedRecord])
+        let document = PortableDataV2Document(
+            payload: changedPayload,
+            transportSHA256:
+                try PortableDataV2Codec.transportDigest(
+                    changedPayload
+                )
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+
+        XCTAssertThrowsError(
+            try PortableDataV2Codec.decode(
+                encoder.encode(document)
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? PortableDataV2Error,
+                .invalidRecord
+            )
+        }
+    }
+
     private func makeDocument() throws
         -> PortableDataV2Document {
         try PortableDataV2Codec.makeDocument(
@@ -458,7 +597,9 @@ final class PortableDataV2Tests: XCTestCase {
     private func payload(
         records: [PortableDataRecord],
         activeAttachments:
-            [PortableDataAttachment] = []
+            [PortableDataAttachment] = [],
+        capturedAtMicroseconds:
+            Int64 = 1_750_000_000_000_000
     ) -> PortableDataV2Payload {
         let counts = DataInventoryTaxonomy
             .allDatabaseModelNames.sorted().map {
@@ -471,7 +612,8 @@ final class PortableDataV2Tests: XCTestCase {
         return PortableDataV2Payload(
             datasetID: datasetID,
             sourceGenerationID: generationID,
-            capturedAtMicroseconds: 1_750_000_000_000_000,
+            capturedAtMicroseconds:
+                capturedAtMicroseconds,
             nextLocalRevision: 2,
             modelCounts: counts,
             records: records,
@@ -594,7 +736,9 @@ final class PortableDataV2Tests: XCTestCase {
                 recordID: recordID,
                 fields: fields
             ),
-            fields: fields.map {
+            fields: fields.sorted {
+                $0.name < $1.name
+            }.map {
                 PortableDataField(
                     name: $0.name,
                     value: PortableDataValue($0.value)

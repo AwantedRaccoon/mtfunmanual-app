@@ -1360,6 +1360,11 @@ enum DataInventoryNotificationCategoryCapture {
 }
 
 actor DataInventoryProductionService {
+    typealias BackupExportSnapshotBuilder =
+        @Sendable (
+            AuditedPortableBackup
+        ) throws -> PortableBackupExportSnapshot
+
     private let layout: AppDataStoreLayout
     private let generationID: UUID
     private let databaseActor: DataInventoryDatabaseCaptureActor
@@ -1367,8 +1372,13 @@ actor DataInventoryProductionService {
     private let dataControlCoordinator: AppDataControlCoordinator
     private let portablePackageCleanup:
         PortablePackageCleanupCoordinator
+    private let transferRootURL: URL
     private let sessionReleaseProbe:
         AppDataSessionReleaseProbe?
+    private let afterTransferFirstSensitiveWrite:
+        PortableManagedPathSecurity.MutationProbe
+    private let backupExportSnapshotBuilder:
+        BackupExportSnapshotBuilder
     private let notificationProvider =
         SystemDataInventoryNotificationProvider()
 #if DEBUG
@@ -1380,10 +1390,19 @@ actor DataInventoryProductionService {
     init?(
         store: BootstrappedAppDataStore,
         dataControlCoordinator: AppDataControlCoordinator,
+        transferRootURL: URL? = nil,
         portablePackageCleanup:
             PortablePackageCleanupCoordinator? = nil,
         sessionReleaseProbe:
-            AppDataSessionReleaseProbe? = nil
+            AppDataSessionReleaseProbe? = nil,
+        afterTransferFirstSensitiveWrite:
+            @escaping PortableManagedPathSecurity
+            .MutationProbe = {},
+        backupExportSnapshotBuilder:
+            @escaping BackupExportSnapshotBuilder = {
+                try PortableBackupExportSnapshotBuilder
+                    .make($0)
+            }
     ) {
         guard let layout = store.layout,
               layout.storeURL(for: store.generationID)
@@ -1400,12 +1419,25 @@ actor DataInventoryProductionService {
             rootURL: store.attachmentRootURL
         )
         self.dataControlCoordinator = dataControlCoordinator
+        let resolvedTransferRoot =
+            transferRootURL
+            ?? FileManager.default.temporaryDirectory
+                .appending(
+                    path: "UnmanualTransfers",
+                    directoryHint: .isDirectory
+                )
+        self.transferRootURL = resolvedTransferRoot
         self.portablePackageCleanup =
             portablePackageCleanup
             ?? PortablePackageCleanupCoordinator(
-                layout: layout
+                layout: layout,
+                transferRootURL: resolvedTransferRoot
             )
         self.sessionReleaseProbe = sessionReleaseProbe
+        self.afterTransferFirstSensitiveWrite =
+            afterTransferFirstSensitiveWrite
+        self.backupExportSnapshotBuilder =
+            backupExportSnapshotBuilder
 #if DEBUG
         self.shouldFailOnceForUITest = ProcessInfo.processInfo.arguments
             .contains("-unmanual-ui-test-inventory-fail-once")
@@ -1507,27 +1539,46 @@ actor DataInventoryProductionService {
                         ($0.attachment.id, $0.attachment)
                     }
             )
-            let root = FileManager.default
-                .temporaryDirectory
-                .appending(
-                    path: "UnmanualTransfers",
-                    directoryHint: .isDirectory
-                )
-            let intent = try await self
+            // Freeze and validate every package byte/count/path decision before
+            // registering cleanup work or creating a transfer target.
+            let preparedBuild = try PortableBackupPackageBuilder
+                .prepare(document: document)
+            let root = self.transferRootURL
+            var intent = try await self
                 .portablePackageCleanup.register(
                     kind: .backupTransfer
                 )
-            let destination = await self
-                .portablePackageCleanup.url(
-                    for: intent
-                )
+            var destinationLease:
+                PortablePackageDirectoryLease?
             do {
-                try Self.prepareTransferRoot(root)
+                let lease =
+                    try PortableManagedPathSecurity
+                    .createTransferPackageRootLease(
+                        transferRootURL: root,
+                        packageName:
+                            intent.relativePath
+                    )
+                destinationLease = lease
+                intent = try await self.portablePackageCleanup
+                    .bind(
+                        intent,
+                        anchorIdentity:
+                            lease
+                            .anchorIdentity,
+                        rootIdentity:
+                            lease.identity,
+                        packageIdentity:
+                            lease.identity
+                    )
                 let audited = try PortableBackupPackageBuilder
                     .build(
-                        document: document,
-                        destinationURL: destination
-                    ) { attachment, target in
+                        prepared: preparedBuild,
+                        destinationLease:
+                            lease,
+                        afterFirstSensitiveWrite:
+                            self
+                            .afterTransferFirstSensitiveWrite
+                    ) { attachment in
                         guard let snapshot =
                                 activeByID[
                                     attachment.attachmentID
@@ -1543,10 +1594,18 @@ actor DataInventoryProductionService {
                             throw PortableBackupError
                                 .attachmentMismatch
                         }
-                        try self.attachmentStore
-                            .auditedCopy(
-                                snapshot,
-                                to: target
+                        let sourceURL = try self
+                            .attachmentStore
+                            .auditedFileURL(
+                                for: snapshot
+                            )
+                        return try PortableBackupFileAudit
+                            .boundedData(
+                                sourceURL,
+                                maximumBytes: Int(
+                                    PortableBackupLimits
+                                        .maximumAttachmentBytes
+                                )
                             )
                     }
                 guard try await self.databaseActor
@@ -1557,8 +1616,30 @@ actor DataInventoryProductionService {
                     ) else {
                     throw PortableBackupError.stateChanged
                 }
-                return audited
+                return audited.retaining(lease)
             } catch {
+                let originalError = error
+                if let destinationLease {
+                    do {
+                        try destinationLease
+                            .sanitizeAfterFailure()
+                        intent = try await self
+                            .portablePackageCleanup
+                            .recordLeaseSanitization(
+                                intent,
+                                anchorIdentity:
+                                    destinationLease
+                                    .anchorIdentity,
+                                rootIdentity:
+                                    destinationLease.identity,
+                                packageIdentity:
+                                    destinationLease.identity
+                            )
+                    } catch {
+                        throw PortablePackageCleanupError
+                            .cleanupRequired
+                    }
+                }
                 do {
                     try await self
                         .portablePackageCleanup
@@ -1567,8 +1648,62 @@ actor DataInventoryProductionService {
                     throw PortablePackageCleanupError
                         .cleanupRequired
                 }
-                throw error
+                throw originalError
             }
+        }
+    }
+
+    func completeBackupExportSnapshot(
+        capturedAt: Date = Date(),
+        expectedIdentity:
+            PortableExportStateIdentity? = nil
+    ) async throws -> PortableBackupExportSnapshot {
+        let backup = try await completeBackupPackage(
+            capturedAt: capturedAt,
+            expectedIdentity: expectedIdentity
+        )
+        do {
+            let builder = backupExportSnapshotBuilder
+            let snapshot = try await Task.detached {
+                try Task.checkCancellation()
+                return try builder(backup)
+            }.value
+            try await portablePackageCleanup
+                .discardTransferPackage(
+                    at: backup.packageURL
+                )
+            return snapshot
+        } catch {
+            let originalError = error
+            do {
+                try await portablePackageCleanup
+                    .discardTransferPackage(
+                        at: backup.packageURL
+                    )
+            } catch {
+                throw PortablePackageCleanupError
+                    .cleanupRequired
+            }
+            throw originalError
+        }
+    }
+
+    func completeBackupPreview(
+        capturedAt: Date = Date()
+    ) async throws -> AuditedPortableBackup {
+        let backup = try await completeBackupPackage(
+            capturedAt: capturedAt
+        )
+        let preview = backup.detached()
+        do {
+            try await portablePackageCleanup
+                .discardTransferPackage(
+                    at: backup.packageURL
+                )
+            return preview
+        } catch {
+            throw PortablePackageCleanupError
+                .cleanupRequired
         }
     }
 
@@ -1602,42 +1737,61 @@ actor DataInventoryProductionService {
     func stageImportedBackup(
         at sourceURL: URL
     ) async throws -> AuditedPortableBackup {
-        let source = try PortableBackupPackageAuditor.audit(
+        // The provider tree, including its exact 2 GiB limit, is validated
+        // before any cleanup intent or managed target exists.
+        let sourceLease =
+            try PortableExternalBackupSourceLease.prepare(
             at: sourceURL
         )
-        let root = FileManager.default
-            .temporaryDirectory
-            .appending(
-                path: "UnmanualTransfers",
-                directoryHint: .isDirectory
-            )
-        let intent = try await portablePackageCleanup
+        let root = transferRootURL
+        var intent = try await portablePackageCleanup
             .register(kind: .importTransfer)
-        let destination = await portablePackageCleanup
-            .url(for: intent)
+        var destinationLease:
+            PortablePackageDirectoryLease?
         do {
-            try Self.prepareTransferRoot(root)
-            return try PortableBackupPackageBuilder.build(
-                document: source.readableDocument,
-                destinationURL: destination
-            ) { attachment, target in
-                let input = source.packageURL.appending(
-                    path: attachment.packageRelativePath
+            let lease =
+                try PortableManagedPathSecurity
+                .createTransferPackageRootLease(
+                    transferRootURL: root,
+                    packageName: intent.relativePath
                 )
-                let data = try PortableBackupFileAudit
-                    .boundedData(
-                        input,
-                        maximumBytes: Int(
-                            PortableBackupLimits
-                                .maximumAttachmentBytes
-                        )
-                    )
-                try data.write(
-                    to: target,
-                    options: [.atomic]
-                )
-            }
+            destinationLease = lease
+            intent = try await portablePackageCleanup.bind(
+                intent,
+                anchorIdentity:
+                    lease.anchorIdentity,
+                rootIdentity: lease.identity,
+                packageIdentity:
+                    lease.identity
+            )
+            return try PortableExternalBackupStager.copy(
+                sourceLease: sourceLease,
+                destinationLease: lease,
+                afterFirstSensitiveWrite:
+                    afterTransferFirstSensitiveWrite
+            ).retaining(lease)
         } catch {
+            let originalError = error
+            if let destinationLease {
+                do {
+                    try destinationLease
+                        .sanitizeAfterFailure()
+                    intent = try await portablePackageCleanup
+                        .recordLeaseSanitization(
+                            intent,
+                            anchorIdentity:
+                                destinationLease
+                                .anchorIdentity,
+                            rootIdentity:
+                                destinationLease.identity,
+                            packageIdentity:
+                                destinationLease.identity
+                        )
+                } catch {
+                    throw PortablePackageCleanupError
+                        .cleanupRequired
+                }
+            }
             do {
                 try await portablePackageCleanup
                     .discard(intent)
@@ -1645,7 +1799,7 @@ actor DataInventoryProductionService {
                 throw PortablePackageCleanupError
                     .cleanupRequired
             }
-            throw error
+            throw originalError
         }
     }
 
@@ -1661,26 +1815,6 @@ actor DataInventoryProductionService {
         try await portablePackageCleanup.retryPending()
         return try await portablePackageCleanup
             .pendingTransferURLs()
-    }
-
-    private static func prepareTransferRoot(
-        _ root: URL
-    ) throws {
-        try FileManager.default.createDirectory(
-            at: root,
-            withIntermediateDirectories: true,
-            attributes: [
-                .protectionKey: FileProtectionType.complete
-            ]
-        )
-        try FileManager.default.setAttributes(
-            [.protectionKey: FileProtectionType.complete],
-            ofItemAtPath: root.path
-        )
-        var mutable = root
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try mutable.setResourceValues(values)
     }
 
     static func makePortableDocument(

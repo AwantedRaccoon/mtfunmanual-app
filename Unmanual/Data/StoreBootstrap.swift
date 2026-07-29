@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SwiftData
 
@@ -368,28 +369,21 @@ struct GenerationPointerStore: Sendable {
     }
 
     func read() throws -> GenerationPointer {
-        guard FileManager.default.fileExists(atPath: layout.pointerURL.path) else {
-            throw AppDataFailure.invalidGenerationPointer
-        }
         do {
-            let pointer = try JSONDecoder.unmanualFoundation.decode(
-                GenerationPointer.self,
-                from: Data(contentsOf: layout.pointerURL)
+            let writer = ProtectedAtomicJSONWriter(
+                backupPolicy: backupPolicy
             )
-            guard pointer.formatVersion == GenerationPointer.formatVersion,
-                  [
-                      "2.0.0", "3.0.0", "4.0.0", "5.0.0",
-                      "6.0.0", "7.0.0", "8.0.0", "9.0.0",
-                      "10.0.0", "11.0.0", "12.0.0"
-                  ]
-                    .contains(pointer.schemaVersion),
-                  pointer.minimumFactCount >= 0,
-                  pointer.minimumRevisionCount >= 0,
-                  pointer.minimumFactCount == pointer.minimumRevisionCount,
-                  pointer.activatedAt.timeIntervalSince1970.isFinite else {
+            guard let data = try writer
+                .readReconciledData(
+                    from: layout.pointerURL,
+                    validator: {
+                        (try? Self.decodeValidated($0))
+                            != nil
+                    }
+                ) else {
                 throw AppDataFailure.invalidGenerationPointer
             }
-            return pointer
+            return try Self.decodeValidated(data)
         } catch let error as AppDataFailure {
             throw error
         } catch {
@@ -399,7 +393,69 @@ struct GenerationPointerStore: Sendable {
 
     func write(_ pointer: GenerationPointer) throws {
         try ProtectedAtomicJSONWriter(backupPolicy: backupPolicy)
-            .write(pointer, to: layout.pointerURL)
+            .write(
+                pointer,
+                to: layout.pointerURL,
+                validator: {
+                    (try? Self.decodeValidated($0))
+                        != nil
+                }
+            )
+    }
+
+    func readIfPresent() throws -> GenerationPointer? {
+        do {
+            let writer = ProtectedAtomicJSONWriter(
+                backupPolicy: backupPolicy
+            )
+            guard let data = try writer
+                .readReconciledData(
+                    from: layout.pointerURL,
+                    validator: {
+                        (try? Self.decodeValidated($0))
+                            != nil
+                    }
+                ) else {
+                return nil
+            }
+            return try Self.decodeValidated(data)
+        } catch let error as AppDataFailure {
+            throw error
+        } catch {
+            throw AppDataFailure.classifyStorage(
+                error,
+                fallback:
+                    .invalidGenerationPointer
+            )
+        }
+    }
+
+    private static func decodeValidated(
+        _ data: Data
+    ) throws -> GenerationPointer {
+        let pointer = try JSONDecoder
+            .unmanualFoundation.decode(
+                GenerationPointer.self,
+                from: data
+            )
+        guard pointer.formatVersion
+                == GenerationPointer.formatVersion,
+              [
+                  "2.0.0", "3.0.0", "4.0.0",
+                  "5.0.0", "6.0.0", "7.0.0",
+                  "8.0.0", "9.0.0", "10.0.0",
+                  "11.0.0", "12.0.0"
+              ].contains(pointer.schemaVersion),
+              pointer.minimumFactCount >= 0,
+              pointer.minimumRevisionCount >= 0,
+              pointer.minimumFactCount
+                == pointer.minimumRevisionCount,
+              pointer.activatedAt.timeIntervalSince1970
+                .isFinite else {
+            throw AppDataFailure
+                .invalidGenerationPointer
+        }
+        return pointer
     }
 }
 
@@ -413,54 +469,21 @@ struct MigrationJournalStore: Sendable {
     }
 
     func read() throws -> MigrationJournal {
-        guard FileManager.default.fileExists(atPath: layout.journalURL.path) else {
-            throw AppDataFailure.migrationFailed
-        }
         do {
-            let journal = try JSONDecoder.unmanualFoundation.decode(
-                MigrationJournal.self,
-                from: Data(contentsOf: layout.journalURL)
+            let writer = ProtectedAtomicJSONWriter(
+                backupPolicy: backupPolicy
             )
-            guard journal.formatVersion == MigrationJournal.formatVersion,
-                  journal.origin != .existingGeneration,
-                  (journal.origin != .schemaUpgrade
-                      || (journal.sourceGenerationID != nil
-                          && journal.sourceGenerationID
-                            != journal.targetGenerationID
-                          && ((journal.sourceSchemaVersion == "2.0.0"
-                                && journal.targetSchemaVersion == "3.0.0")
-                            || (journal.sourceSchemaVersion == "3.0.0"
-                                && journal.targetSchemaVersion == "4.0.0")
-                            || (journal.sourceSchemaVersion == "4.0.0"
-                                && journal.targetSchemaVersion == "5.0.0")
-                            || (journal.sourceSchemaVersion == "5.0.0"
-                                && (
-                                    journal.targetSchemaVersion == "6.0.0"
-                                        || journal.targetSchemaVersion == "7.0.0"
-                                ))
-                            || (journal.sourceSchemaVersion == "6.0.0"
-                                && (
-                                    journal.targetSchemaVersion == "7.0.0"
-                                        || journal.targetSchemaVersion == "8.0.0"
-                                ))
-                            || (journal.sourceSchemaVersion == "7.0.0"
-                                && journal.targetSchemaVersion == "8.0.0")
-                            || (journal.sourceSchemaVersion == "8.0.0"
-                                && journal.targetSchemaVersion == "9.0.0")
-                            || (journal.sourceSchemaVersion == "9.0.0"
-                                && journal.targetSchemaVersion == "10.0.0")
-                            || (journal.sourceSchemaVersion == "10.0.0"
-                                && journal.targetSchemaVersion == "11.0.0")
-                            || (journal.sourceSchemaVersion == "11.0.0"
-                                && journal.targetSchemaVersion == "12.0.0")))),
-                  (journal.origin == .schemaUpgrade
-                      || (journal.sourceGenerationID == nil
-                          && journal.sourceSchemaVersion == nil
-                          && journal.targetSchemaVersion == nil)),
-                  journal.updatedAt.timeIntervalSince1970.isFinite else {
+            guard let data = try writer
+                .readReconciledData(
+                    from: layout.journalURL,
+                    validator: {
+                        (try? Self.decodeValidated($0))
+                            != nil
+                    }
+                ) else {
                 throw AppDataFailure.migrationFailed
             }
-            return journal
+            return try Self.decodeValidated(data)
         } catch let error as AppDataFailure {
             throw error
         } catch {
@@ -469,13 +492,143 @@ struct MigrationJournalStore: Sendable {
     }
 
     func readIfPresent() throws -> MigrationJournal? {
-        guard FileManager.default.fileExists(atPath: layout.journalURL.path) else { return nil }
-        return try read()
+        do {
+            let writer = ProtectedAtomicJSONWriter(
+                backupPolicy: backupPolicy
+            )
+            guard let data = try writer
+                .readReconciledData(
+                    from: layout.journalURL,
+                    validator: {
+                        (try? Self.decodeValidated($0))
+                            != nil
+                    }
+                ) else {
+                return nil
+            }
+            return try Self.decodeValidated(data)
+        } catch let error as AppDataFailure {
+            throw error
+        } catch {
+            throw AppDataFailure.classifyStorage(
+                error,
+                fallback: .migrationFailed
+            )
+        }
     }
 
     func write(_ journal: MigrationJournal) throws {
         try ProtectedAtomicJSONWriter(backupPolicy: backupPolicy)
-            .write(journal, to: layout.journalURL)
+            .write(
+                journal,
+                to: layout.journalURL,
+                validator: {
+                    (try? Self.decodeValidated($0))
+                        != nil
+                }
+            )
+    }
+
+    private static func decodeValidated(
+        _ data: Data
+    ) throws -> MigrationJournal {
+        let journal = try JSONDecoder
+            .unmanualFoundation.decode(
+                MigrationJournal.self,
+                from: data
+            )
+        guard journal.formatVersion
+                == MigrationJournal.formatVersion,
+              journal.origin != .existingGeneration,
+              (journal.origin != .schemaUpgrade
+                || (
+                    journal.sourceGenerationID != nil
+                    && journal.sourceGenerationID
+                        != journal.targetGenerationID
+                    && (
+                        (
+                            journal.sourceSchemaVersion
+                                == "2.0.0"
+                            && journal.targetSchemaVersion
+                                == "3.0.0"
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "3.0.0"
+                            && journal.targetSchemaVersion
+                                == "4.0.0"
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "4.0.0"
+                            && journal.targetSchemaVersion
+                                == "5.0.0"
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "5.0.0"
+                            && [
+                                "6.0.0", "7.0.0"
+                            ].contains(
+                                journal.targetSchemaVersion
+                            )
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "6.0.0"
+                            && [
+                                "7.0.0", "8.0.0"
+                            ].contains(
+                                journal.targetSchemaVersion
+                            )
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "7.0.0"
+                            && journal.targetSchemaVersion
+                                == "8.0.0"
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "8.0.0"
+                            && journal.targetSchemaVersion
+                                == "9.0.0"
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "9.0.0"
+                            && journal.targetSchemaVersion
+                                == "10.0.0"
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "10.0.0"
+                            && journal.targetSchemaVersion
+                                == "11.0.0"
+                        )
+                        || (
+                            journal.sourceSchemaVersion
+                                == "11.0.0"
+                            && journal.targetSchemaVersion
+                                == "12.0.0"
+                        )
+                    )
+                )),
+              (
+                journal.origin == .schemaUpgrade
+                    || (
+                        journal.sourceGenerationID == nil
+                        && journal.sourceSchemaVersion
+                            == nil
+                        && journal.targetSchemaVersion
+                            == nil
+                    )
+              ),
+              journal.updatedAt.timeIntervalSince1970
+                .isFinite else {
+            throw AppDataFailure.migrationFailed
+        }
+        return journal
     }
 }
 
@@ -642,8 +795,7 @@ struct AppDataStoreBootstrapper {
         let pointerStore = GenerationPointerStore(layout: layout, backupPolicy: backupPolicy)
         let journalStore = MigrationJournalStore(layout: layout, backupPolicy: backupPolicy)
 
-        if fileManager.fileExists(atPath: layout.pointerURL.path) {
-            let pointer = try pointerStore.read()
+        if let pointer = try pointerStore.readIfPresent() {
             let targetURL = layout.storeURL(for: pointer.generationID)
             guard fileManager.fileExists(atPath: targetURL.path) else {
                 throw AppDataFailure.invalidGenerationPointer
@@ -980,8 +1132,7 @@ struct AppDataStoreBootstrapper {
         }) else {
             throw AppDataFailure.corruptionSuspected
         }
-        if fileManager.fileExists(atPath: layout.pointerURL.path) {
-            let pointer = try pointerStore.read()
+        if let pointer = try pointerStore.readIfPresent() {
             let migrationJournal: MigrationJournal
             do {
                 migrationJournal = try journalStore.read()
@@ -4417,20 +4568,885 @@ struct AppDataStoreBootstrapper {
 }
 
 struct ProtectedAtomicJSONWriter: Sendable {
-    let backupPolicy: SystemBackupPolicy
+    typealias MutationProbe = @Sendable () throws -> Void
+    typealias ContentValidator =
+        @Sendable (Data) -> Bool
 
-    func write<Value: Encodable>(_ value: Value, to url: URL) throws {
+    let backupPolicy: SystemBackupPolicy
+    let beforePublish: MutationProbe
+    let afterPublish: MutationProbe
+
+    init(
+        backupPolicy: SystemBackupPolicy,
+        beforePublish: @escaping MutationProbe = {},
+        afterPublish: @escaping MutationProbe = {}
+    ) {
+        self.backupPolicy = backupPolicy
+        self.beforePublish = beforePublish
+        self.afterPublish = afterPublish
+    }
+
+    func write<Value: Encodable>(
+        _ value: Value,
+        to url: URL,
+        validator:
+            @escaping ContentValidator = { _ in true }
+    ) throws {
+        try AtomicControlFileTransaction.locked {
+            try writeUnlocked(
+                value,
+                to: url,
+                validator: validator
+            )
+        }
+    }
+
+    func readReconciledData(
+        from url: URL,
+        validator:
+            @escaping ContentValidator
+    ) throws -> Data? {
+        try AtomicControlFileTransaction.locked {
+            let parentURL =
+                url.deletingLastPathComponent()
+            let parentDescriptor =
+                parentURL.path.withCString {
+                    Darwin.open(
+                        $0,
+                        O_RDONLY | O_DIRECTORY
+                            | O_NOFOLLOW | O_CLOEXEC
+                    )
+                }
+            guard parentDescriptor >= 0 else {
+                throw AppDataFailure
+                    .storageUnavailable
+            }
+            defer { Darwin.close(parentDescriptor) }
+            do {
+                return try AtomicControlFileTransaction
+                    .reconcile(
+                        parentDescriptor:
+                            parentDescriptor,
+                        destinationName:
+                            url.lastPathComponent,
+                        maximumBytes: 64 * 1_024,
+                        validator: validator
+                    )
+            } catch {
+                throw AppDataFailure
+                    .storageUnavailable
+            }
+        }
+    }
+
+    private func writeUnlocked<Value: Encodable>(
+        _ value: Value,
+        to url: URL,
+        validator:
+            @escaping ContentValidator
+    ) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.complete]
         )
         let data = try JSONEncoder.unmanualFoundation.encode(value)
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
-        var resourceValues = URLResourceValues()
-        resourceValues.isExcludedFromBackup = backupPolicy == .excluded
-        var mutableURL = url
-        try mutableURL.setResourceValues(resourceValues)
+        guard data.count <= 64 * 1_024,
+              validator(data) else {
+            throw AppDataFailure.storageUnavailable
+        }
+        let parentURL = url.deletingLastPathComponent()
+        let parentDescriptor = parentURL.path.withCString {
+            Darwin.open(
+                $0,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard parentDescriptor >= 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        defer { Darwin.close(parentDescriptor) }
+        var parentStatus = stat()
+        guard Darwin.fstat(parentDescriptor, &parentStatus) == 0,
+              (parentStatus.st_mode & S_IFMT) == S_IFDIR else {
+            throw AppDataFailure.storageUnavailable
+        }
+        let destinationName = url.lastPathComponent
+        guard isSafeComponent(destinationName) else {
+            throw AppDataFailure.storageUnavailable
+        }
+        do {
+            _ = try AtomicControlFileTransaction
+                .reconcile(
+                    parentDescriptor: parentDescriptor,
+                    destinationName: destinationName,
+                    maximumBytes: 64 * 1_024,
+                    validator: validator
+                )
+        } catch {
+            throw AppDataFailure.storageUnavailable
+        }
+        var existing = stat()
+        let existingResult = destinationName.withCString {
+            Darwin.fstatat(
+                parentDescriptor,
+                $0,
+                &existing,
+                AT_SYMLINK_NOFOLLOW
+            )
+        }
+        guard existingResult != 0
+                || (
+                    (existing.st_mode & S_IFMT) == S_IFREG
+                        && existing.st_nlink == 1
+                ),
+              existingResult == 0 || errno == ENOENT else {
+            throw AppDataFailure.storageUnavailable
+        }
+        let existingDescriptor: Int32?
+        if existingResult == 0 {
+            let openedExisting = destinationName.withCString {
+                Darwin.openat(
+                    parentDescriptor,
+                    $0,
+                    O_RDONLY | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            guard openedExisting >= 0 else {
+                throw AppDataFailure.storageUnavailable
+            }
+            var openedExistingStatus = stat()
+            guard Darwin.fstat(
+                    openedExisting,
+                    &openedExistingStatus
+                  ) == 0,
+                  sameFile(
+                    existing,
+                    openedExistingStatus
+                  ),
+                  openedExistingStatus.st_nlink == 1 else {
+                Darwin.close(openedExisting)
+                throw AppDataFailure.storageUnavailable
+            }
+            existingDescriptor = openedExisting
+        } else {
+            existingDescriptor = nil
+        }
+        defer {
+            if let existingDescriptor {
+                Darwin.close(existingDescriptor)
+            }
+        }
+        let previousData: Data?
+        if let existingDescriptor {
+            guard existing.st_size >= 0,
+                  existing.st_size <= 64 * 1_024 else {
+                throw AppDataFailure.storageUnavailable
+            }
+            previousData = try readAll(
+                from: existingDescriptor,
+                byteCount: Int(existing.st_size)
+            )
+        } else {
+            previousData = nil
+        }
+        let rollbackName: String?
+        let rollbackDescriptor: Int32?
+        let rollbackIdentity: stat?
+        if let previousData {
+            let rollback =
+                try makeIndependentRollback(
+                    previousData,
+                    parentDescriptor: parentDescriptor,
+                    destinationName: destinationName
+                )
+            rollbackName = rollback.name
+            rollbackDescriptor = rollback.descriptor
+            rollbackIdentity = rollback.identity
+        } else {
+            rollbackName = nil
+            rollbackDescriptor = nil
+            rollbackIdentity = nil
+        }
+        var removeRollbackOnExit = true
+        defer {
+            if let rollbackDescriptor {
+                Darwin.close(rollbackDescriptor)
+            }
+            if removeRollbackOnExit,
+               let rollbackName,
+               let rollbackIdentity {
+                removeOwnedEntryIfPublished(
+                    name: rollbackName,
+                    identity: rollbackIdentity,
+                    parentDescriptor: parentDescriptor
+                )
+            }
+        }
+
+        let temporaryName =
+            AtomicControlFileTransaction.newName(
+                destinationName: destinationName,
+                data: data
+            )
+        let descriptor = temporaryName.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard descriptor >= 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        var temporaryPublished = true
+        var temporaryContainsPrevious = false
+        var destinationPublished = false
+        var commitVerified = false
+        defer {
+            Darwin.close(descriptor)
+            if temporaryPublished,
+               !temporaryContainsPrevious {
+                _ = temporaryName.withCString {
+                    Darwin.unlinkat(parentDescriptor, $0, 0)
+                }
+            }
+        }
+        do {
+            var opened = stat()
+            guard Darwin.fstat(descriptor, &opened) == 0,
+                  (opened.st_mode & S_IFMT) == S_IFREG,
+                  opened.st_nlink == 1 else {
+                throw AppDataFailure.storageUnavailable
+            }
+            try applyProtection(to: descriptor)
+            try writeAll(data, to: descriptor)
+            guard Darwin.fsync(descriptor) == 0 else {
+                throw AppDataFailure.storageUnavailable
+            }
+            var temporaryStatus = stat()
+            guard temporaryName.withCString({
+                Darwin.fstatat(
+                    parentDescriptor,
+                    $0,
+                    &temporaryStatus,
+                    AT_SYMLINK_NOFOLLOW
+                )
+            }) == 0,
+            sameFile(opened, temporaryStatus),
+            temporaryStatus.st_nlink == 1,
+            temporaryStatus.st_size == off_t(data.count)
+            else {
+                throw AppDataFailure.storageUnavailable
+            }
+            try beforePublish()
+            try verifyCanonicalParent(
+                parentURL,
+                expected: parentStatus
+            )
+            let renameResult: Int32
+            if existingDescriptor != nil {
+                renameResult = temporaryName.withCString {
+                    source in
+                    destinationName.withCString {
+                        destination in
+                        Darwin.renameatx_np(
+                            parentDescriptor,
+                            source,
+                            parentDescriptor,
+                            destination,
+                            UInt32(RENAME_SWAP)
+                        )
+                    }
+                }
+            } else {
+                renameResult = temporaryName.withCString {
+                    source in
+                    destinationName.withCString {
+                        destination in
+                        Darwin.renameatx_np(
+                            parentDescriptor,
+                            source,
+                            parentDescriptor,
+                            destination,
+                            UInt32(RENAME_EXCL)
+                        )
+                    }
+                }
+            }
+            guard renameResult == 0 else {
+                throw AppDataFailure.storageUnavailable
+            }
+            temporaryPublished = existingDescriptor != nil
+            temporaryContainsPrevious =
+                existingDescriptor != nil
+            destinationPublished = true
+            guard Darwin.fsync(parentDescriptor) == 0 else {
+                throw AppDataFailure.storageUnavailable
+            }
+            try afterPublish()
+            var openedAfterPublish = stat()
+            var published = stat()
+            guard Darwin.fstat(
+                    descriptor,
+                    &openedAfterPublish
+                  ) == 0,
+                  destinationName.withCString({
+                      Darwin.fstatat(
+                          parentDescriptor,
+                          $0,
+                          &published,
+                          AT_SYMLINK_NOFOLLOW
+                      )
+                  }) == 0,
+                  sameFile(opened, openedAfterPublish),
+                  sameFile(openedAfterPublish, published),
+                  openedAfterPublish.st_nlink == 1,
+                  openedAfterPublish.st_size
+                    == off_t(data.count),
+                  try readAll(
+                    from: descriptor,
+                    byteCount: data.count
+                  ) == data,
+                  Darwin.fsync(parentDescriptor) == 0 else {
+                throw AppDataFailure.storageUnavailable
+            }
+            try verifyCanonicalParent(
+                parentURL,
+                expected: parentStatus
+            )
+            commitVerified = true
+            if let rollbackName,
+               let rollbackIdentity {
+                try discardOwnedEntry(
+                    name: rollbackName,
+                    identity: rollbackIdentity,
+                    parentDescriptor: parentDescriptor
+                )
+                removeRollbackOnExit = false
+            }
+            if let existingDescriptor {
+                var priorOpened = stat()
+                var priorPublished = stat()
+                guard Darwin.fstat(
+                        existingDescriptor,
+                        &priorOpened
+                      ) == 0,
+                      temporaryName.withCString({
+                          Darwin.fstatat(
+                              parentDescriptor,
+                              $0,
+                              &priorPublished,
+                              AT_SYMLINK_NOFOLLOW
+                          )
+                      }) == 0,
+                      sameFile(
+                        priorOpened,
+                        priorPublished
+                      ),
+                      priorOpened.st_nlink == 1,
+                      temporaryName.withCString({
+                          Darwin.unlinkat(
+                              parentDescriptor,
+                              $0,
+                              0
+                          )
+                      }) == 0,
+                      Darwin.fsync(parentDescriptor) == 0 else {
+                    throw AppDataFailure.storageUnavailable
+                }
+                temporaryPublished = false
+                temporaryContainsPrevious = false
+            }
+        } catch {
+            let originalError = error
+            do {
+                if !commitVerified,
+                   destinationPublished,
+                   let previousData,
+                   let rollbackName,
+                   let rollbackDescriptor,
+                   let rollbackIdentity {
+                    var currentNew = stat()
+                    var currentRollback = stat()
+                    var publishedRollback = stat()
+                    guard Darwin.fstat(
+                            descriptor,
+                            &currentNew
+                          ) == 0,
+                          Darwin.fstat(
+                            rollbackDescriptor,
+                            &currentRollback
+                          ) == 0,
+                          rollbackName.withCString({
+                              Darwin.fstatat(
+                                  parentDescriptor,
+                                  $0,
+                                  &publishedRollback,
+                                  AT_SYMLINK_NOFOLLOW
+                              )
+                          }) == 0,
+                          sameFile(
+                            rollbackIdentity,
+                            currentRollback
+                          ),
+                          sameFile(
+                            currentRollback,
+                            publishedRollback
+                          ),
+                          currentRollback.st_nlink == 1,
+                          currentRollback.st_size
+                            == off_t(previousData.count),
+                          try readAll(
+                            from: rollbackDescriptor,
+                            byteCount: previousData.count
+                          ) == previousData else {
+                        removeRollbackOnExit = false
+                        temporaryPublished = false
+                        try? sanitize(descriptor)
+                        throw AppDataFailure.storageUnavailable
+                    }
+                    var currentDestination = stat()
+                    let destinationResult =
+                        destinationName.withCString {
+                            Darwin.fstatat(
+                                parentDescriptor,
+                                $0,
+                                &currentDestination,
+                                AT_SYMLINK_NOFOLLOW
+                            )
+                        }
+                    let rollbackNowContainsFailedNew: Bool
+                    if destinationResult == 0,
+                       sameFile(
+                        currentNew,
+                        currentDestination
+                       ) {
+                        guard rollbackName.withCString({
+                            source in
+                            destinationName.withCString {
+                                destination in
+                                Darwin.renameatx_np(
+                                    parentDescriptor,
+                                    source,
+                                    parentDescriptor,
+                                    destination,
+                                    UInt32(RENAME_SWAP)
+                                )
+                            }
+                        }) == 0 else {
+                            removeRollbackOnExit = false
+                            temporaryPublished = false
+                            throw AppDataFailure.storageUnavailable
+                        }
+                        rollbackNowContainsFailedNew = true
+                        removeRollbackOnExit = false
+                    } else if destinationResult != 0,
+                              errno == ENOENT {
+                        guard rollbackName.withCString({
+                            source in
+                            destinationName.withCString {
+                                destination in
+                                Darwin.renameat(
+                                    parentDescriptor,
+                                    source,
+                                    parentDescriptor,
+                                    destination
+                                )
+                            }
+                        }) == 0 else {
+                            removeRollbackOnExit = false
+                            temporaryPublished = false
+                            throw AppDataFailure.storageUnavailable
+                        }
+                        rollbackNowContainsFailedNew = false
+                        removeRollbackOnExit = false
+                    } else if destinationResult == 0,
+                              sameFile(
+                                currentRollback,
+                                currentDestination
+                              ) {
+                        rollbackNowContainsFailedNew = false
+                        removeRollbackOnExit = false
+                    } else {
+                        // Do not delete a foreign replacement. Preserve the
+                        // independent valid rollback inode for Recovery.
+                        removeRollbackOnExit = false
+                        temporaryPublished = false
+                        try? sanitize(descriptor)
+                        throw AppDataFailure.storageUnavailable
+                    }
+                    var restored = stat()
+                    guard destinationName.withCString({
+                              Darwin.fstatat(
+                                  parentDescriptor,
+                                  $0,
+                                  &restored,
+                                  AT_SYMLINK_NOFOLLOW
+                              )
+                          }) == 0,
+                          sameFile(
+                            currentRollback,
+                            restored
+                          ),
+                          try readAll(
+                            from: rollbackDescriptor,
+                            byteCount: previousData.count
+                          ) == previousData,
+                          Darwin.fsync(parentDescriptor) == 0 else {
+                        throw AppDataFailure.storageUnavailable
+                    }
+                    try sanitize(descriptor)
+                    if rollbackNowContainsFailedNew {
+                        removeOwnedEntryIfPublished(
+                            name: rollbackName,
+                            identity: currentNew,
+                            parentDescriptor:
+                                parentDescriptor
+                        )
+                    }
+                    if let existingDescriptor {
+                        var prior = stat()
+                        if Darwin.fstat(
+                            existingDescriptor,
+                            &prior
+                        ) == 0 {
+                            removeOwnedEntryIfPublished(
+                                name: temporaryName,
+                                identity: prior,
+                                parentDescriptor:
+                                    parentDescriptor
+                            )
+                        }
+                    }
+                    guard Darwin.fsync(parentDescriptor) == 0 else {
+                        throw AppDataFailure.storageUnavailable
+                    }
+                    temporaryPublished = false
+                    temporaryContainsPrevious = false
+                } else if !commitVerified {
+                    do {
+                        try sanitize(descriptor)
+                    } catch {
+                        if !destinationPublished {
+                            temporaryPublished = false
+                        }
+                        throw error
+                    }
+                    if destinationPublished {
+                        var published = stat()
+                        var opened = stat()
+                        guard Darwin.fstat(
+                                descriptor,
+                                &opened
+                              ) == 0 else {
+                            throw AppDataFailure.storageUnavailable
+                        }
+                        if destinationName.withCString({
+                            Darwin.fstatat(
+                                parentDescriptor,
+                                $0,
+                                &published,
+                                AT_SYMLINK_NOFOLLOW
+                            )
+                        }) == 0,
+                        sameFile(opened, published) {
+                            guard destinationName.withCString({
+                                Darwin.unlinkat(
+                                    parentDescriptor,
+                                    $0,
+                                    0
+                                )
+                            }) == 0,
+                            Darwin.fsync(parentDescriptor) == 0 else {
+                                throw AppDataFailure
+                                    .storageUnavailable
+                            }
+                        }
+                    }
+                }
+            } catch {
+                throw AppDataFailure.storageUnavailable
+            }
+            throw originalError
+        }
+    }
+
+    private func makeIndependentRollback(
+        _ data: Data,
+        parentDescriptor: Int32,
+        destinationName: String
+    ) throws -> (
+        name: String,
+        descriptor: Int32,
+        identity: stat
+    ) {
+        let name =
+            AtomicControlFileTransaction.oldName(
+                destinationName: destinationName,
+                data: data
+            )
+        let descriptor = name.withCString {
+            Darwin.openat(
+                parentDescriptor,
+                $0,
+                O_RDWR | O_CREAT | O_EXCL
+                    | O_NOFOLLOW | O_CLOEXEC,
+                S_IRUSR | S_IWUSR
+            )
+        }
+        guard descriptor >= 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        var shouldUnlink = true
+        defer {
+            if shouldUnlink {
+                Darwin.close(descriptor)
+                _ = name.withCString {
+                    Darwin.unlinkat(
+                        parentDescriptor,
+                        $0,
+                        0
+                    )
+                }
+            }
+        }
+        try applyProtection(to: descriptor)
+        try writeAll(data, to: descriptor)
+        guard Darwin.fsync(descriptor) == 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        var opened = stat()
+        var published = stat()
+        guard Darwin.fstat(descriptor, &opened) == 0,
+              (opened.st_mode & S_IFMT) == S_IFREG,
+              opened.st_nlink == 1,
+              opened.st_size == off_t(data.count),
+              name.withCString({
+                  Darwin.fstatat(
+                      parentDescriptor,
+                      $0,
+                      &published,
+                      AT_SYMLINK_NOFOLLOW
+                  )
+              }) == 0,
+              sameFile(opened, published),
+              try readAll(
+                from: descriptor,
+                byteCount: data.count
+              ) == data,
+              Darwin.fsync(parentDescriptor) == 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        shouldUnlink = false
+        return (name, descriptor, opened)
+    }
+
+    private func discardOwnedEntry(
+        name: String,
+        identity: stat,
+        parentDescriptor: Int32
+    ) throws {
+        var published = stat()
+        guard name.withCString({
+                  Darwin.fstatat(
+                      parentDescriptor,
+                      $0,
+                      &published,
+                      AT_SYMLINK_NOFOLLOW
+                  )
+              }) == 0,
+              sameFile(identity, published),
+              name.withCString({
+                  Darwin.unlinkat(
+                      parentDescriptor,
+                      $0,
+                      0
+                  )
+              }) == 0,
+              Darwin.fsync(parentDescriptor) == 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+    }
+
+    private func removeOwnedEntryIfPublished(
+        name: String,
+        identity: stat,
+        parentDescriptor: Int32
+    ) {
+        var published = stat()
+        guard name.withCString({
+                  Darwin.fstatat(
+                      parentDescriptor,
+                      $0,
+                      &published,
+                      AT_SYMLINK_NOFOLLOW
+                  )
+              }) == 0,
+              sameFile(identity, published) else {
+            return
+        }
+        _ = name.withCString {
+            Darwin.unlinkat(
+                parentDescriptor,
+                $0,
+                0
+            )
+        }
+        _ = Darwin.fsync(parentDescriptor)
+    }
+
+    private func applyProtection(to descriptor: Int32) throws {
+        #if !targetEnvironment(simulator)
+        guard Darwin.fcntl(
+            descriptor,
+            F_SETPROTECTIONCLASS,
+            1
+        ) == 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        #endif
+        guard backupPolicy == .excluded else {
+            return
+        }
+        var excluded: UInt8 = 1
+        let result = "com.apple.MobileBackup".withCString {
+            name in
+            withUnsafePointer(to: &excluded) {
+                value in
+                Darwin.fsetxattr(
+                    descriptor,
+                    name,
+                    value,
+                    MemoryLayout<UInt8>.size,
+                    0,
+                    0
+                )
+            }
+        }
+        #if targetEnvironment(simulator)
+        guard result == 0
+                || errno == ENOTSUP
+                || errno == EOPNOTSUPP else {
+            throw AppDataFailure.storageUnavailable
+        }
+        #else
+        guard result == 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        #endif
+    }
+
+    private func writeAll(
+        _ data: Data,
+        to descriptor: Int32
+    ) throws {
+        var offset = 0
+        try data.withUnsafeBytes {
+            buffer in
+            while offset < buffer.count {
+                guard let base = buffer.baseAddress else {
+                    break
+                }
+                let written = Darwin.write(
+                    descriptor,
+                    base.advanced(by: offset),
+                    buffer.count - offset
+                )
+                if written < 0, errno == EINTR {
+                    continue
+                }
+                guard written > 0 else {
+                    throw AppDataFailure.storageUnavailable
+                }
+                offset += written
+            }
+        }
+        guard offset == data.count else {
+            throw AppDataFailure.storageUnavailable
+        }
+    }
+
+    private func readAll(
+        from descriptor: Int32,
+        byteCount: Int
+    ) throws -> Data {
+        var result = Data(count: byteCount)
+        var offset = 0
+        try result.withUnsafeMutableBytes {
+            buffer in
+            while offset < buffer.count {
+                guard let base = buffer.baseAddress else {
+                    break
+                }
+                let count = Darwin.pread(
+                    descriptor,
+                    base.advanced(by: offset),
+                    buffer.count - offset,
+                    off_t(offset)
+                )
+                if count < 0, errno == EINTR {
+                    continue
+                }
+                guard count > 0 else {
+                    throw AppDataFailure.storageUnavailable
+                }
+                offset += count
+            }
+        }
+        guard offset == byteCount else {
+            throw AppDataFailure.storageUnavailable
+        }
+        return result
+    }
+
+    private func verifyCanonicalParent(
+        _ url: URL,
+        expected: stat
+    ) throws {
+        let descriptor = url.path.withCString {
+            Darwin.open(
+                $0,
+                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+            )
+        }
+        guard descriptor >= 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+        defer { Darwin.close(descriptor) }
+        var current = stat()
+        guard Darwin.fstat(descriptor, &current) == 0,
+              sameFile(current, expected) else {
+            throw AppDataFailure.storageUnavailable
+        }
+    }
+
+    private func sanitize(_ descriptor: Int32) throws {
+        guard Darwin.ftruncate(descriptor, 0) == 0,
+              Darwin.fsync(descriptor) == 0 else {
+            throw AppDataFailure.storageUnavailable
+        }
+    }
+
+    private func sameFile(
+        _ lhs: stat,
+        _ rhs: stat
+    ) -> Bool {
+        lhs.st_dev == rhs.st_dev
+            && lhs.st_ino == rhs.st_ino
+            && (lhs.st_mode & S_IFMT)
+                == (rhs.st_mode & S_IFMT)
+    }
+
+    private func isSafeComponent(
+        _ value: String
+    ) -> Bool {
+        !value.isEmpty
+            && value != "."
+            && value != ".."
+            && !value.contains("/")
+            && !value.contains("\0")
     }
 }
 

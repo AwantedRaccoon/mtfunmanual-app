@@ -5,6 +5,448 @@ import XCTest
 
 @MainActor
 final class StoreBootstrapTests: XCTestCase {
+    func testAtomicJSONWriterRejectsParentReplacementAndScrubsHeldTemp()
+        throws {
+        let layout = try makeLayout()
+        let parent = layout.rootURL.appending(
+            path: "AtomicWriter",
+            directoryHint: .isDirectory
+        )
+        let displaced = layout.rootURL.appending(
+            path: "AtomicWriter-displaced",
+            directoryHint: .isDirectory
+        )
+        let destination = parent.appending(
+            path: "state.json"
+        )
+        let writer = ProtectedAtomicJSONWriter(
+            backupPolicy: .systemManaged,
+            beforePublish: {
+                try FileManager.default.moveItem(
+                    at: parent,
+                    to: displaced
+                )
+                try FileManager.default.createDirectory(
+                    at: parent,
+                    withIntermediateDirectories: false
+                )
+            }
+        )
+
+        XCTAssertThrowsError(
+            try writer.write(
+                ["secret": "sensitive"],
+                to: destination
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .storageUnavailable
+            )
+        }
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                atPath: parent.path
+            ),
+            []
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                atPath: displaced.path
+            ),
+            []
+        )
+    }
+
+    func testAtomicJSONWriterScrubsEscapedPublishedInodeWithoutDeletingReplacement()
+        throws {
+        let layout = try makeLayout()
+        let parent = layout.rootURL.appending(
+            path: "AtomicWriter",
+            directoryHint: .isDirectory
+        )
+        let destination = parent.appending(
+            path: "state.json"
+        )
+        let escaped = layout.rootURL.appending(
+            path: "escaped-state.json"
+        )
+        let replacement = Data(
+            "{\"attacker\":\"replacement\"}".utf8
+        )
+        let writer = ProtectedAtomicJSONWriter(
+            backupPolicy: .systemManaged,
+            afterPublish: {
+                try FileManager.default.moveItem(
+                    at: destination,
+                    to: escaped
+                )
+                try replacement.write(to: destination)
+            }
+        )
+
+        XCTAssertThrowsError(
+            try writer.write(
+                ["secret": "sensitive"],
+                to: destination
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? AppDataFailure,
+                .storageUnavailable
+            )
+        }
+        XCTAssertEqual(
+            try Data(contentsOf: escaped),
+            Data()
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: destination),
+            replacement
+        )
+    }
+
+    func testAtomicJSONWriterRestoresExistingValueWhenPostPublishFails()
+        throws {
+        let layout = try makeLayout()
+        let parent = layout.rootURL.appending(
+            path: "AtomicWriter",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true
+        )
+        let destination = parent.appending(
+            path: "state.json"
+        )
+        let previous = Data(
+            "{\"version\":\"previous\"}".utf8
+        )
+        try previous.write(to: destination)
+        let writer = ProtectedAtomicJSONWriter(
+            backupPolicy: .systemManaged,
+            afterPublish: {
+                throw NSError(
+                    domain: "AtomicWriterTests",
+                    code: 1
+                )
+            }
+        )
+
+        XCTAssertThrowsError(
+            try writer.write(
+                ["version": "replacement"],
+                to: destination
+            )
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: destination),
+            previous
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                atPath: parent.path
+            ),
+            ["state.json"]
+        )
+    }
+
+    func testAtomicJSONWriterUsesIndependentRollbackWhenPriorTempIsDeletedAndNewIsCorrupted()
+        throws {
+        let layout = try makeLayout()
+        let parent = layout.rootURL.appending(
+            path: "AtomicWriter",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true
+        )
+        let destination = parent.appending(
+            path: "state.json"
+        )
+        let previous = Data(
+            "{\"version\":\"previous\"}".utf8
+        )
+        try previous.write(to: destination)
+        let writer = ProtectedAtomicJSONWriter(
+            backupPolicy: .systemManaged,
+            afterPublish: {
+                let priorTemporary = try XCTUnwrap(
+                    FileManager.default
+                        .contentsOfDirectory(
+                            atPath: parent.path
+                        )
+                        .first {
+                            $0.hasPrefix(
+                                ".state.json.atomic-new-v1-"
+                            )
+                        }
+                )
+                try FileManager.default.removeItem(
+                    at: parent.appending(
+                        path: priorTemporary
+                    )
+                )
+                let handle = try FileHandle(
+                    forWritingTo: destination
+                )
+                try handle.truncate(atOffset: 0)
+                try handle.write(
+                    contentsOf: Data("corrupt".utf8)
+                )
+                try handle.synchronize()
+                try handle.close()
+                throw NSError(
+                    domain: "AtomicWriterTests",
+                    code: 3
+                )
+            }
+        )
+
+        XCTAssertThrowsError(
+            try writer.write(
+                ["version": "replacement"],
+                to: destination
+            )
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: destination),
+            previous
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                atPath: parent.path
+            ),
+            ["state.json"]
+        )
+    }
+
+    func testAtomicJSONWriterRestoresExistingValueWhenPublishedNewInodeEscapes()
+        throws {
+        let layout = try makeLayout()
+        let parent = layout.rootURL.appending(
+            path: "AtomicWriter",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: parent,
+            withIntermediateDirectories: true
+        )
+        let destination = parent.appending(
+            path: "state.json"
+        )
+        let escaped = layout.rootURL.appending(
+            path: "escaped-new-state.json"
+        )
+        let previous = Data(
+            "{\"version\":\"previous\"}".utf8
+        )
+        try previous.write(to: destination)
+        let writer = ProtectedAtomicJSONWriter(
+            backupPolicy: .systemManaged,
+            afterPublish: {
+                try FileManager.default.moveItem(
+                    at: destination,
+                    to: escaped
+                )
+                throw NSError(
+                    domain: "AtomicWriterTests",
+                    code: 2
+                )
+            }
+        )
+
+        XCTAssertThrowsError(
+            try writer.write(
+                ["secret": "replacement"],
+                to: destination
+            )
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: destination),
+            previous
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: escaped),
+            Data()
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                atPath: parent.path
+            ),
+            ["state.json"]
+        )
+    }
+
+    func testGenerationPointerColdRecoveryReplaysPreAndPostSwapStates()
+        throws {
+        let layout = try makeLayout()
+        try FileManager.default.createDirectory(
+            at: layout.pointerDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let old = GenerationPointer(
+            generationID: UUID(),
+            origin: .newInstall,
+            datasetID: UUID(),
+            minimumFactCount: 0,
+            minimumRevisionCount: 0,
+            activatedAt: Date(
+                timeIntervalSince1970: 1_800_000_000
+            )
+        )
+        let new = GenerationPointer(
+            generationID: UUID(),
+            origin: .schemaUpgrade,
+            datasetID: UUID(),
+            minimumFactCount: 1,
+            minimumRevisionCount: 1,
+            activatedAt: Date(
+                timeIntervalSince1970: 1_800_000_001
+            )
+        )
+        let oldData = try JSONEncoder
+            .unmanualFoundation.encode(old)
+        let newData = try JSONEncoder
+            .unmanualFoundation.encode(new)
+        let newName =
+            AtomicControlFileTransaction.newName(
+                destinationName:
+                    layout.pointerURL
+                    .lastPathComponent,
+                data: newData
+            )
+        let oldName =
+            AtomicControlFileTransaction.oldName(
+                destinationName:
+                    layout.pointerURL
+                    .lastPathComponent,
+                data: oldData
+            )
+        let parent = layout.pointerDirectoryURL
+        let store = GenerationPointerStore(
+            layout: layout,
+            backupPolicy: .systemManaged
+        )
+
+        try oldData.write(to: layout.pointerURL)
+        try newData.write(
+            to: parent.appending(path: newName)
+        )
+        try oldData.write(
+            to: parent.appending(path: oldName)
+        )
+        XCTAssertEqual(try store.read(), old)
+        XCTAssertEqual(
+            try directoryEntryNames(at: parent),
+            ["active.json"]
+        )
+
+        try FileManager.default.removeItem(
+            at: layout.pointerURL
+        )
+        try newData.write(to: layout.pointerURL)
+        try oldData.write(
+            to: parent.appending(path: newName)
+        )
+        try oldData.write(
+            to: parent.appending(path: oldName)
+        )
+        XCTAssertEqual(try store.read(), new)
+        XCTAssertEqual(
+            try directoryEntryNames(at: parent),
+            ["active.json"]
+        )
+
+        try oldData.write(
+            to: parent.appending(path: newName)
+        )
+        XCTAssertEqual(try store.read(), new)
+        XCTAssertEqual(
+            try directoryEntryNames(at: parent),
+            ["active.json"]
+        )
+    }
+
+    func testGenerationPointerColdRecoveryPreservesForeignDigestMismatch()
+        throws {
+        let layout = try makeLayout()
+        try FileManager.default.createDirectory(
+            at: layout.pointerDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let old = GenerationPointer(
+            generationID: UUID(),
+            origin: .newInstall,
+            datasetID: UUID(),
+            minimumFactCount: 0,
+            minimumRevisionCount: 0
+        )
+        let intended = GenerationPointer(
+            generationID: UUID(),
+            origin: .schemaUpgrade,
+            datasetID: UUID(),
+            minimumFactCount: 1,
+            minimumRevisionCount: 1
+        )
+        let foreign = GenerationPointer(
+            generationID: UUID(),
+            origin: .existingGeneration,
+            datasetID: UUID(),
+            minimumFactCount: 2,
+            minimumRevisionCount: 2
+        )
+        let oldData = try JSONEncoder
+            .unmanualFoundation.encode(old)
+        let intendedData = try JSONEncoder
+            .unmanualFoundation.encode(intended)
+        let foreignData = try JSONEncoder
+            .unmanualFoundation.encode(foreign)
+        let leaf = layout.pointerURL
+            .lastPathComponent
+        let newName =
+            AtomicControlFileTransaction.newName(
+                destinationName: leaf,
+                data: intendedData
+            )
+        let oldName =
+            AtomicControlFileTransaction.oldName(
+                destinationName: leaf,
+                data: oldData
+            )
+        try foreignData.write(to: layout.pointerURL)
+        try intendedData.write(
+            to: layout.pointerDirectoryURL
+                .appending(path: newName)
+        )
+        try oldData.write(
+            to: layout.pointerDirectoryURL
+                .appending(path: oldName)
+        )
+        let before = try directoryEntryNames(
+            at: layout.pointerDirectoryURL
+        )
+
+        XCTAssertThrowsError(
+            try GenerationPointerStore(
+                layout: layout,
+                backupPolicy: .systemManaged
+            ).read()
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: layout.pointerURL),
+            foreignData
+        )
+        XCTAssertEqual(
+            try directoryEntryNames(
+                at: layout.pointerDirectoryURL
+            ),
+            before
+        )
+    }
+
     func testFreshAfterResetUsesFrozenGenerationAndDatasetIdentity() throws {
         let layout = try makeLayout()
         let expectedGenerationID = UUID()
@@ -2761,6 +3203,10 @@ final class StoreBootstrapTests: XCTestCase {
     func testMigrationJournalRejectsSameSourceAndTargetForEveryPhase()
         throws {
         let layout = try makeLayout()
+        try FileManager.default.createDirectory(
+            at: layout.recoveryURL,
+            withIntermediateDirectories: true
+        )
         let generationID = UUID()
         for phase in [
             MigrationJournalPhase.preparing,
@@ -2768,8 +3214,7 @@ final class StoreBootstrapTests: XCTestCase {
             .validated,
             .activated
         ] {
-            try MigrationJournalStore(layout: layout).write(
-                MigrationJournal(
+            let invalid = MigrationJournal(
                     targetGenerationID: generationID,
                     origin: .schemaUpgrade,
                     sourceGenerationID: generationID,
@@ -2780,7 +3225,12 @@ final class StoreBootstrapTests: XCTestCase {
                         timeIntervalSince1970: 1_800_200_000
                     )
                 )
-            )
+            try JSONEncoder.unmanualFoundation
+                .encode(invalid)
+                .write(
+                    to: layout.journalURL,
+                    options: .atomic
+                )
             XCTAssertThrowsError(
                 try MigrationJournalStore(layout: layout).read()
             ) { error in
@@ -2905,8 +3355,11 @@ final class StoreBootstrapTests: XCTestCase {
     func testPointerRejectsNegativeOrMismatchedFrozenCounts() throws {
         let layout = try makeLayout()
         let pointerStore = GenerationPointerStore(layout: layout)
-        try pointerStore.write(
-            GenerationPointer(
+        try FileManager.default.createDirectory(
+            at: layout.pointerDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let invalid = GenerationPointer(
                 generationID: UUID(),
                 origin: .newInstall,
                 datasetID: UUID(),
@@ -2914,7 +3367,12 @@ final class StoreBootstrapTests: XCTestCase {
                 minimumRevisionCount: 0,
                 activatedAt: Date(timeIntervalSince1970: 1_700_000_000)
             )
-        )
+        try JSONEncoder.unmanualFoundation
+            .encode(invalid)
+            .write(
+                to: layout.pointerURL,
+                options: .atomic
+            )
 
         XCTAssertThrowsError(try pointerStore.read()) { error in
             XCTAssertEqual(error as? AppDataFailure, .invalidGenerationPointer)

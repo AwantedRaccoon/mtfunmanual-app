@@ -893,20 +893,463 @@ final class DataInventoryProductionServiceTests: XCTestCase {
                 )
             }
 
-            let backup = try await service
-                .completeBackupPackage(
+            let snapshot = try await service
+                .completeBackupExportSnapshot(
                     capturedAt: capturedAt,
                     expectedIdentity: identity
                 )
+            let backup = snapshot.backup
             XCTAssertEqual(
                 try PortableExportStateIdentity(
                     backup.readableDocument
                 ),
                 identity
             )
-            try await service.discardTransferPackage(
-                at: backup.packageURL
+            let frozenManifest = try XCTUnwrap(
+                snapshot.fileWrapper.fileWrappers?[
+                    "manifest.json"
+                ]?.regularFileContents
             )
+            XCTAssertEqual(
+                try PortableBackupManifestCodec
+                    .decode(frozenManifest),
+                backup.manifest
+            )
+            XCTAssertNil(backup.packageLease)
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: backup.packageURL.path
+                )
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(
+                    snapshot.fileWrapper.fileWrappers?[
+                        "manifest.json"
+                    ]?.regularFileContents
+                ),
+                frozenManifest
+            )
+            let pendingAfterExport = try await service
+                .retryPendingPackageCleanup()
+            XCTAssertEqual(pendingAfterExport, [])
+        }
+    }
+
+    func testCompleteBackupPreviewBuildsZeroWrappersAndConfirmationBuildsExactlyOne()
+        async throws {
+        let container = try makeReadyV12Container()
+        let actor = DataInventoryDatabaseCaptureActor(
+            modelContainer: container
+        )
+        try await withStorageFixture(
+            databaseActor: actor
+        ) { fixture, _ in
+            let store = BootstrappedAppDataStore(
+                container: container,
+                generationID: fixture.generationID,
+                storeURL: fixture.layout.storeURL(
+                    for: fixture.generationID
+                ),
+                origin: .newInstall,
+                protectionReport:
+                    StoreFileProtectionReport(
+                        entries: [],
+                        requiresPhysicalDeviceValidation:
+                            true
+                    ),
+                attachmentRootURL: fixture.layout
+                    .generationDirectoryURL(
+                        for: fixture.generationID
+                    )
+                    .appending(
+                        path: "Files",
+                        directoryHint: .isDirectory
+                    ),
+                layout: fixture.layout
+            )
+            let probe =
+                BackupExportSnapshotBuilderProbe()
+            let service = try XCTUnwrap(
+                DataInventoryProductionService(
+                    store: store,
+                    dataControlCoordinator:
+                        AppDataControlCoordinator(
+                            generationID:
+                                fixture.generationID
+                        ),
+                    transferRootURL:
+                        fixture.layout.rootURL
+                        .deletingLastPathComponent()
+                        .appending(
+                            path:
+                                "PreviewWrapperTransfers",
+                            directoryHint: .isDirectory
+                        ),
+                    backupExportSnapshotBuilder: {
+                        try probe.build($0)
+                    }
+                )
+            )
+            let capturedAt = Date(
+                timeIntervalSince1970:
+                    1_800_900_000
+            )
+
+            let preview = try await service
+                .completeBackupPreview(
+                    capturedAt: capturedAt
+                )
+            XCTAssertEqual(probe.count, 0)
+            XCTAssertNil(preview.packageLease)
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: preview.packageURL.path
+                )
+            )
+            let pendingAfterPreview = try await
+                service.retryPendingPackageCleanup()
+            XCTAssertEqual(pendingAfterPreview, [])
+
+            let identity = try
+                PortableExportStateIdentity(
+                    preview.readableDocument
+                )
+            let snapshot = try await service
+                .completeBackupExportSnapshot(
+                    capturedAt: capturedAt,
+                    expectedIdentity: identity
+                )
+            XCTAssertEqual(probe.count, 1)
+            XCTAssertNil(snapshot.backup.packageLease)
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath:
+                        snapshot.backup.packageURL.path
+                )
+            )
+            let pendingAfterConfirmation =
+                try await service
+                .retryPendingPackageCleanup()
+            XCTAssertEqual(
+                pendingAfterConfirmation,
+                []
+            )
+        }
+    }
+
+    func testExportWholeTransferRootMoveScrubsHeldPackageBeforeIntentRelease()
+        async throws {
+        let container = try makeReadyV12Container()
+        let actor = DataInventoryDatabaseCaptureActor(
+            modelContainer: container
+        )
+        try await withStorageFixture(
+            databaseActor: actor
+        ) { fixture, _ in
+            let transferFixture = FileManager.default
+                .temporaryDirectory.appending(
+                    path:
+                        "InventoryTransferMove-"
+                        + UUID().uuidString.lowercased(),
+                    directoryHint: .isDirectory
+                )
+            let transferRoot = transferFixture.appending(
+                path: "Transfers",
+                directoryHint: .isDirectory
+            )
+            let displaced = transferFixture.appending(
+                path: "DisplacedTransfers",
+                directoryHint: .isDirectory
+            )
+            defer {
+                try? FileManager.default.removeItem(
+                    at: transferFixture
+                )
+            }
+            try FileManager.default.createDirectory(
+                at: transferFixture,
+                withIntermediateDirectories: false
+            )
+            let cleanup =
+                PortablePackageCleanupCoordinator(
+                    layout: fixture.layout,
+                    transferRootURL: transferRoot
+                )
+            let store = BootstrappedAppDataStore(
+                container: container,
+                generationID: fixture.generationID,
+                storeURL: fixture.layout.storeURL(
+                    for: fixture.generationID
+                ),
+                origin: .newInstall,
+                protectionReport:
+                    StoreFileProtectionReport(
+                        entries: [],
+                        requiresPhysicalDeviceValidation: true
+                    ),
+                attachmentRootURL: fixture.layout
+                    .generationDirectoryURL(
+                        for: fixture.generationID
+                    )
+                    .appending(
+                        path: "Files",
+                        directoryHint: .isDirectory
+                    ),
+                layout: fixture.layout
+            )
+            let service = try XCTUnwrap(
+                DataInventoryProductionService(
+                    store: store,
+                    dataControlCoordinator:
+                        AppDataControlCoordinator(
+                            generationID: fixture.generationID
+                        ),
+                    transferRootURL: transferRoot,
+                    portablePackageCleanup: cleanup,
+                    afterTransferFirstSensitiveWrite: {
+                        try FileManager.default.moveItem(
+                            at: transferRoot,
+                            to: displaced
+                        )
+                        try FileManager.default.createDirectory(
+                            at: transferRoot,
+                            withIntermediateDirectories: false
+                        )
+                    }
+                )
+            )
+
+            do {
+                _ = try await service.completeBackupPackage()
+                XCTFail("Expected publication-anchor replacement rejection")
+            } catch {
+                XCTAssertEqual(
+                    error as? PortablePackageCleanupError,
+                    .unsafeTarget
+                )
+            }
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(
+                    atPath: transferRoot.path
+                ),
+                []
+            )
+            let displacedEntries =
+                try FileManager.default.contentsOfDirectory(
+                    atPath: displaced.path
+                )
+            XCTAssertEqual(displacedEntries.count, 1)
+            let quarantineName = try XCTUnwrap(
+                displacedEntries.first
+            )
+            XCTAssertTrue(
+                quarantineName.hasPrefix(".cleanup-")
+            )
+            XCTAssertEqual(
+                try FileManager.default.contentsOfDirectory(
+                    atPath: displaced.appending(
+                        path: quarantineName,
+                        directoryHint: .isDirectory
+                    ).path
+                ),
+                []
+            )
+            XCTAssertEqual(
+                try XCTUnwrap(
+                    PortablePackageCleanupJournalStore(
+                        layout: fixture.layout
+                    ).readIfPresent()
+                ).intents,
+                []
+            )
+        }
+    }
+
+    func testResidentExportCapAllowsExactRejectsPlusOneBeforeLoaderAndCleansPackages()
+        async throws {
+        let container = try makeReadyV12Container()
+        let actor = DataInventoryDatabaseCaptureActor(
+            modelContainer: container
+        )
+        try await withStorageFixture(
+            databaseActor: actor
+        ) { fixture, _ in
+            let store = BootstrappedAppDataStore(
+                container: container,
+                generationID: fixture.generationID,
+                storeURL: fixture.layout.storeURL(
+                    for: fixture.generationID
+                ),
+                origin: .newInstall,
+                protectionReport:
+                    StoreFileProtectionReport(
+                        entries: [],
+                        requiresPhysicalDeviceValidation:
+                            true
+                    ),
+                attachmentRootURL: fixture.layout
+                    .generationDirectoryURL(
+                        for: fixture.generationID
+                    )
+                    .appending(
+                        path: "Files",
+                        directoryHint: .isDirectory
+                    ),
+                layout: fixture.layout
+            )
+            let coordinator = AppDataControlCoordinator(
+                generationID: fixture.generationID
+            )
+            let immutabilityService = try XCTUnwrap(
+                DataInventoryProductionService(
+                    store: store,
+                    dataControlCoordinator: coordinator,
+                    transferRootURL:
+                        fixture.layout.rootURL
+                        .deletingLastPathComponent()
+                        .appending(
+                            path: "ImmutableTransfers",
+                            directoryHint: .isDirectory
+                        )
+                )
+            )
+            let mutablePackage = try await
+                immutabilityService
+                .completeBackupPackage()
+            let immutableSnapshot = try
+                PortableBackupExportSnapshotBuilder
+                .make(mutablePackage)
+            let frozenManifest = try XCTUnwrap(
+                immutableSnapshot.fileWrapper
+                    .fileWrappers?["manifest.json"]?
+                    .regularFileContents
+            )
+            let manifestURL = mutablePackage.packageURL
+                .appending(path: "manifest.json")
+            let writer = try FileHandle(
+                forUpdating: manifestURL
+            )
+            try writer.truncate(atOffset: 0)
+            try writer.write(
+                contentsOf: Data(
+                    repeating: 0x5a,
+                    count: frozenManifest.count
+                )
+            )
+            try writer.synchronize()
+            try writer.close()
+            XCTAssertEqual(
+                immutableSnapshot.fileWrapper
+                    .fileWrappers?["manifest.json"]?
+                    .regularFileContents,
+                frozenManifest
+            )
+            try await immutabilityService
+                .discardTransferPackage(
+                    at: mutablePackage.packageURL
+                )
+
+            let exactService = try XCTUnwrap(
+                DataInventoryProductionService(
+                    store: store,
+                    dataControlCoordinator: coordinator,
+                    transferRootURL:
+                        fixture.layout.rootURL
+                        .deletingLastPathComponent()
+                        .appending(
+                            path: "ExactCapTransfers",
+                            directoryHint: .isDirectory
+                        ),
+                    backupExportSnapshotBuilder: {
+                        backup in
+                        let manifestBytes = try
+                            PortableBackupManifestCodec
+                            .encode(
+                                backup.manifest
+                            ).count
+                        let exact =
+                            backup.manifest.payload
+                            .totalByteCount
+                            + Int64(manifestBytes)
+                        return try
+                            PortableBackupExportSnapshotBuilder
+                            .make(
+                                backup,
+                                maximumResidentBytes:
+                                    exact
+                            )
+                    }
+                )
+            )
+            let exactSnapshot = try await exactService
+                .completeBackupExportSnapshot()
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath:
+                        exactSnapshot.backup
+                        .packageURL.path
+                )
+            )
+            let pendingAfterExact = try await exactService
+                .retryPendingPackageCleanup()
+            XCTAssertEqual(pendingAfterExact, [])
+
+            let rejectingService = try XCTUnwrap(
+                DataInventoryProductionService(
+                    store: store,
+                    dataControlCoordinator: coordinator,
+                    transferRootURL:
+                        fixture.layout.rootURL
+                        .deletingLastPathComponent()
+                        .appending(
+                            path: "RejectedCapTransfers",
+                            directoryHint: .isDirectory
+                        ),
+                    backupExportSnapshotBuilder: {
+                        backup in
+                        let manifestBytes = try
+                            PortableBackupManifestCodec
+                            .encode(
+                                backup.manifest
+                            ).count
+                        let exact =
+                            backup.manifest.payload
+                            .totalByteCount
+                            + Int64(manifestBytes)
+                        return try
+                            PortableBackupExportSnapshotBuilder
+                            .make(
+                                backup,
+                                maximumResidentBytes:
+                                    exact - 1,
+                                fileWrapperLoader: {
+                                    _, _ in
+                                    XCTFail(
+                                        "The cap must fail before FileWrapper loading"
+                                    )
+                                    throw PortableBackupError
+                                        .stateChanged
+                                }
+                            )
+                    }
+                )
+            )
+            for _ in 0..<2 {
+                do {
+                    _ = try await rejectingService
+                        .completeBackupExportSnapshot()
+                    XCTFail("Expected resident export limit")
+                } catch {
+                    XCTAssertEqual(
+                        error as? PortableBackupError,
+                        .limitExceeded
+                    )
+                }
+            }
+            let pendingAfterRejections =
+                try await rejectingService
+                .retryPendingPackageCleanup()
+            XCTAssertEqual(pendingAfterRejections, [])
         }
     }
 
@@ -1220,5 +1663,25 @@ final class DataInventoryProductionServiceTests: XCTestCase {
         SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }
             .joined()
+    }
+}
+
+private final class BackupExportSnapshotBuilderProbe:
+    @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCount = 0
+
+    var count: Int {
+        lock.withLock { storedCount }
+    }
+
+    func build(
+        _ backup: AuditedPortableBackup
+    ) throws -> PortableBackupExportSnapshot {
+        lock.withLock {
+            storedCount += 1
+        }
+        return try PortableBackupExportSnapshotBuilder
+            .make(backup)
     }
 }

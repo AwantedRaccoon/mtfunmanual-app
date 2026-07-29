@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 enum PortableRestorePhase: String, Codable, CaseIterable, Sendable {
@@ -27,8 +28,39 @@ enum PortableRestorePhase: String, Codable, CaseIterable, Sendable {
     }
 }
 
+struct PortableRestoreTargetAncestry:
+    Codable, Equatable, Sendable {
+    let containerParent: PortableArtifactIdentity
+    let root: PortableArtifactIdentity
+    let generations: PortableArtifactIdentity
+    let target: PortableArtifactIdentity
+    let store: PortableArtifactIdentity
+    let files: PortableArtifactIdentity
+    let containerParentMode: UInt32
+    let rootMode: UInt32
+    let generationsMode: UInt32
+    let targetMode: UInt32
+    let storeMode: UInt32
+    let filesMode: UInt32
+
+    var allIdentities: [PortableArtifactIdentity] {
+        [
+            containerParent, root, generations,
+            target, store, files
+        ]
+    }
+
+    var allModes: [UInt32] {
+        [
+            containerParentMode, rootMode,
+            generationsMode, targetMode,
+            storeMode, filesMode
+        ]
+    }
+}
+
 struct PortableRestoreJournal: Codable, Equatable, Sendable {
-    static let formatVersion = 1
+    static let formatVersion = 2
 
     let formatVersion: Int
     let operationID: UUID
@@ -51,8 +83,11 @@ struct PortableRestoreJournal: Codable, Equatable, Sendable {
     let devicePolicyOperationID: UUID
     let devicePolicyCommittedAtMicroseconds: Int64
     let contractSHA256: String
+    var targetRootIdentity: PortableArtifactIdentity?
+    var targetAncestry: PortableRestoreTargetAncestry?
     var phase: PortableRestorePhase
     var updatedAt: Date
+    var stateSHA256: String
 
     init(
         operationID: UUID = UUID(),
@@ -75,6 +110,10 @@ struct PortableRestoreJournal: Codable, Equatable, Sendable {
         devicePolicyOperationID: UUID = UUID(),
         devicePolicyCommittedAtMicroseconds: Int64,
         phase: PortableRestorePhase = .preparingTarget,
+        targetRootIdentity:
+            PortableArtifactIdentity? = nil,
+        targetAncestry:
+            PortableRestoreTargetAncestry? = nil,
         updatedAt: Date = Date()
     ) {
         self.formatVersion = Self.formatVersion
@@ -106,12 +145,15 @@ struct PortableRestoreJournal: Codable, Equatable, Sendable {
             devicePolicyOperationID
         self.devicePolicyCommittedAtMicroseconds =
             devicePolicyCommittedAtMicroseconds
+        self.targetRootIdentity = targetRootIdentity
+        self.targetAncestry = targetAncestry
         self.phase = phase
-        self.updatedAt = Date(
+        let normalizedUpdatedAt = Date(
             timeIntervalSince1970: floor(
                 updatedAt.timeIntervalSince1970
             )
         )
+        self.updatedAt = normalizedUpdatedAt
         self.contractSHA256 = Self.contractDigest(
             formatVersion: Self.formatVersion,
             operationID: operationID,
@@ -141,6 +183,13 @@ struct PortableRestoreJournal: Codable, Equatable, Sendable {
                 devicePolicyOperationID,
             devicePolicyCommittedAtMicroseconds:
                 devicePolicyCommittedAtMicroseconds
+        )
+        self.stateSHA256 = Self.stateDigest(
+            contractSHA256: self.contractSHA256,
+            targetRootIdentity: targetRootIdentity,
+            targetAncestry: targetAncestry,
+            phase: phase,
+            updatedAt: normalizedUpdatedAt
         )
     }
 
@@ -215,6 +264,133 @@ struct PortableRestoreJournal: Codable, Equatable, Sendable {
         .map { String(format: "%02x", $0) }
         .joined()
     }
+
+    fileprivate static func stateDigest(
+        contractSHA256: String,
+        targetRootIdentity: PortableArtifactIdentity?,
+        targetAncestry: PortableRestoreTargetAncestry?,
+        phase: PortableRestorePhase,
+        updatedAt: Date
+    ) -> String {
+        let seconds = Int64(
+            exactly: updatedAt.timeIntervalSince1970
+        ).map(String.init) ?? "invalid"
+        var components = [
+            contractSHA256,
+            phase.rawValue,
+            seconds
+        ]
+        if let targetRootIdentity {
+            components += [
+                String(targetRootIdentity.deviceID),
+                String(targetRootIdentity.inode),
+                String(targetRootIdentity.fileType)
+            ]
+        }
+        if let targetAncestry {
+            for identity in targetAncestry.allIdentities {
+                components += [
+                    String(identity.deviceID),
+                    String(identity.inode),
+                    String(identity.fileType)
+                ]
+            }
+            components += targetAncestry.allModes
+                .map(String.init)
+        }
+        let value = components.joined(separator: "\u{001f}")
+        return SHA256.hash(data: Data(value.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    mutating func advanceState(
+        to phase: PortableRestorePhase,
+        updatedAt: Date
+    ) {
+        let normalized = Date(
+            timeIntervalSince1970: floor(
+                updatedAt.timeIntervalSince1970
+            )
+        )
+        self.phase = phase
+        self.updatedAt = normalized
+        self.stateSHA256 = Self.stateDigest(
+            contractSHA256: contractSHA256,
+            targetRootIdentity: targetRootIdentity,
+            targetAncestry: targetAncestry,
+            phase: phase,
+            updatedAt: normalized
+        )
+    }
+
+    mutating func bindTargetRoot(
+        _ identity: PortableArtifactIdentity
+    ) {
+        targetRootIdentity = identity
+        targetAncestry = nil
+        stateSHA256 = Self.stateDigest(
+            contractSHA256: contractSHA256,
+            targetRootIdentity: identity,
+            targetAncestry: nil,
+            phase: phase,
+            updatedAt: updatedAt
+        )
+    }
+
+    mutating func bindTargetAncestry(
+        _ ancestry: PortableRestoreTargetAncestry
+    ) {
+        targetRootIdentity = ancestry.target
+        targetAncestry = ancestry
+        stateSHA256 = Self.stateDigest(
+            contractSHA256: contractSHA256,
+            targetRootIdentity: ancestry.target,
+            targetAncestry: ancestry,
+            phase: phase,
+            updatedAt: updatedAt
+        )
+    }
+
+    mutating func clearTargetAncestry() {
+        targetAncestry = nil
+        stateSHA256 = Self.stateDigest(
+            contractSHA256: contractSHA256,
+            targetRootIdentity: targetRootIdentity,
+            targetAncestry: nil,
+            phase: phase,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+private struct LegacyPortableRestoreJournalV1:
+    Codable, Equatable, Sendable {
+    static let formatVersion = 1
+
+    let formatVersion: Int
+    let operationID: UUID
+    let mode: PortableImportMode
+    let sourceGenerationID: UUID
+    let sourceDatasetID: UUID
+    let targetGenerationID: UUID
+    let targetDatasetID: UUID
+    let packageRootDigest: String
+    let stagingRelativePath: String
+    let confirmedLocalStateDigest: String
+    let dryRunTokenSHA256: String
+    let factCount: Int
+    let revisionCount: Int
+    let targetNextLocalRevision: Int64
+    let attachmentCount: Int
+    let attachmentManifestDigest: String
+    let resetsAppLockForLocalConfirmation: Bool
+    let requiresNotificationReconciliation: Bool
+    let devicePolicyOperationID: UUID
+    let devicePolicyCommittedAtMicroseconds: Int64
+    let contractSHA256: String
+    let phase: PortableRestorePhase
+    let updatedAt: Date
 }
 
 enum PortableRestoreJournalError: Error, Equatable {
@@ -228,17 +404,23 @@ struct PortableRestoreJournalStore: Sendable {
     let backupPolicy: SystemBackupPolicy
     let beforeWrite:
         PortableManagedPathSecurity.MutationProbe
+    let afterPublish:
+        PortableManagedPathSecurity.MutationProbe
 
     init(
         layout: AppDataStoreLayout,
         backupPolicy: SystemBackupPolicy = .production,
         beforeWrite:
             @escaping PortableManagedPathSecurity
+            .MutationProbe = {},
+        afterPublish:
+            @escaping PortableManagedPathSecurity
             .MutationProbe = {}
     ) {
         self.layout = layout
         self.backupPolicy = backupPolicy
         self.beforeWrite = beforeWrite
+        self.afterPublish = afterPublish
     }
 
     func read() throws -> PortableRestoreJournal {
@@ -249,43 +431,22 @@ struct PortableRestoreJournalStore: Sendable {
                     layout: layout,
                     fileName:
                         "portable-restore-journal.json",
-                    maximumBytes: 64 * 1_024
+                    maximumBytes: 64 * 1_024,
+                    validator: {
+                        (try? decodeValidatedStoredValue($0))
+                            != nil
+                    }
                 ) else {
                 throw PortableRestoreJournalError.absent
             }
-            try StrictJSONDuplicateKeyScanner.validate(
-                data,
-                maximumDepth: 16,
-                maximumStringBytes: 8 * 1_024
-            )
-            let object = try JSONSerialization.jsonObject(
-                with: data
-            )
-            guard let dictionary = object as? [String: Any],
-                  Set(dictionary.keys) == [
-                      "formatVersion", "operationID", "mode",
-                      "sourceGenerationID", "sourceDatasetID",
-                      "targetGenerationID", "targetDatasetID",
-                      "packageRootDigest", "stagingRelativePath",
-                      "confirmedLocalStateDigest",
-                      "dryRunTokenSHA256",
-                      "factCount", "revisionCount",
-                      "targetNextLocalRevision",
-                      "attachmentCount",
-                      "attachmentManifestDigest",
-                      "resetsAppLockForLocalConfirmation",
-                      "requiresNotificationReconciliation",
-                      "devicePolicyOperationID",
-                      "devicePolicyCommittedAtMicroseconds",
-                      "contractSHA256",
-                      "phase", "updatedAt"
-                  ] else {
-                throw PortableRestoreJournalError.invalid
+            switch try decodeValidatedStoredValue(data) {
+            case let .legacy(legacy):
+                let migrated = try migrate(legacy)
+                try persistMigration(migrated)
+                return migrated
+            case let .current(value):
+                return value
             }
-            let value = try JSONDecoder.unmanualFoundation
-                .decode(PortableRestoreJournal.self, from: data)
-            try validate(value)
-            return value
         } catch let error as PortableRestoreJournalError {
             throw error
         } catch {
@@ -344,6 +505,16 @@ struct PortableRestoreJournalStore: Sendable {
                     == value.devicePolicyCommittedAtMicroseconds,
                   oldValue.contractSHA256
                     == value.contractSHA256,
+                  oldValue.targetAncestry == nil
+                    || oldValue.targetAncestry
+                        == value.targetAncestry
+                    || (
+                        oldValue.phase
+                            == .targetDirectoryPrepared
+                            && value.phase
+                                == .targetDirectoryPrepared
+                            && value.targetAncestry == nil
+                    ),
                   value.phase.ordinal
                     == oldValue.phase.ordinal
                     || value.phase.ordinal
@@ -364,7 +535,12 @@ struct PortableRestoreJournalStore: Sendable {
                     data: data,
                     maximumBytes: 64 * 1_024,
                     backupPolicy: backupPolicy,
-                    beforeWrite: beforeWrite
+                    beforeWrite: beforeWrite,
+                    afterPublish: afterPublish,
+                    validator: {
+                        (try? decodeValidatedStoredValue($0))
+                            != nil
+                    }
                 )
         } catch {
             throw PortableRestoreJournalError.invalid
@@ -373,6 +549,365 @@ struct PortableRestoreJournalStore: Sendable {
             throw PortableRestoreJournalError.invalid
         }
         guard try read() == value else {
+            throw PortableRestoreJournalError.invalid
+        }
+    }
+
+    private enum ValidatedStoredValue {
+        case legacy(LegacyPortableRestoreJournalV1)
+        case current(PortableRestoreJournal)
+    }
+
+    private func decodeValidatedStoredValue(
+        _ data: Data
+    ) throws -> ValidatedStoredValue {
+        try StrictJSONDuplicateKeyScanner.validate(
+            data,
+            maximumDepth: 16,
+            maximumStringBytes: 8 * 1_024
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: data
+        )
+        guard let dictionary =
+                object as? [String: Any],
+              let formatVersion =
+                dictionary["formatVersion"] as? Int else {
+            throw PortableRestoreJournalError.invalid
+        }
+        let legacyKeys: Set<String> = [
+            "formatVersion", "operationID", "mode",
+            "sourceGenerationID", "sourceDatasetID",
+            "targetGenerationID", "targetDatasetID",
+            "packageRootDigest", "stagingRelativePath",
+            "confirmedLocalStateDigest",
+            "dryRunTokenSHA256",
+            "factCount", "revisionCount",
+            "targetNextLocalRevision",
+            "attachmentCount",
+            "attachmentManifestDigest",
+            "resetsAppLockForLocalConfirmation",
+            "requiresNotificationReconciliation",
+            "devicePolicyOperationID",
+            "devicePolicyCommittedAtMicroseconds",
+            "contractSHA256",
+            "phase", "updatedAt"
+        ]
+        if formatVersion
+            == LegacyPortableRestoreJournalV1
+                .formatVersion {
+            guard Set(dictionary.keys)
+                    == legacyKeys else {
+                throw PortableRestoreJournalError
+                    .invalid
+            }
+            let legacy = try JSONDecoder
+                .unmanualFoundation.decode(
+                    LegacyPortableRestoreJournalV1
+                        .self,
+                    from: data
+                )
+            try validate(legacy)
+            return .legacy(legacy)
+        }
+        guard formatVersion
+                == PortableRestoreJournal
+                    .formatVersion else {
+            throw PortableRestoreJournalError.invalid
+        }
+        let baseKeys = legacyKeys.union([
+            "stateSHA256"
+        ])
+        let keys = Set(dictionary.keys)
+        guard keys == baseKeys
+                || keys == baseKeys.union([
+                    "targetRootIdentity"
+                ])
+                || keys == baseKeys.union([
+                    "targetRootIdentity",
+                    "targetAncestry"
+                ]) else {
+            throw PortableRestoreJournalError.invalid
+        }
+        if keys.contains("targetRootIdentity") {
+            guard let identity =
+                    dictionary["targetRootIdentity"]
+                    as? [String: Any],
+                  Set(identity.keys) == [
+                    "deviceID", "inode", "fileType"
+                  ] else {
+                throw PortableRestoreJournalError.invalid
+            }
+        }
+        if keys.contains("targetAncestry") {
+            guard let ancestry =
+                    dictionary["targetAncestry"]
+                    as? [String: Any],
+                  Set(ancestry.keys) == [
+                    "containerParent", "root",
+                    "generations", "target",
+                    "store", "files",
+                    "containerParentMode", "rootMode",
+                    "generationsMode", "targetMode",
+                    "storeMode", "filesMode"
+                  ],
+                  [
+                    "containerParent", "root",
+                    "generations", "target",
+                    "store", "files"
+                  ].allSatisfy({
+                      key in
+                      guard let identity =
+                        ancestry[key]
+                            as? [String: Any] else {
+                          return false
+                      }
+                      return Set(identity.keys) == [
+                        "deviceID", "inode", "fileType"
+                      ]
+                  }) else {
+                throw PortableRestoreJournalError.invalid
+            }
+        }
+        let value = try JSONDecoder
+            .unmanualFoundation.decode(
+                PortableRestoreJournal.self,
+                from: data
+            )
+        try validate(value)
+        return .current(value)
+    }
+
+    private func migrate(
+        _ legacy: LegacyPortableRestoreJournalV1
+    ) throws -> PortableRestoreJournal {
+        let pointer = try GenerationPointerStore(
+            layout: layout
+        ).read()
+        let sourceIsActive =
+            pointer.generationID
+                == legacy.sourceGenerationID
+            && pointer.datasetID
+                == legacy.sourceDatasetID
+        let targetIsActive =
+            pointer.generationID
+                == legacy.targetGenerationID
+            && pointer.datasetID
+                == legacy.targetDatasetID
+        guard sourceIsActive != targetIsActive else {
+            throw PortableRestoreJournalError.invalid
+        }
+
+        let targetURL = layout.generationDirectoryURL(
+            for: legacy.targetGenerationID
+        )
+        let targetIdentity = try legacyTargetIdentity(
+            at: targetURL
+        )
+        let migratedPhase: PortableRestorePhase
+        var ancestry: PortableRestoreTargetAncestry?
+
+        if sourceIsActive {
+            guard legacy.phase.ordinal
+                    < PortableRestorePhase
+                        .activationCleanupPending.ordinal else {
+                throw PortableRestoreJournalError.invalid
+            }
+            if targetIdentity == nil {
+                migratedPhase = .preparingTarget
+            } else {
+                // Any inactive v1 target is treated as rebuildable staging.
+                // The v2 builder will reset only this captured inode before
+                // recreating its contents.
+                migratedPhase = .targetDirectoryPrepared
+            }
+            ancestry = nil
+        } else {
+            guard legacy.phase.ordinal
+                    >= PortableRestorePhase
+                        .restartRequired.ordinal,
+                  let targetIdentity else {
+                throw PortableRestoreJournalError.invalid
+            }
+            // An activated v1 target must already contain both managed
+            // namespaces. Acquisition may not create missing active state.
+            guard try legacyTargetIdentity(
+                    at: targetURL.appending(
+                        path: "Store",
+                        directoryHint: .isDirectory
+                    )
+                  ) != nil,
+                  try legacyTargetIdentity(
+                    at: targetURL.appending(
+                        path: "Files",
+                        directoryHint: .isDirectory
+                    )
+                  ) != nil else {
+                throw PortableRestoreJournalError.invalid
+            }
+            let lease = try PortableManagedPathSecurity
+                .GenerationTargetLease.acquire(
+                    layout: layout,
+                    generationName:
+                        legacy.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedTarget: targetIdentity
+                )
+            ancestry = lease.ancestry
+            migratedPhase = legacy.phase
+        }
+
+        return PortableRestoreJournal(
+            operationID: legacy.operationID,
+            mode: legacy.mode,
+            sourceGenerationID:
+                legacy.sourceGenerationID,
+            sourceDatasetID: legacy.sourceDatasetID,
+            targetGenerationID:
+                legacy.targetGenerationID,
+            targetDatasetID: legacy.targetDatasetID,
+            packageRootDigest: legacy.packageRootDigest,
+            stagingRelativePath:
+                legacy.stagingRelativePath,
+            confirmedLocalStateDigest:
+                legacy.confirmedLocalStateDigest,
+            dryRunTokenSHA256:
+                legacy.dryRunTokenSHA256,
+            factCount: legacy.factCount,
+            revisionCount: legacy.revisionCount,
+            targetNextLocalRevision:
+                legacy.targetNextLocalRevision,
+            attachmentCount: legacy.attachmentCount,
+            attachmentManifestDigest:
+                legacy.attachmentManifestDigest,
+            resetsAppLockForLocalConfirmation:
+                legacy.resetsAppLockForLocalConfirmation,
+            requiresNotificationReconciliation:
+                legacy.requiresNotificationReconciliation,
+            devicePolicyOperationID:
+                legacy.devicePolicyOperationID,
+            devicePolicyCommittedAtMicroseconds:
+                legacy.devicePolicyCommittedAtMicroseconds,
+            phase: migratedPhase,
+            targetRootIdentity: targetIdentity,
+            targetAncestry: ancestry,
+            updatedAt: legacy.updatedAt
+        )
+    }
+
+    private func legacyTargetIdentity(
+        at url: URL
+    ) throws -> PortableArtifactIdentity? {
+        var value = stat()
+        let result = url.path.withCString {
+            Darwin.lstat($0, &value)
+        }
+        if result != 0 {
+            guard errno == ENOENT else {
+                throw PortableRestoreJournalError.invalid
+            }
+            return nil
+        }
+        guard (value.st_mode & S_IFMT) == S_IFDIR else {
+            throw PortableRestoreJournalError.invalid
+        }
+        do {
+            return try PortableManagedPathSecurity
+                .directoryIdentity(at: url)
+        } catch {
+            throw PortableRestoreJournalError.invalid
+        }
+    }
+
+    private func persistMigration(
+        _ value: PortableRestoreJournal
+    ) throws {
+        do {
+            try write(value)
+        } catch {
+            throw PortableRestoreJournalError.invalid
+        }
+    }
+
+    private func validate(
+        _ value: LegacyPortableRestoreJournalV1
+    ) throws {
+        guard value.formatVersion
+                == LegacyPortableRestoreJournalV1.formatVersion,
+              value.mode == .restore || value.mode == .replace,
+              value.sourceGenerationID
+                != value.targetGenerationID,
+              value.factCount >= 0,
+              value.factCount == value.revisionCount,
+              value.targetNextLocalRevision > 0,
+              value.attachmentCount >= 0,
+              value.packageRootDigest.isLowercaseSHA256,
+              value.confirmedLocalStateDigest
+                .isLowercaseSHA256,
+              value.dryRunTokenSHA256.isLowercaseSHA256,
+              value.attachmentManifestDigest
+                .isLowercaseSHA256,
+              value.resetsAppLockForLocalConfirmation,
+              value.requiresNotificationReconciliation,
+              value.devicePolicyCommittedAtMicroseconds
+                != Int64.min,
+              value.contractSHA256 == PortableRestoreJournal
+                .contractDigest(
+                    formatVersion: value.formatVersion,
+                    operationID: value.operationID,
+                    mode: value.mode,
+                    sourceGenerationID:
+                        value.sourceGenerationID,
+                    sourceDatasetID:
+                        value.sourceDatasetID,
+                    targetGenerationID:
+                        value.targetGenerationID,
+                    targetDatasetID:
+                        value.targetDatasetID,
+                    packageRootDigest:
+                        value.packageRootDigest,
+                    stagingRelativePath:
+                        value.stagingRelativePath,
+                    confirmedLocalStateDigest:
+                        value.confirmedLocalStateDigest,
+                    dryRunTokenSHA256:
+                        value.dryRunTokenSHA256,
+                    factCount: value.factCount,
+                    revisionCount: value.revisionCount,
+                    targetNextLocalRevision:
+                        value.targetNextLocalRevision,
+                    attachmentCount:
+                        value.attachmentCount,
+                    attachmentManifestDigest:
+                        value.attachmentManifestDigest,
+                    resetsAppLockForLocalConfirmation:
+                        value.resetsAppLockForLocalConfirmation,
+                    requiresNotificationReconciliation:
+                        value.requiresNotificationReconciliation,
+                    devicePolicyOperationID:
+                        value.devicePolicyOperationID,
+                    devicePolicyCommittedAtMicroseconds:
+                        value.devicePolicyCommittedAtMicroseconds
+                ),
+              value.updatedAt.timeIntervalSince1970.isFinite,
+              value.updatedAt.timeIntervalSince1970
+                == floor(value.updatedAt.timeIntervalSince1970),
+              Int64(
+                exactly: value.updatedAt
+                    .timeIntervalSince1970
+              ) != nil,
+              value.stagingRelativePath
+                == PortableRestoreJournal.stagingRelativePath(
+                    operationID: value.operationID
+                ),
+              layout.recoveryURL.appending(
+                    path: value.stagingRelativePath,
+                    directoryHint: .isDirectory
+              )
+                .standardizedFileURL.path.hasPrefix(
+                    layout.portableRestoreStagingRootURL
+                        .standardizedFileURL.path + "/"
+                ) else {
             throw PortableRestoreJournalError.invalid
         }
     }
@@ -438,6 +973,43 @@ struct PortableRestoreJournalStore: Sendable {
                         value.devicePolicyCommittedAtMicroseconds
                 ),
               value.updatedAt.timeIntervalSince1970.isFinite,
+              value.updatedAt.timeIntervalSince1970
+                == floor(value.updatedAt.timeIntervalSince1970),
+              Int64(
+                exactly:
+                    value.updatedAt.timeIntervalSince1970
+              ) != nil,
+              value.stateSHA256 == PortableRestoreJournal
+                .stateDigest(
+                    contractSHA256: value.contractSHA256,
+                    targetRootIdentity:
+                        value.targetRootIdentity,
+                    targetAncestry:
+                        value.targetAncestry,
+                    phase: value.phase,
+                    updatedAt: value.updatedAt
+                ),
+              (value.targetRootIdentity.map {
+                  $0.inode > 0
+                      && $0.fileType == UInt32(S_IFDIR)
+              } ?? true),
+              (value.targetAncestry.map {
+                  $0.target == value.targetRootIdentity
+                      && $0.allIdentities.allSatisfy {
+                          $0.inode > 0
+                              && $0.fileType
+                                == UInt32(S_IFDIR)
+                      }
+                      && $0.allModes.allSatisfy {
+                          $0 > 0 && $0 <= 0o7777
+                      }
+              } ?? true),
+              value.phase == .preparingTarget
+                || value.targetRootIdentity != nil,
+              value.phase.ordinal
+                    < PortableRestorePhase
+                        .databaseWritten.ordinal
+                || value.targetAncestry != nil,
               value.stagingRelativePath
                 == PortableRestoreJournal.stagingRelativePath(
                     operationID: value.operationID
