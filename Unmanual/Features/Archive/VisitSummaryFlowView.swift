@@ -20,6 +20,9 @@ struct VisitSummaryFlowView: View {
         VisitSummaryConfiguration?
     @State private var isBuilding = false
     @State private var errorMessage: String?
+    @State private var workTask: Task<Void, Never>?
+    @State private var workRequestID: UUID?
+    @State private var isActive = false
 #if DEBUG
     @State private var exportDocument: VisitSummaryExportDocument?
     @State private var exportType: VisitSummaryExportType = .pdf
@@ -36,7 +39,7 @@ struct VisitSummaryFlowView: View {
                 detail: snapshot == nil
                     ? "选择范围和包含内容；生成前不会保存真实报告副本。"
                     : "下面的内容来自同一份冻结快照。修改选择后需要重新生成。",
-                cancel: dismiss.callAsFunction
+                cancel: cancelAndDismiss
             ) {
                 if let snapshot {
                     preview(snapshot)
@@ -70,7 +73,16 @@ struct VisitSummaryFlowView: View {
         }
         .tint(theme.indigo)
         .onAppear {
+            isActive = true
             setPreset(.ninetyDays)
+        }
+        .onDisappear {
+            isActive = false
+            cancelOutstandingWork()
+#if DEBUG
+            exportDocument = nil
+            isExporting = false
+#endif
         }
 #if DEBUG
         .fileExporter(
@@ -79,6 +91,7 @@ struct VisitSummaryFlowView: View {
             contentType: exportType.contentType,
             defaultFilename: exportType.defaultFilename
         ) { result in
+            guard isActive else { return }
             switch result {
             case .success:
                 exportMessage =
@@ -377,22 +390,47 @@ struct VisitSummaryFlowView: View {
             errorMessage = "本地资料尚未准备好。"
             return
         }
+        cancelOutstandingWork()
+        let requestID = UUID()
+        workRequestID = requestID
         isBuilding = true
         errorMessage = nil
         let configuration = resolvedConfiguration
-        Task {
-            defer { isBuilding = false }
+        workTask = Task {
+            defer {
+                if workRequestID == requestID {
+                    workRequestID = nil
+                    workTask = nil
+                    isBuilding = false
+                }
+            }
             do {
                 let value = try await reader.visitSummarySnapshot(
                     configuration: configuration
                 )
+                guard !Task.isCancelled,
+                      isActive,
+                      workRequestID == requestID,
+                      resolvedConfiguration == configuration else {
+                    return
+                }
                 snapshot = value
                 frozenConfiguration = configuration
             } catch let error as VisitSummaryFailure {
+                guard !Task.isCancelled,
+                      isActive,
+                      workRequestID == requestID else {
+                    return
+                }
                 snapshot = nil
                 frozenConfiguration = nil
                 errorMessage = error.localizedDescription
             } catch {
+                guard !Task.isCancelled,
+                      isActive,
+                      workRequestID == requestID else {
+                    return
+                }
                 snapshot = nil
                 frozenConfiguration = nil
                 errorMessage = "摘要没有通过完整性检查；没有生成文件。"
@@ -420,9 +458,9 @@ struct VisitSummaryFlowView: View {
     }
 
     private func setPreset(_ value: VisitSummaryRangePreset) {
+        cancelOutstandingWork()
         preset = value
-        snapshot = nil
-        errorMessage = nil
+        invalidatePreview()
         guard let days = value.dayCount else { return }
         let now = Date()
         var calendar = Calendar(identifier: .gregorian)
@@ -443,8 +481,7 @@ struct VisitSummaryFlowView: View {
             get: { source.wrappedValue[keyPath: keyPath] },
             set: {
                 source.wrappedValue[keyPath: keyPath] = $0
-                snapshot = nil
-                errorMessage = nil
+                invalidatePreview()
             }
         )
     }
@@ -457,8 +494,7 @@ struct VisitSummaryFlowView: View {
             get: { source.wrappedValue[keyPath: keyPath] },
             set: {
                 source.wrappedValue[keyPath: keyPath] = $0
-                snapshot = nil
-                errorMessage = nil
+                invalidatePreview()
             }
         )
     }
@@ -494,9 +530,22 @@ struct VisitSummaryFlowView: View {
     }
 
     private func invalidatePreview() {
+        cancelOutstandingWork()
         snapshot = nil
         frozenConfiguration = nil
         errorMessage = nil
+    }
+
+    private func cancelOutstandingWork() {
+        workRequestID = nil
+        workTask?.cancel()
+        workTask = nil
+        isBuilding = false
+    }
+
+    private func cancelAndDismiss() {
+        cancelOutstandingWork()
+        dismiss()
     }
 
     private func toggle(
@@ -537,15 +586,25 @@ struct VisitSummaryFlowView: View {
                 "冻结预览已经失效；请返回修改并重新生成。"
             return
         }
+        cancelOutstandingWork()
+        let requestID = UUID()
+        workRequestID = requestID
         isBuilding = true
         exportMessage = nil
-        Task {
-            defer { isBuilding = false }
+        workTask = Task {
+            defer {
+                if workRequestID == requestID {
+                    workRequestID = nil
+                    workTask = nil
+                    isBuilding = false
+                }
+            }
             do {
+                let document: VisitSummaryExportDocument
                 exportType = type
                 switch type {
                 case .pdf:
-                    exportDocument = VisitSummaryExportDocument(
+                    document = VisitSummaryExportDocument(
                         data: try await reader
                             .confirmedVisitSummaryPDF(
                                 frozen: snapshot,
@@ -553,7 +612,7 @@ struct VisitSummaryFlowView: View {
                             )
                     )
                 case .csvPackage:
-                    exportDocument = VisitSummaryExportDocument(
+                    document = VisitSummaryExportDocument(
                         files: try await reader
                             .confirmedVisitSummaryCSVPackage(
                                 frozen: snapshot,
@@ -561,13 +620,31 @@ struct VisitSummaryFlowView: View {
                             )
                     )
                 }
+                guard !Task.isCancelled,
+                      isActive,
+                      workRequestID == requestID,
+                      self.snapshot == snapshot,
+                      frozenConfiguration == configuration else {
+                    return
+                }
+                exportDocument = document
                 isExporting = true
             } catch let error as VisitSummaryFailure
                 where error == .stateChanged {
+                guard !Task.isCancelled,
+                      isActive,
+                      workRequestID == requestID else {
+                    return
+                }
                 exportDocument = nil
                 exportMessage =
                     "预览后本地资料发生了变化；没有生成文件，请重新核对。"
             } catch {
+                guard !Task.isCancelled,
+                      isActive,
+                      workRequestID == requestID else {
+                    return
+                }
                 exportDocument = nil
                 exportMessage =
                     "文件没有通过生成前复核；冻结预览仍保留。"

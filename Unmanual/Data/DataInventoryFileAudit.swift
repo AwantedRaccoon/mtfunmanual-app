@@ -916,7 +916,6 @@ enum DataInventoryManagedRootAudit {
             relativePath: "Unmanual/Recovery",
             fileManager: fileManager
         )
-
         try requireExactChildren(
             of: unmanualURL,
             allowed: [
@@ -927,6 +926,34 @@ enum DataInventoryManagedRootAudit {
             relativeRoot: "Unmanual",
             fileManager: fileManager
         )
+        let reconciliationLayout = AppDataStoreLayout(
+            rootURL: unmanualURL,
+            legacyStoreURL:
+                applicationSupportURL.appending(
+                    path:
+                        "AtomicControlAudit-Legacy.sqlite"
+                )
+        )
+        do {
+            _ = try GenerationPointerStore(
+                layout: reconciliationLayout
+            ).read()
+            _ = try MigrationJournalStore(
+                layout: reconciliationLayout
+            ).readIfPresent()
+            _ = try PortableRestoreJournalStore(
+                layout: reconciliationLayout
+            ).readIfPresent()
+            _ = try PortablePackageCleanupJournalStore(
+                layout: reconciliationLayout
+            ).readIfPresent()
+        } catch {
+            throw DataInventoryFileAuditError
+                .readFailed(
+                    "Unmanual control-file transaction"
+                )
+        }
+
         try requireExactChildren(
             of: pointerDirectoryURL,
             allowed: ["active.json"],

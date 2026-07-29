@@ -100,23 +100,26 @@ final class ArchiveDataExportPresentationTests:
         )
     }
 
-    func testPackageDocumentRetainsOnlyExactTemporaryURL() {
-        let packageURL = URL(
-            fileURLWithPath:
-                "/tmp/exact.unmanualbackup",
-            isDirectory: true
+    func testPackageDocumentRetainsFrozenWrapperInsteadOfAPath() {
+        let wrapper = FileWrapper(
+            directoryWithFileWrappers: [
+                "manifest.json": FileWrapper(
+                    regularFileWithContents:
+                        Data("frozen".utf8)
+                )
+            ]
         )
         let document = ArchiveDataExportDocument(
-            packageURL: packageURL
+            frozenPackageWrapper: wrapper
         )
 
-        guard case let .directoryPackage(storedURL) =
+        guard case let .directoryPackage(storedWrapper) =
                 document.storage else {
             return XCTFail(
                 "Expected a directory package export."
             )
         }
-        XCTAssertEqual(storedURL, packageURL)
+        XCTAssertTrue(storedWrapper === wrapper)
     }
 
     private func makeReadableDocument(

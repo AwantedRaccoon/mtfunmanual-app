@@ -128,6 +128,14 @@ struct StoreFileProtectionPlan: Equatable, Sendable {
         )
             .hardenAndInspect(storeURL: storeURL, resources: resources)
     }
+
+    func inspect() throws -> StoreFileProtectionReport {
+        StoreFileProtectionAuditor(
+            backupPolicy: backupPolicy,
+            verificationMode: verificationMode
+        )
+        .inspect(storeURL: storeURL, resources: resources)
+    }
 }
 
 enum StoreFileProtectionVerificationMode: Equatable, Sendable {
@@ -171,7 +179,11 @@ struct StoreFileProtectionAuditor: Sendable {
         ] + resources.map { ($0.role, $0.url) }
 
         let entries = physicalFiles.map { role, url in
-            inspectAndHarden(role: role, url: url)
+            inspect(
+                role: role,
+                url: url,
+                shouldHarden: true
+            )
         }
 
 #if targetEnvironment(simulator)
@@ -186,9 +198,39 @@ struct StoreFileProtectionAuditor: Sendable {
         )
     }
 
-    private func inspectAndHarden(
+    func inspect(
+        storeURL: URL,
+        resources: [StoreFileProtectionResource] = []
+    ) -> StoreFileProtectionReport {
+        let physicalFiles: [(StorePhysicalFileRole, URL)] = [
+            (.store, storeURL),
+            (.wal, URL(fileURLWithPath: storeURL.path + "-wal")),
+            (.shm, URL(fileURLWithPath: storeURL.path + "-shm"))
+        ] + resources.map { ($0.role, $0.url) }
+        let entries = physicalFiles.map { role, url in
+            inspect(
+                role: role,
+                url: url,
+                shouldHarden: false
+            )
+        }
+        #if targetEnvironment(simulator)
+        let requiresPhysicalDeviceValidation = true
+        #else
+        let requiresPhysicalDeviceValidation = false
+        #endif
+        return StoreFileProtectionReport(
+            entries: entries,
+            requiresPhysicalDeviceValidation:
+                requiresPhysicalDeviceValidation,
+            backupPolicy: backupPolicy
+        )
+    }
+
+    private func inspect(
         role: StorePhysicalFileRole,
-        url: URL
+        url: URL,
+        shouldHarden: Bool
     ) -> StoreFileAuditEntry {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return StoreFileAuditEntry(
@@ -201,7 +243,8 @@ struct StoreFileProtectionAuditor: Sendable {
         }
 
         var hardeningError = false
-        if !verificationMode.skipsUnavailableSimulatorFileProtection {
+        if shouldHarden,
+           !verificationMode.skipsUnavailableSimulatorFileProtection {
             do {
                 try (url as NSURL).setResourceValue(
                     URLFileProtection.complete,
@@ -211,13 +254,16 @@ struct StoreFileProtectionAuditor: Sendable {
                 hardeningError = true
             }
         }
-        do {
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = backupPolicy == .excluded
-            var mutableURL = url
-            try mutableURL.setResourceValues(values)
-        } catch {
-            hardeningError = true
+        if shouldHarden {
+            do {
+                var values = URLResourceValues()
+                values.isExcludedFromBackup =
+                    backupPolicy == .excluded
+                var mutableURL = url
+                try mutableURL.setResourceValues(values)
+            } catch {
+                hardeningError = true
+            }
         }
 
         let values: URLResourceValues?

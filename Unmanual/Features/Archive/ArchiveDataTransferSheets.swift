@@ -104,9 +104,9 @@ struct ArchiveDataExportPreview: Equatable {
 }
 
 struct ArchiveDataExportDocument: FileDocument {
-    enum Storage: Sendable {
+    enum Storage: @unchecked Sendable {
         case regularFile(Data)
-        case directoryPackage(URL)
+        case directoryPackage(FileWrapper)
     }
 
     static var readableContentTypes: [UTType] {
@@ -119,8 +119,16 @@ struct ArchiveDataExportDocument: FileDocument {
         storage = .regularFile(data)
     }
 
-    init(packageURL: URL) {
-        storage = .directoryPackage(packageURL)
+    init(snapshot: PortableBackupExportSnapshot) {
+        storage = .directoryPackage(
+            snapshot.fileWrapper
+        )
+    }
+
+    init(frozenPackageWrapper: FileWrapper) {
+        storage = .directoryPackage(
+            frozenPackageWrapper
+        )
     }
 
     init(configuration: ReadConfiguration) throws {
@@ -137,15 +145,15 @@ struct ArchiveDataExportDocument: FileDocument {
         switch storage {
         case let .regularFile(data):
             FileWrapper(regularFileWithContents: data)
-        case let .directoryPackage(url):
-            try FileWrapper(url: url, options: [])
+        case let .directoryPackage(wrapper):
+            wrapper
         }
     }
 }
 
 private struct PreparedArchiveDataExport {
     let preview: ArchiveDataExportPreview
-    let document: ArchiveDataExportDocument
+    let document: ArchiveDataExportDocument?
     let stateIdentity: PortableExportStateIdentity
     let transientPackageURL: URL?
     let defaultFilename: String
@@ -441,21 +449,19 @@ struct ArchiveDataExportSheet: View {
             )
         case .completeBackup:
             let backup = try await service
-                .completeBackupPackage(
+                .completeBackupPreview(
                     capturedAt: capturedAt
                 )
             return PreparedArchiveDataExport(
                 preview: ArchiveDataExportPreview(
                     completeBackup: backup
                 ),
-                document: ArchiveDataExportDocument(
-                    packageURL: backup.packageURL
-                ),
+                document: nil,
                 stateIdentity:
                     try PortableExportStateIdentity(
                         backup.readableDocument
                     ),
-                transientPackageURL: backup.packageURL,
+                transientPackageURL: nil,
                 defaultFilename:
                     "Unmanual-Complete-Backup-\(date)"
             )
@@ -511,9 +517,9 @@ struct ArchiveDataExportSheet: View {
                             frozen.defaultFilename
                     )
                 case .completeBackup:
-                    let backup = try await
+                    let snapshot = try await
                         dataInventoryService
-                        .completeBackupPackage(
+                        .completeBackupExportSnapshot(
                             capturedAt:
                                 frozen.preview.capturedAt,
                             expectedIdentity:
@@ -521,17 +527,18 @@ struct ArchiveDataExportSheet: View {
                         )
                     confirmed = PreparedArchiveDataExport(
                         preview: ArchiveDataExportPreview(
-                            completeBackup: backup
+                            completeBackup:
+                                snapshot.backup
                         ),
                         document: ArchiveDataExportDocument(
-                            packageURL: backup.packageURL
+                            snapshot: snapshot
                         ),
                         stateIdentity:
                             try PortableExportStateIdentity(
-                                backup.readableDocument
+                                snapshot.backup
+                                    .readableDocument
                             ),
-                        transientPackageURL:
-                            backup.packageURL,
+                        transientPackageURL: nil,
                         defaultFilename:
                             frozen.defaultFilename
                     )

@@ -46,7 +46,10 @@ extension AppReadActor {
                 ownerType.rawValue + ":" + ownerID.uuidString.lowercased(),
                 default: []
             ].filter {
-                UTType($0.typeIdentifier)?.conforms(to: .image) == true
+                $0.deletedAt == nil
+                    && $0.deleteOperationID == nil
+                    && UTType($0.typeIdentifier)?
+                        .conforms(to: .image) == true
             }.count
         }
 

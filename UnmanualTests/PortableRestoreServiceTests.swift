@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import SwiftData
 import XCTest
@@ -71,8 +72,8 @@ final class PortableRestoreServiceTests:
                 directoryHint: .isDirectory
             )
 
-        XCTAssertThrowsError(
-            try PortableRestorePreparationService
+        do {
+            _ = try await PortableRestorePreparationService
                 .stageDurably(
                     package,
                     journal: journal,
@@ -97,9 +98,10 @@ final class PortableRestoreServiceTests:
                             )
                     }
                 )
-        ) {
+            XCTFail("Expected staging ancestry rejection")
+        } catch {
             XCTAssertEqual(
-                $0 as? PortablePackageCleanupError,
+                error as? PortablePackageCleanupError,
                 .unsafeTarget
             )
         }
@@ -115,18 +117,17 @@ final class PortableRestoreServiceTests:
                 atPath: externalOperation.path
             )
         )
-        let movedPackage = movedRecovery
+        let movedQuarantine = movedRecovery
             .appending(
-                path: "PortableImports/"
+                path: "PortableImports/.cleanup-"
                     + journal.operationID
-                    .uuidString.lowercased()
-                    + "/package.unmanualbackup",
+                        .uuidString.lowercased(),
                 directoryHint: .isDirectory
             )
         XCTAssertEqual(
             try FileManager.default
                 .contentsOfDirectory(
-                    atPath: movedPackage.path
+                    atPath: movedQuarantine.path
                 ),
             []
         )
@@ -245,14 +246,81 @@ final class PortableRestoreServiceTests:
                     "foreign.delivered"
                 ]
             )
-        let reopened = try await
-            PortableRestoreColdLaunchCoordinator(
-                layout: layout,
-                notificationClient:
-                    notificationClient,
-                verificationMode:
-                    .simulatorTestHarness
-            ).open()
+        let reopened: BootstrappedAppDataStore
+        do {
+            reopened = try await
+                PortableRestoreColdLaunchCoordinator(
+                    layout: layout,
+                    notificationClient:
+                        notificationClient,
+                    verificationMode:
+                        .simulatorTestHarness
+                ).open()
+        } catch {
+            let storeURL = layout.storeURL(
+                for:
+                    prepared.journal
+                    .targetGenerationID
+            )
+            let modes = ["", "-wal", "-shm"]
+                .compactMap { suffix -> String? in
+                    let path = storeURL.path + suffix
+                    var value = stat()
+                    guard Darwin.lstat(
+                            path,
+                            &value
+                          ) == 0 else {
+                        return nil
+                    }
+                    return suffix + "="
+                        + String(
+                            UInt32(value.st_mode)
+                                & 0o777,
+                            radix: 8
+                        )
+                }
+            let directoryModes = [
+                layout.rootURL,
+                layout.generationsURL,
+                layout.generationDirectoryURL(
+                    for:
+                        prepared.journal
+                        .targetGenerationID
+                ),
+                storeURL.deletingLastPathComponent(),
+                layout.generationDirectoryURL(
+                    for:
+                        prepared.journal
+                        .targetGenerationID
+                ).appending(
+                    path: "Files",
+                    directoryHint: .isDirectory
+                )
+            ].compactMap { url -> String? in
+                var value = stat()
+                guard Darwin.lstat(
+                        url.path,
+                        &value
+                      ) == 0 else {
+                    return nil
+                }
+                return url.lastPathComponent
+                    + "="
+                    + String(
+                        UInt32(value.st_mode) & 0o777,
+                        radix: 8
+                    )
+            }
+            XCTFail(
+                "cold activation failed with modes "
+                    + modes.joined(separator: ",")
+                    + " dirs="
+                    + directoryModes
+                        .joined(separator: ",")
+                    + ": \(error)"
+            )
+            throw error
+        }
 
         XCTAssertEqual(
             reopened.generationID,
@@ -511,11 +579,32 @@ final class PortableRestoreServiceTests:
                                 1_800_710_000
                         )
                     )
-            _ = try PortableRestorePreparationService
+            let cleanup =
+                PortablePackageCleanupCoordinator(
+                    layout: layout
+                )
+            let cleanupIntent = try await cleanup.register(
+                kind: .restoreStaging,
+                operationID: journal.operationID
+            )
+            _ = try await PortableRestorePreparationService
                 .stageDurably(
                     package,
                     journal: journal,
-                    layout: layout
+                    layout: layout,
+                    bindArtifact: {
+                        anchorIdentity,
+                        rootIdentity,
+                        packageIdentity in
+                        _ = try await cleanup.bind(
+                            cleanupIntent,
+                            anchorIdentity:
+                                anchorIdentity,
+                            rootIdentity: rootIdentity,
+                            packageIdentity:
+                                packageIdentity
+                        )
+                    }
                 )
             try PortableRestoreJournalStore(
                 layout: layout
@@ -556,8 +645,10 @@ final class PortableRestoreServiceTests:
                 )
             }
 
-            let reopened = try await
-                PortableRestoreColdLaunchCoordinator(
+            let reopened: BootstrappedAppDataStore
+            do {
+                reopened = try await
+                    PortableRestoreColdLaunchCoordinator(
                     layout: layout,
                     notificationClient:
                         PortableRestoreNotificationFixture(
@@ -567,6 +658,12 @@ final class PortableRestoreServiceTests:
                     verificationMode:
                         .simulatorTestHarness
                 ).open()
+            } catch {
+                XCTFail(
+                    "cold launch failed from phase \(phase): \(String(reflecting: error))"
+                )
+                throw error
+            }
             XCTAssertEqual(
                 reopened.generationID,
                 stopped.targetGenerationID,
@@ -1067,6 +1164,985 @@ final class PortableRestoreServiceTests:
                     && $0.operationID
                         == prepared.journal.operationID
             }
+        )
+    }
+
+    func testColdLaunchResumesTargetCreationCrashBeforeAndAfterIdentityWrite()
+        async throws {
+        for persistIdentity in [false, true] {
+            let fixture =
+                try await makeDurablePreparingFixture()
+            let identity = try PortableManagedPathSecurity
+                .createOrResumeEmptyGenerationRoot(
+                    generationsURL:
+                        fixture.layout.generationsURL,
+                    generationName:
+                        fixture.journal.targetGenerationID
+                        .uuidString.lowercased()
+                )
+            if persistIdentity {
+                var bound = fixture.journal
+                bound.bindTargetRoot(identity)
+                try PortableRestoreJournalStore(
+                    layout: fixture.layout
+                ).write(
+                    bound,
+                    replacing: fixture.journal
+                )
+            }
+
+            let reopened = try await
+                PortableRestoreColdLaunchCoordinator(
+                    layout: fixture.layout,
+                    notificationClient:
+                        PortableRestoreNotificationFixture(
+                            pending: [],
+                            delivered: []
+                        ),
+                    verificationMode:
+                        .simulatorTestHarness
+                ).open()
+
+            XCTAssertEqual(
+                reopened.generationID,
+                fixture.journal.targetGenerationID,
+                "persistIdentity=\(persistIdentity)"
+            )
+            XCTAssertEqual(
+                try PortableRestoreJournalStore(
+                    layout: fixture.layout
+                ).read().phase,
+                .activated
+            )
+        }
+    }
+
+    func testColdLaunchResumesTargetResetWithoutChangingBoundIdentity()
+        async throws {
+        for crashAfterRemoval in [true, false] {
+            let fixture =
+                try await makeDurablePreparingFixture()
+            let prepared = try await
+                PortableRestoreTargetBuilder.advance(
+                    fixture.journal,
+                    layout: fixture.layout,
+                    verificationMode:
+                        .simulatorTestHarness,
+                    stopAfterPhase:
+                        .targetDirectoryPrepared
+                )
+            let identity = try XCTUnwrap(
+                prepared.targetRootIdentity
+            )
+
+            do {
+                _ = try await
+                    PortableRestoreTargetBuilder.advance(
+                        prepared,
+                        layout: fixture.layout,
+                        verificationMode:
+                            .simulatorTestHarness,
+                        afterTargetContentsRemoved: {
+                            if crashAfterRemoval {
+                                throw CocoaError(
+                                    .fileWriteUnknown
+                                )
+                            }
+                        },
+                        beforeMaterializeDatabase: {
+                            if !crashAfterRemoval {
+                                throw CocoaError(
+                                    .fileWriteUnknown
+                                )
+                            }
+                        }
+                    )
+                XCTFail("Expected simulated crash")
+            } catch {
+                XCTAssertNotNil(error)
+            }
+
+            let durable = try PortableRestoreJournalStore(
+                layout: fixture.layout
+            ).read()
+            XCTAssertEqual(
+                durable.phase,
+                .targetDirectoryPrepared
+            )
+            XCTAssertEqual(
+                durable.targetRootIdentity,
+                identity
+            )
+            XCTAssertEqual(
+                try PortableManagedPathSecurity
+                    .directoryIdentity(
+                        at: fixture.layout
+                            .generationDirectoryURL(
+                                for:
+                                    durable
+                                    .targetGenerationID
+                            )
+                    ),
+                identity
+            )
+
+            let reopened = try await
+                PortableRestoreColdLaunchCoordinator(
+                    layout: fixture.layout,
+                    notificationClient:
+                        PortableRestoreNotificationFixture(
+                            pending: [],
+                            delivered: []
+                        ),
+                    verificationMode:
+                        .simulatorTestHarness
+                ).open()
+            XCTAssertEqual(
+                reopened.generationID,
+                durable.targetGenerationID,
+                "crashAfterRemoval=\(crashAfterRemoval)"
+            )
+            XCTAssertEqual(
+                try PortableRestoreJournalStore(
+                    layout: fixture.layout
+                ).read().phase,
+                .activated
+            )
+        }
+    }
+
+    func testColdLaunchRejectsWholeTargetRootReplacementBeforePointerWrite()
+        async throws {
+        let fixture =
+            try await makeDurablePreparingFixture()
+        let prepared = try await
+            PortableRestoreTargetBuilder.advance(
+                fixture.journal,
+                layout: fixture.layout,
+                verificationMode:
+                    .simulatorTestHarness
+        )
+        XCTAssertEqual(prepared.phase, .restartRequired)
+        let mutationLease = try PortableManagedPathSecurity
+            .GenerationTargetLease.acquire(
+                layout: fixture.layout,
+                generationName:
+                    prepared.targetGenerationID
+                    .uuidString.lowercased(),
+                expectedTarget:
+                    prepared.targetRootIdentity,
+                expectedAncestry:
+                    prepared.targetAncestry
+            )
+        try mutationLease.restoreNamespacePermissions()
+        let target = fixture.layout
+            .generationDirectoryURL(
+                for: prepared.targetGenerationID
+            )
+        let original = fixture.layout.rootURL
+            .appending(
+                path: "displaced-target",
+                directoryHint: .isDirectory
+            )
+        try FileManager.default.moveItem(
+            at: target,
+            to: original
+        )
+        try FileManager.default.copyItem(
+            at: fixture.layout.generationDirectoryURL(
+                for: prepared.sourceGenerationID
+            ),
+            to: target
+        )
+        let sourcePointer = try GenerationPointerStore(
+            layout: fixture.layout
+        ).read()
+
+        do {
+            _ = try await
+                PortableRestoreColdLaunchCoordinator(
+                    layout: fixture.layout,
+                    notificationClient:
+                        PortableRestoreNotificationFixture(
+                            pending: [],
+                            delivered: []
+                        ),
+                    verificationMode:
+                        .simulatorTestHarness
+                ).open()
+            XCTFail("Expected root identity rejection")
+        } catch {
+            XCTAssertEqual(
+                error as? PortableRestoreServiceError,
+                .unsafeTarget
+            )
+        }
+        XCTAssertEqual(
+            try GenerationPointerStore(
+                layout: fixture.layout
+            ).read(),
+            sourcePointer
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: target.path
+            )
+        )
+    }
+
+    func testNamespaceShieldBlocksGenerationAndChildReplacementDuringWrite()
+        async throws {
+        let fixture =
+            try await makeDurablePreparingFixture()
+        let target = fixture.layout
+            .generationDirectoryURL(
+                for: fixture.journal.targetGenerationID
+            )
+        let protectedEntries = [
+            fixture.layout.generationsURL,
+            target,
+            target.appending(
+                path: "Store",
+                directoryHint: .isDirectory
+            ),
+            target.appending(
+                path: "Files",
+                directoryHint: .isDirectory
+            )
+        ]
+        let replacements = protectedEntries.enumerated()
+            .map { index, source in
+                source.deletingLastPathComponent()
+                    .appending(
+                        path: ".shield-probe-\(index)",
+                        directoryHint: .isDirectory
+                    )
+            }
+
+        let prepared = try await
+            PortableRestoreTargetBuilder.advance(
+                fixture.journal,
+                layout: fixture.layout,
+                verificationMode:
+                    .simulatorTestHarness,
+                afterDatabaseNamespaceShield: {
+                    for (source, replacement) in zip(
+                        protectedEntries,
+                        replacements
+                    ) {
+                        do {
+                            try FileManager.default.moveItem(
+                                at: source,
+                                to: replacement
+                            )
+                            try? FileManager.default.moveItem(
+                                at: replacement,
+                                to: source
+                            )
+                            throw PortableRestoreServiceError
+                                .unsafeTarget
+                        } catch let error as
+                            PortableRestoreServiceError {
+                            throw error
+                        } catch {
+                            XCTAssertFalse(
+                                FileManager.default.fileExists(
+                                    atPath: replacement.path
+                                )
+                            )
+                        }
+                    }
+                }
+            )
+
+        XCTAssertEqual(prepared.phase, .restartRequired)
+        XCTAssertTrue(
+            protectedEntries.allSatisfy {
+                FileManager.default.fileExists(
+                    atPath: $0.path
+                )
+            }
+        )
+        XCTAssertTrue(
+            replacements.allSatisfy {
+                !FileManager.default.fileExists(
+                    atPath: $0.path
+                )
+            }
+        )
+    }
+
+    func testColdActivationKeepsStoreAndFilesFrozenUntilPointerAndJournalAreDurable()
+        async throws {
+        let fixture =
+            try await makeDurablePreparingFixture()
+        let prepared = try await
+            PortableRestoreTargetBuilder.advance(
+                fixture.journal,
+                layout: fixture.layout,
+                verificationMode:
+                    .simulatorTestHarness
+            )
+        XCTAssertEqual(prepared.phase, .restartRequired)
+        let target = fixture.layout
+            .generationDirectoryURL(
+                for: prepared.targetGenerationID
+            )
+        let protectedEntries = [
+            target.appending(
+                path: "Store/user.sqlite"
+            ),
+            target.appending(
+                path: "Files",
+                directoryHint: .isDirectory
+            ),
+            target.appending(
+                path: "Files/Attachments",
+                directoryHint: .isDirectory
+            )
+        ]
+        let replacements = protectedEntries.map {
+            $0.deletingLastPathComponent().appending(
+                path: ".activation-window-probe-"
+                    + UUID().uuidString.lowercased()
+            )
+        }
+        let sourcePointer = try GenerationPointerStore(
+            layout: fixture.layout
+        ).read()
+
+        _ = try await PortableRestoreColdLaunchCoordinator(
+            layout: fixture.layout,
+            notificationClient:
+                PortableRestoreNotificationFixture(
+                    pending: [],
+                    delivered: []
+                ),
+            verificationMode:
+                .simulatorTestHarness,
+            beforePointerWrite: {
+                XCTAssertEqual(
+                    try GenerationPointerStore(
+                        layout: fixture.layout
+                    ).read(),
+                    sourcePointer
+                )
+                for (source, replacement) in zip(
+                    protectedEntries,
+                    replacements
+                ) {
+                    do {
+                        try FileManager.default.moveItem(
+                            at: source,
+                            to: replacement
+                        )
+                        try? FileManager.default.moveItem(
+                            at: replacement,
+                            to: source
+                        )
+                        XCTFail(
+                            "Namespace mutation unexpectedly succeeded: \(source.path)"
+                        )
+                    } catch {
+                        XCTAssertFalse(
+                            FileManager.default.fileExists(
+                                atPath: replacement.path
+                            )
+                        )
+                    }
+                }
+            }
+        ).open()
+
+        let active = try GenerationPointerStore(
+            layout: fixture.layout
+        ).read()
+        XCTAssertEqual(
+            active.generationID,
+            prepared.targetGenerationID
+        )
+        XCTAssertEqual(
+            try PortableRestoreJournalStore(
+                layout: fixture.layout
+            ).read().phase,
+            .activated
+        )
+        let permissionProbe = target.appending(
+            path: "Files/permission-restored"
+        )
+        XCTAssertTrue(
+            FileManager.default.createFile(
+                atPath: permissionProbe.path,
+                contents: Data()
+            )
+        )
+    }
+
+    func testColdActivationRejectsSameInodeStoreWriteThroughPreexistingDescriptor()
+        async throws {
+        let fixture =
+            try await makeDurablePreparingFixture()
+        let prepared = try await
+            PortableRestoreTargetBuilder.advance(
+                fixture.journal,
+                layout: fixture.layout,
+                verificationMode:
+                    .simulatorTestHarness
+            )
+        let sourcePointer = try GenerationPointerStore(
+            layout: fixture.layout
+        ).read()
+        let storeURL = fixture.layout.storeURL(
+            for: prepared.targetGenerationID
+        )
+        let writer = try FileHandle(
+            forUpdating: storeURL
+        )
+        defer { try? writer.close() }
+
+        do {
+            _ = try await PortableRestoreColdLaunchCoordinator(
+                layout: fixture.layout,
+                notificationClient:
+                    PortableRestoreNotificationFixture(
+                        pending: [],
+                        delivered: []
+                    ),
+                verificationMode:
+                    .simulatorTestHarness,
+                beforePointerWrite: {
+                    try writer.seek(toOffset: 32)
+                    try writer.write(
+                        contentsOf: Data([0x5a])
+                    )
+                    try writer.synchronize()
+                }
+            ).open()
+            XCTFail(
+                "Expected the activation content seal to reject the write"
+            )
+        } catch {
+            XCTAssertEqual(
+                error as? PortablePackageCleanupError,
+                .unsafeTarget
+            )
+        }
+        XCTAssertEqual(
+            try GenerationPointerStore(
+                layout: fixture.layout
+            ).read(),
+            sourcePointer
+        )
+        XCTAssertEqual(
+            try PortableRestoreJournalStore(
+                layout: fixture.layout
+            ).read().phase,
+            .restartRequired
+        )
+    }
+
+    func testActivationContentSealRejectsSameInodeAttachmentPayloadWriteAndABA()
+        async throws {
+        let fixture =
+            try await makeDurablePreparingFixture()
+        let prepared = try await
+            PortableRestoreTargetBuilder.advance(
+                fixture.journal,
+                layout: fixture.layout,
+                verificationMode:
+                    .simulatorTestHarness
+            )
+        do {
+            let mutableLease = try
+                PortableManagedPathSecurity
+                .GenerationTargetLease.acquire(
+                    layout: fixture.layout,
+                    generationName:
+                        prepared.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedTarget:
+                        prepared.targetRootIdentity,
+                    expectedAncestry:
+                        prepared.targetAncestry
+                )
+            try mutableLease
+                .restoreNamespacePermissions()
+        }
+        let targetFiles = fixture.layout
+            .generationDirectoryURL(
+                for: prepared.targetGenerationID
+            )
+            .appending(
+                path: "Files",
+                directoryHint: .isDirectory
+            )
+        let attachmentDirectory = targetFiles
+            .appending(
+                path:
+                    "Attachments/"
+                    + UUID().uuidString.lowercased(),
+                directoryHint: .isDirectory
+            )
+        try FileManager.default.createDirectory(
+            at: attachmentDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: attachmentDirectory.path
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath:
+                attachmentDirectory
+                .deletingLastPathComponent().path
+        )
+        let payloadURL = attachmentDirectory
+            .appending(path: "payload.jpg")
+        let original = Data("original-payload".utf8)
+        try original.write(to: payloadURL)
+        let writer = try FileHandle(
+            forUpdating: payloadURL
+        )
+        defer { try? writer.close() }
+        let lease = try PortableManagedPathSecurity
+            .GenerationTargetLease.acquire(
+                layout: fixture.layout,
+                generationName:
+                    prepared.targetGenerationID
+                    .uuidString.lowercased(),
+                expectedTarget:
+                    prepared.targetRootIdentity,
+                expectedAncestry:
+                    prepared.targetAncestry
+            )
+        defer {
+            try? lease.restoreNamespacePermissions()
+        }
+        try lease.beginNamespaceShield()
+        try lease.sealFilesNamespace()
+        try lease.sealActivationContents()
+
+        try writer.seek(toOffset: 0)
+        try writer.write(
+            contentsOf: Data("modified-payload".utf8)
+        )
+        try writer.synchronize()
+        XCTAssertThrowsError(
+            try lease.verifyActivationContents()
+        )
+
+        try writer.truncate(atOffset: 0)
+        try writer.write(contentsOf: original)
+        try writer.synchronize()
+        XCTAssertThrowsError(
+            try lease.verifyActivationContents()
+        )
+    }
+
+    func testActivationDirectorySealRejectsFilesRootAndNestedModeABAThenColdRestores()
+        async throws {
+        func checked<T>(
+            _ label: String,
+            _ operation: () throws -> T
+        ) throws -> T {
+            do {
+                return try operation()
+            } catch {
+                XCTFail("\(label): \(error)")
+                throw error
+            }
+        }
+        let fixture =
+            try await makeDurablePreparingFixture()
+        let prepared = try await
+            PortableRestoreTargetBuilder.advance(
+                fixture.journal,
+                layout: fixture.layout,
+                verificationMode:
+                    .simulatorTestHarness
+            )
+        do {
+            let mutableLease = try checked(
+                "preflight acquire"
+            ) {
+                try PortableManagedPathSecurity
+                .GenerationTargetLease.acquire(
+                    layout: fixture.layout,
+                    generationName:
+                        prepared.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedTarget:
+                        prepared.targetRootIdentity,
+                    expectedAncestry:
+                        prepared.targetAncestry
+                )
+            }
+            try checked("preflight cold restore") {
+                try mutableLease
+                    .restoreNamespacePermissions()
+            }
+        }
+        let filesURL = fixture.layout
+            .generationDirectoryURL(
+                for: prepared.targetGenerationID
+            )
+            .appending(
+                path: "Files",
+                directoryHint: .isDirectory
+            )
+        let nestedURL = filesURL.appending(
+            path: "Attachments/mode-aba",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: nestedURL,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: nestedURL.path
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath:
+                nestedURL.deletingLastPathComponent()
+                .path
+        )
+
+        for targetURL in [filesURL, nestedURL] {
+            var lease: PortableManagedPathSecurity
+                .GenerationTargetLease? = try checked(
+                    "ABA acquire \(targetURL.lastPathComponent)"
+                ) {
+                try PortableManagedPathSecurity
+                .GenerationTargetLease.acquire(
+                    layout: fixture.layout,
+                    generationName:
+                        prepared.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedTarget:
+                        prepared.targetRootIdentity,
+                    expectedAncestry:
+                        prepared.targetAncestry
+                )
+            }
+            try checked(
+                "ABA shield \(targetURL.lastPathComponent)"
+            ) {
+                try XCTUnwrap(lease)
+                    .beginNamespaceShield()
+            }
+            try checked(
+                "ABA files seal \(targetURL.lastPathComponent)"
+            ) {
+                try XCTUnwrap(lease)
+                    .sealFilesNamespace()
+            }
+            try checked(
+                "ABA content seal \(targetURL.lastPathComponent)"
+            ) {
+                try XCTUnwrap(lease)
+                    .sealActivationContents()
+            }
+            let descriptor = targetURL.path.withCString {
+                Darwin.open(
+                    $0,
+                    O_RDONLY | O_DIRECTORY
+                        | O_NOFOLLOW | O_CLOEXEC
+                )
+            }
+            XCTAssertGreaterThanOrEqual(
+                descriptor,
+                0
+            )
+            guard descriptor >= 0 else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            XCTAssertEqual(
+                Darwin.fchmod(descriptor, 0o700),
+                0
+            )
+            XCTAssertThrowsError(
+                try lease?.verifyActivationContents()
+            )
+            XCTAssertEqual(
+                Darwin.fchmod(descriptor, 0o500),
+                0
+            )
+            XCTAssertThrowsError(
+                try lease?.verifyActivationContents()
+            )
+            Darwin.close(descriptor)
+            lease = nil
+
+            let recoveryLease = try checked(
+                "cold acquire \(targetURL.lastPathComponent)"
+            ) {
+                try PortableManagedPathSecurity
+                .GenerationTargetLease.acquire(
+                    layout: fixture.layout,
+                    generationName:
+                        prepared.targetGenerationID
+                        .uuidString.lowercased(),
+                    expectedTarget:
+                        prepared.targetRootIdentity,
+                    expectedAncestry:
+                        prepared.targetAncestry
+                )
+            }
+            try checked(
+                "cold restore \(targetURL.lastPathComponent)"
+            ) {
+                try recoveryLease
+                    .restoreNamespacePermissions()
+            }
+            var status = stat()
+            XCTAssertEqual(
+                Darwin.lstat(targetURL.path, &status),
+                0
+            )
+            XCTAssertEqual(
+                UInt32(status.st_mode) & 0o777,
+                0o700
+            )
+        }
+    }
+
+    func testColdLaunchRejectsSelfConsistentTargetLogicalMutation()
+        async throws {
+        let fixture =
+            try await makeDurablePreparingFixture()
+        let prepared = try await
+            PortableRestoreTargetBuilder.advance(
+                fixture.journal,
+                layout: fixture.layout,
+                verificationMode:
+                    .simulatorTestHarness
+            )
+        let mutationLease = try PortableManagedPathSecurity
+            .GenerationTargetLease.acquire(
+                layout: fixture.layout,
+                generationName:
+                    prepared.targetGenerationID
+                    .uuidString.lowercased(),
+                expectedTarget:
+                    prepared.targetRootIdentity,
+                expectedAncestry:
+                    prepared.targetAncestry
+            )
+        try mutationLease.restoreNamespacePermissions()
+        let original = fixture.package.readableDocument
+        let privacy = try XCTUnwrap(
+            original.payload.records.first {
+                $0.modelType == "PrivacyControlRecord"
+            }
+        )
+        let changedFields = privacy.fields.map { field in
+            field.name == "appLockEnabled"
+                ? PortableDataField(
+                    name: field.name,
+                    value: PortableDataValue(
+                        kind: .bool,
+                        boolValue: true
+                    )
+                )
+                : field
+        }
+        let digestFields = try changedFields.map {
+            RecordDigestV1.Field(
+                $0.name,
+                try $0.value.recordDigestValue()
+            )
+        }
+        let changedPrivacy = PortableDataRecord(
+            modelType: privacy.modelType,
+            recordType: privacy.recordType,
+            recordID: privacy.recordID,
+            recordKey: privacy.recordKey,
+            datasetID: privacy.datasetID,
+            localRevision: privacy.localRevision,
+            committedAtMicroseconds:
+                privacy.committedAtMicroseconds,
+            digestVersion: privacy.digestVersion,
+            digestHex: try RecordDigestV1.sha256Hex(
+                recordType: privacy.recordType,
+                recordID: privacy.recordID,
+                fields: digestFields
+            ),
+            fields: changedFields
+        )
+        let changed = try PortableDataV2Codec.makeDocument(
+            payload: PortableDataV2Payload(
+                datasetID: original.payload.datasetID,
+                sourceGenerationID:
+                    original.payload.sourceGenerationID,
+                capturedAtMicroseconds:
+                    original.payload.capturedAtMicroseconds,
+                nextLocalRevision:
+                    original.payload.nextLocalRevision,
+                modelCounts:
+                    original.payload.modelCounts,
+                records: original.payload.records.map {
+                    $0.recordKey == changedPrivacy.recordKey
+                        ? changedPrivacy : $0
+                },
+                controls: original.payload.controls,
+                activeAttachments:
+                    original.payload.activeAttachments
+            )
+        )
+        let storeDirectory = fixture.layout
+            .storeDirectoryURL(
+                for: prepared.targetGenerationID
+            )
+        for entry in try FileManager.default
+            .contentsOfDirectory(
+                at: storeDirectory,
+                includingPropertiesForKeys: nil
+            ) {
+            try FileManager.default.removeItem(at: entry)
+        }
+        let container = try AppModelContainerFactory
+            .makeDataControlContainer(
+                at: fixture.layout.storeURL(
+                    for: prepared.targetGenerationID
+                )
+            )
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        _ = try PortableV12RecordAdapter.insert(
+            changed,
+            into: context,
+            deviceObservationDate: Date(
+                timeIntervalSince1970:
+                    TimeInterval(
+                        prepared
+                            .devicePolicyCommittedAtMicroseconds
+                    ) / 1_000_000
+            )
+        )
+        try context.save()
+        let sourcePointer = try GenerationPointerStore(
+            layout: fixture.layout
+        ).read()
+
+        do {
+            _ = try await
+                PortableRestoreColdLaunchCoordinator(
+                    layout: fixture.layout,
+                    notificationClient:
+                        PortableRestoreNotificationFixture(
+                            pending: [],
+                            delivered: []
+                        ),
+                    verificationMode:
+                        .simulatorTestHarness
+                ).open()
+            XCTFail("Expected full logical digest rejection")
+        } catch {
+            XCTAssertEqual(
+                error as? PortableRestoreServiceError,
+                .targetInvalid
+            )
+        }
+        XCTAssertEqual(
+            try GenerationPointerStore(
+                layout: fixture.layout
+            ).read(),
+            sourcePointer
+        )
+    }
+
+    private func makeDurablePreparingFixture()
+        async throws -> (
+            layout: AppDataStoreLayout,
+            source: BootstrappedAppDataStore,
+            inventory: DataInventoryProductionService,
+            package: AuditedPortableBackup,
+            journal: PortableRestoreJournal
+        ) {
+        let layout = try makeLayout()
+        let source = try AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        ).open()
+        let coordinator = AppDataControlCoordinator(
+            generationID: source.generationID
+        )
+        let inventory = try XCTUnwrap(
+            DataInventoryProductionService(
+                store: source,
+                dataControlCoordinator: coordinator
+            )
+        )
+        let package = try await inventory
+            .completeBackupPackage()
+        addTeardownBlock {
+            try? await inventory.discardTransferPackage(
+                at: package.packageURL
+            )
+        }
+        let service = PortableRestorePreparationService(
+            store: source,
+            inventory: inventory,
+            coordinator: coordinator,
+            verificationMode: .simulatorTestHarness
+        )
+        let plan = try await service.makePlan(
+            for: package,
+            mode: .replace
+        )
+        let journal = try PortableRestorePreparationService
+            .makeJournal(
+                operationID: UUID(),
+                plan: plan,
+                package: package,
+                currentPointer:
+                    GenerationPointerStore(
+                        layout: layout
+                    ).read(),
+                now: Date(
+                    timeIntervalSince1970:
+                        1_800_720_000
+                )
+            )
+        let cleanup = PortablePackageCleanupCoordinator(
+            layout: layout
+        )
+        let intent = try await cleanup.register(
+            kind: .restoreStaging,
+            operationID: journal.operationID
+        )
+        _ = try await PortableRestorePreparationService
+            .stageDurably(
+                package,
+                journal: journal,
+                layout: layout,
+                bindArtifact: {
+                    anchorIdentity,
+                    rootIdentity,
+                    packageIdentity in
+                    _ = try await cleanup.bind(
+                        intent,
+                        anchorIdentity:
+                            anchorIdentity,
+                        rootIdentity: rootIdentity,
+                        packageIdentity: packageIdentity
+                    )
+                }
+            )
+        try PortableRestoreJournalStore(
+            layout: layout
+        ).write(journal)
+        return (
+            layout,
+            source,
+            inventory,
+            package,
+            journal
         )
     }
 

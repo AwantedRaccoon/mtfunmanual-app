@@ -115,6 +115,10 @@ struct PortableDataValue: Codable, Equatable, Sendable {
             guard populated == 1,
                   let doubleBitPatternHex,
                   doubleBitPatternHex.count == 16,
+                  doubleBitPatternHex.utf8.allSatisfy({
+                      (48...57).contains($0)
+                          || (97...102).contains($0)
+                  }),
                   let bits = UInt64(
                       doubleBitPatternHex,
                       radix: 16
@@ -1198,6 +1202,8 @@ struct PortableDataV2Payload: Codable, Equatable, Sendable {
     static let format = "com.mtfbook.unmanual.portable-data"
     static let formatVersion = 2
     static let schemaVersion = "12.0.0"
+    static let deviceProjectionPolicy =
+        "notification-coverage-and-app-lock-require-local-reconciliation"
 
     let format: String
     let formatVersion: Int
@@ -1234,7 +1240,7 @@ struct PortableDataV2Payload: Codable, Equatable, Sendable {
         self.controls = controls
         self.activeAttachments = activeAttachments
         self.deviceProjectionPolicy =
-            "notification-coverage-and-app-lock-require-local-reconciliation"
+            Self.deviceProjectionPolicy
     }
 }
 
@@ -1438,10 +1444,15 @@ enum PortableDataV2Validator {
         guard payload.formatVersion
                 == PortableDataV2Payload.formatVersion,
               payload.schemaVersion
-                == PortableDataV2Payload.schemaVersion else {
+                == PortableDataV2Payload.schemaVersion,
+              payload.deviceProjectionPolicy
+                == PortableDataV2Payload
+                    .deviceProjectionPolicy else {
             throw PortableDataV2Error.unsupportedVersion
         }
-        guard payload.capturedAtMicroseconds != Int64.min,
+        guard PortableWireValuePolicy.isValidTimestamp(
+                payload.capturedAtMicroseconds
+              ),
               payload.nextLocalRevision > 0 else {
             throw PortableDataV2Error.invalidEnvelope
         }
@@ -1470,6 +1481,28 @@ enum PortableDataV2Validator {
               }) else {
             throw PortableDataV2Error.invalidTaxonomy
         }
+        guard payload.records.map(\.recordKey)
+                == payload.records.map(\.recordKey).sorted(),
+              payload.records.allSatisfy({
+                  $0.fields.map(\.name)
+                    == $0.fields.map(\.name).sorted()
+              }),
+              payload.controls.map({
+                  $0.modelType + "\u{001f}" + $0.stableIdentity
+              }) == payload.controls.map({
+                  $0.modelType + "\u{001f}" + $0.stableIdentity
+              }).sorted(),
+              payload.controls.allSatisfy({
+                  $0.fields.map(\.name)
+                    == $0.fields.map(\.name).sorted()
+              }),
+              payload.activeAttachments.map({
+                  $0.attachmentID.uuidString.lowercased()
+              }) == payload.activeAttachments.map({
+                  $0.attachmentID.uuidString.lowercased()
+              }).sorted() else {
+            throw PortableDataV2Error.invalidEnvelope
+        }
         let counts = Dictionary(
             uniqueKeysWithValues: payload.modelCounts.map {
                 ($0.modelType, $0.rowCount)
@@ -1486,10 +1519,14 @@ enum PortableDataV2Validator {
                   record.localRevision > 0,
                   record.localRevision
                     < payload.nextLocalRevision,
-                  record.committedAtMicroseconds != Int64.min,
+                  PortableWireValuePolicy.isValidTimestamp(
+                    record.committedAtMicroseconds
+                  ),
                   record.digestVersion
                     == RecordDigestV1.version,
-                  record.digestHex.count == 64 else {
+                  PortableWireValuePolicy.isCanonicalSHA256(
+                    record.digestHex
+                  ) else {
                 throw PortableDataV2Error.invalidRecord
             }
             guard recordKeys.insert(
@@ -1508,9 +1545,16 @@ enum PortableDataV2Validator {
                       names.insert(field.name).inserted else {
                     throw PortableDataV2Error.invalidRecord
                 }
+                let value = try field.value.recordDigestValue()
+                if case let .timestampMicroseconds(microseconds) = value,
+                   !PortableWireValuePolicy.isValidTimestamp(
+                    microseconds
+                   ) {
+                    throw PortableDataV2Error.invalidRecord
+                }
                 return RecordDigestV1.Field(
                     field.name,
-                    try field.value.recordDigestValue()
+                    value
                 )
             }
             let digest = try RecordDigestV1.sha256Hex(
@@ -1557,7 +1601,13 @@ enum PortableDataV2Validator {
                       fieldNames.insert(field.name).inserted else {
                     throw PortableDataV2Error.invalidRecord
                 }
-                _ = try field.value.recordDigestValue()
+                let value = try field.value.recordDigestValue()
+                if case let .timestampMicroseconds(microseconds) = value,
+                   !PortableWireValuePolicy.isValidTimestamp(
+                    microseconds
+                   ) {
+                    throw PortableDataV2Error.invalidRecord
+                }
             }
             let nextCount =
                 controlCounts[control.modelType, default: 0] + 1
@@ -1614,7 +1664,9 @@ enum PortableDataV2Validator {
                   attachment.byteCount
                     <= PortableBackupLimits
                         .maximumAttachmentBytes,
-                  attachment.sha256Hex.count == 64,
+                  PortableWireValuePolicy.isCanonicalSHA256(
+                    attachment.sha256Hex
+                  ),
                   AttachmentOwnerType(
                     rawValue: attachment.ownerType
                   ) != nil,
@@ -1662,6 +1714,28 @@ enum PortableDataV2Validator {
               ) else {
             throw PortableDataV2Error.invalidCount
         }
+    }
+}
+
+enum PortableWireValuePolicy {
+    static func isCanonicalSHA256(_ value: String) -> Bool {
+        value.utf8.count == 64
+            && value.utf8.allSatisfy {
+                ($0 >= 48 && $0 <= 57)
+                    || ($0 >= 97 && $0 <= 102)
+            }
+    }
+
+    static func isValidTimestamp(_ microseconds: Int64) -> Bool {
+        let date = Date(
+            timeIntervalSince1970:
+                TimeInterval(microseconds) / 1_000_000
+        )
+        guard date.timeIntervalSince1970.isFinite else {
+            return false
+        }
+        return (try? RecordDigestV1.timestampMicroseconds(date))
+            == microseconds
     }
 }
 
