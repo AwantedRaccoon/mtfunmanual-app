@@ -769,6 +769,97 @@ final class ZZSystemBackupDisclosureRenderTests: XCTestCase {
                 )
             ),
             (
+                "Batch7VisitSummary",
+                AnyView(
+                    VisitSummaryFlowView()
+                        .environment(theme)
+                        .environment(
+                            \.dynamicTypeSize,
+                            dynamicTypeSize
+                        )
+                        .environment(
+                            \.v25ReduceMotionOverride,
+                            true
+                        )
+                        .frame(
+                            width: size.width,
+                            height: size.height
+                        )
+                )
+            ),
+            (
+                "Batch7DataExport",
+                AnyView(
+                    ArchiveDataExportSheet()
+                        .environment(theme)
+                        .environment(
+                            \.dynamicTypeSize,
+                            dynamicTypeSize
+                        )
+                        .environment(
+                            \.v25ReduceMotionOverride,
+                            true
+                        )
+                        .frame(
+                            width: size.width,
+                            height: size.height
+                        )
+                )
+            ),
+            (
+                "Batch7DataRestore",
+                AnyView(
+                    ArchiveDataImportSheet()
+                        .environment(theme)
+                        .environment(
+                            \.dynamicTypeSize,
+                            dynamicTypeSize
+                        )
+                        .environment(
+                            \.v25ReduceMotionOverride,
+                            true
+                        )
+                        .frame(
+                            width: size.width,
+                            height: size.height
+                        )
+                )
+            ),
+            (
+                "Batch7RestoreRestartRequired",
+                AnyView(
+                    PortableRestoreStatusView(
+                        kind: .restartRequired
+                    )
+                    .environment(theme)
+                    .environment(
+                        \.dynamicTypeSize,
+                        dynamicTypeSize
+                    )
+                    .frame(
+                        width: size.width,
+                        height: size.height
+                    )
+                )
+            ),
+            (
+                "Batch7RestoreRecovery",
+                AnyView(
+                    PortableRestoreStatusView(
+                        kind: .recovery
+                    )
+                    .environment(theme)
+                    .environment(
+                        \.dynamicTypeSize,
+                        dynamicTypeSize
+                    )
+                    .frame(
+                        width: size.width,
+                        height: size.height
+                    )
+                )
+            ),
+            (
                 "QuickRecord",
                 AnyView(
                     QuickRecordEditor(autofocus: false)

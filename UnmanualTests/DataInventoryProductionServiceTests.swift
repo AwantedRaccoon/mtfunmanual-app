@@ -46,6 +46,19 @@ final class DataInventoryProductionServiceTests: XCTestCase {
             capture.factCount,
             capture.revisionCount
         )
+        XCTAssertEqual(
+            capture.portableFacts.count,
+            capture.factCount
+        )
+        XCTAssertTrue(
+            try capture.portableFacts.allSatisfy {
+                try RecordDigestV1.sha256Hex(
+                    recordType: $0.recordType,
+                    recordID: $0.recordID,
+                    fields: $0.fields
+                ) == $0.digestHex
+            }
+        )
         XCTAssertGreaterThan(capture.nextLocalRevision, 0)
     }
 
@@ -779,6 +792,121 @@ final class DataInventoryProductionServiceTests: XCTestCase {
             let incomplete = try await service.manifest()
             XCTAssertEqual(incomplete.completeness, .incomplete)
             XCTAssertFalse(incomplete.destructiveActionsEnabled)
+        }
+    }
+
+    func testExportConfirmationRegeneratesBytesUnderIdentityGate()
+        async throws {
+        let container = try makeReadyV12Container()
+        let actor = DataInventoryDatabaseCaptureActor(
+            modelContainer: container
+        )
+        try await withStorageFixture(
+            databaseActor: actor
+        ) { fixture, _ in
+            let store = BootstrappedAppDataStore(
+                container: container,
+                generationID: fixture.generationID,
+                storeURL: fixture.layout.storeURL(
+                    for: fixture.generationID
+                ),
+                origin: .newInstall,
+                protectionReport:
+                    StoreFileProtectionReport(
+                        entries: [],
+                        requiresPhysicalDeviceValidation:
+                            true
+                    ),
+                attachmentRootURL: fixture.layout
+                    .generationDirectoryURL(
+                        for: fixture.generationID
+                    )
+                    .appending(
+                        path: "Files",
+                        directoryHint: .isDirectory
+                    ),
+                layout: fixture.layout
+            )
+            let service = try XCTUnwrap(
+                DataInventoryProductionService(
+                    store: store,
+                    dataControlCoordinator:
+                        AppDataControlCoordinator(
+                            generationID:
+                                fixture.generationID
+                        )
+                )
+            )
+            addTeardownBlock {
+                _ = try? await service
+                    .retryPendingPackageCleanup()
+            }
+            let capturedAt = Date(
+                timeIntervalSince1970: 1_800_800_000
+            )
+            let frozen = try await service
+                .readableJSONV2(
+                    capturedAt: capturedAt
+                )
+            let identity = try PortableExportStateIdentity(
+                frozen
+            )
+            let confirmed = try await service
+                .confirmedReadableJSONV2(
+                    expectedIdentity: identity,
+                    capturedAt: capturedAt
+                )
+            XCTAssertEqual(
+                try PortableDataV2Codec.decode(
+                    confirmed.encodedData
+                ),
+                confirmed.document
+            )
+            XCTAssertEqual(
+                try PortableExportStateIdentity(
+                    confirmed.document
+                ),
+                identity
+            )
+
+            let staleIdentity =
+                PortableExportStateIdentity(
+                    sourceGenerationID:
+                        identity.sourceGenerationID,
+                    datasetID: identity.datasetID,
+                    nextLocalRevision:
+                        identity.nextLocalRevision,
+                    logicalStateDigest:
+                        String(repeating: "0", count: 64)
+                )
+            do {
+                _ = try await service
+                    .confirmedReadableJSONV2(
+                        expectedIdentity: staleIdentity,
+                        capturedAt: capturedAt
+                    )
+                XCTFail("Expected state-change rejection")
+            } catch {
+                XCTAssertEqual(
+                    error as? PortableBackupError,
+                    .stateChanged
+                )
+            }
+
+            let backup = try await service
+                .completeBackupPackage(
+                    capturedAt: capturedAt,
+                    expectedIdentity: identity
+                )
+            XCTAssertEqual(
+                try PortableExportStateIdentity(
+                    backup.readableDocument
+                ),
+                identity
+            )
+            try await service.discardTransferPackage(
+                at: backup.packageURL
+            )
         }
     }
 

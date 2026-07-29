@@ -10,6 +10,22 @@ struct DataInventoryDatabaseCapture: Sendable {
     let revisionCount: Int
     let categorySnapshots: [DataInventoryCategorySnapshot]
     let attachments: [DataInventoryAttachmentObservation]
+    let portableFacts: [DataInventoryPortableFact]
+    let portableControls: [DataInventoryPortableControl]
+}
+
+struct DataInventoryPortableFact: Equatable, Sendable {
+    let modelType: String
+    let recordType: String
+    let recordID: UUID
+    let digestHex: String
+    let fields: [RecordDigestV1.Field]
+}
+
+struct DataInventoryPortableControl: Equatable, Sendable {
+    let modelType: String
+    let stableIdentity: String
+    let fields: [RecordDigestV1.Field]
 }
 
 struct DataInventoryAttachmentObservation: Equatable, Sendable {
@@ -24,6 +40,7 @@ private struct DataInventoryRawFact {
     let recordType: String
     let recordID: UUID
     let digestHex: String
+    let fields: [RecordDigestV1.Field]
 
     var recordKey: String {
         recordType + ":" + recordID.uuidString.lowercased()
@@ -36,6 +53,23 @@ private struct DataInventoryCollectedModel {
     let facts: [DataInventoryRawFact]
     let revisions: [DataInventoryDatabaseEntry]
     let controls: [DataInventoryDatabaseEntry]
+    let portableControls: [DataInventoryPortableControl]
+
+    init(
+        modelType: String,
+        rowCount: Int64,
+        facts: [DataInventoryRawFact],
+        revisions: [DataInventoryDatabaseEntry],
+        controls: [DataInventoryDatabaseEntry],
+        portableControls: [DataInventoryPortableControl] = []
+    ) {
+        self.modelType = modelType
+        self.rowCount = rowCount
+        self.facts = facts
+        self.revisions = revisions
+        self.controls = controls
+        self.portableControls = portableControls
+    }
 }
 
 enum DataInventoryBoundedFetchContract {
@@ -173,7 +207,19 @@ actor DataInventoryDatabaseCaptureActor {
             factCount: foundation.factCount,
             revisionCount: foundation.revisionCount,
             categorySnapshots: snapshots,
-            attachments: collected.attachments
+            attachments: collected.attachments,
+            portableFacts: rawFacts.map {
+                DataInventoryPortableFact(
+                    modelType: $0.modelType,
+                    recordType: $0.recordType,
+                    recordID: $0.recordID,
+                    digestHex: $0.digestHex,
+                    fields: $0.fields
+                )
+            },
+            portableControls: models.flatMap(
+                \.portableControls
+            )
         )
     }
 
@@ -192,7 +238,8 @@ actor DataInventoryDatabaseCaptureActor {
         func fact<T: PersistentModel>(
             _ type: T.Type,
             modelType: String,
-            evidence: (T) throws -> (String, UUID, String)
+            evidence: (T) throws
+                -> (String, UUID, [RecordDigestV1.Field])
         ) throws {
             let rows = try boundedRows(type)
             result.append(
@@ -205,7 +252,12 @@ actor DataInventoryDatabaseCaptureActor {
                             modelType: modelType,
                             recordType: value.0,
                             recordID: value.1,
-                            digestHex: value.2
+                            digestHex: try RecordDigestV1.sha256Hex(
+                                recordType: value.0,
+                                recordID: value.1,
+                                fields: value.2
+                            ),
+                            fields: value.2
                         )
                     },
                     revisions: [],
@@ -225,11 +277,7 @@ actor DataInventoryDatabaseCaptureActor {
                 return (
                     modelType,
                     id,
-                    try RecordDigestV1.sha256Hex(
-                        recordType: modelType,
-                        recordID: id,
-                        fields: try fields(value)
-                    )
+                    try fields(value)
                 )
             }
         }
@@ -237,9 +285,18 @@ actor DataInventoryDatabaseCaptureActor {
         func control<T: PersistentModel>(
             _ type: T.Type,
             modelType: String,
-            identity: (T) -> String
+            identity: (T) -> String,
+            fields: (T) throws
+                -> [RecordDigestV1.Field]
         ) throws {
             let rows = try boundedRows(type)
+            let portable = try rows.map {
+                DataInventoryPortableControl(
+                    modelType: modelType,
+                    stableIdentity: identity($0),
+                    fields: try fields($0)
+                )
+            }
             result.append(
                 DataInventoryCollectedModel(
                     modelType: modelType,
@@ -251,25 +308,26 @@ actor DataInventoryDatabaseCaptureActor {
                             modelType: modelType,
                             stableIdentity: identity($0)
                         )
-                    }
+                    },
+                    portableControls: portable
                 )
             )
         }
 
         try fact(HRTProfile.self, modelType: "HRTProfile") {
-            ("HRTProfile", $0.id, try FactDigestV1.digest($0))
+            ("HRTProfile", $0.id, try FactDigestV1.profile($0))
         }
         try fact(CountdownRecord.self, modelType: "CountdownRecord") {
-            ("CountdownRecord", $0.id, try FactDigestV1.digest($0))
+            ("CountdownRecord", $0.id, try FactDigestV1.countdown($0))
         }
         try fact(RegimenVersion.self, modelType: "RegimenVersion") {
-            ("RegimenVersion", $0.id, try FactDigestV1.digest($0))
+            ("RegimenVersion", $0.id, try FactDigestV1.regimen($0))
         }
         try fact(JourneyEntry.self, modelType: "JourneyEntry") {
-            ("JourneyEntry", $0.id, try FactDigestV1.digest($0))
+            ("JourneyEntry", $0.id, try FactDigestV1.journey($0))
         }
         try fact(LabRecord.self, modelType: "LabRecord") {
-            ("LabRecord", $0.id, try FactDigestV1.digest($0))
+            ("LabRecord", $0.id, try FactDigestV1.lab($0))
         }
 
         let metadataRows = try boundedRows(DatasetMetadata.self)
@@ -284,6 +342,44 @@ actor DataInventoryDatabaseCaptureActor {
                         modelType: "DatasetMetadata",
                         stableIdentity: $0.singletonKey
                     )
+                },
+                portableControls: try metadataRows.map {
+                    DataInventoryPortableControl(
+                        modelType: "DatasetMetadata",
+                        stableIdentity: $0.singletonKey,
+                        fields: [
+                            .init(
+                                "createdAt",
+                                try timestamp($0.createdAt)
+                            ),
+                            .init(
+                                "datasetID",
+                                .uuid($0.datasetID)
+                            ),
+                            .init(
+                                "digestVersion",
+                                .integer(
+                                    Int64($0.digestVersion)
+                                )
+                            ),
+                            .init(
+                                "lastCommittedAt",
+                                try optionalTimestamp(
+                                    $0.lastCommittedAt
+                                )
+                            ),
+                            .init(
+                                "nextLocalRevision",
+                                .integer(
+                                    $0.nextLocalRevision
+                                )
+                            ),
+                            .init(
+                                "singletonKey",
+                                .string($0.singletonKey)
+                            )
+                        ]
+                    )
                 }
             )
         )
@@ -296,7 +392,29 @@ actor DataInventoryDatabaseCaptureActor {
             MigrationBackfillState.self,
             modelType: "MigrationBackfillState",
             identity: \.taskKey
-        )
+        ) {
+            [
+                .init(
+                    "completedAt",
+                    try optionalTimestamp($0.completedAt)
+                ),
+                .init(
+                    "phaseRawValue",
+                    .string($0.phaseRawValue)
+                ),
+                .init(
+                    "processedCountInPhase",
+                    .integer(
+                        Int64($0.processedCountInPhase)
+                    )
+                ),
+                .init("taskKey", .string($0.taskKey)),
+                .init(
+                    "updatedAt",
+                    try timestamp($0.updatedAt)
+                )
+            ]
+        }
         let revisions = try boundedRows(RecordRevision.self)
         result.append(
             DataInventoryCollectedModel(
@@ -322,7 +440,30 @@ actor DataInventoryDatabaseCaptureActor {
             MigrationIssue.self,
             modelType: "MigrationIssue",
             identity: \.issueKey
-        )
+        ) {
+            [
+                .init(
+                    "detectedAt",
+                    try timestamp($0.detectedAt)
+                ),
+                .init(
+                    "issueKey",
+                    .string($0.issueKey)
+                ),
+                .init(
+                    "kindRawValue",
+                    .string($0.kindRawValue)
+                ),
+                .init(
+                    "recordID",
+                    optionalUUID($0.recordID)
+                ),
+                .init(
+                    "recordType",
+                    .string($0.recordType)
+                )
+            ]
+        }
         try digestFact(
             UserPreferencesRecord.self,
             modelType: "UserPreferencesRecord",
@@ -379,7 +520,23 @@ actor DataInventoryDatabaseCaptureActor {
             CoreTimeRegimenBackfillState.self,
             modelType: "CoreTimeRegimenBackfillState",
             identity: \.taskKey
-        )
+        ) {
+            [
+                .init(
+                    "assumedTimeZoneIdentifier",
+                    .string($0.assumedTimeZoneIdentifier)
+                ),
+                .init(
+                    "completedAt",
+                    try optionalTimestamp($0.completedAt)
+                ),
+                .init("taskKey", .string($0.taskKey)),
+                .init(
+                    "updatedAt",
+                    try timestamp($0.updatedAt)
+                )
+            ]
+        }
         try digestFact(
             AdministrationEventRecord.self,
             modelType: "AdministrationEventRecord",
@@ -414,12 +571,57 @@ actor DataInventoryDatabaseCaptureActor {
             NotificationCoverageRecord.self,
             modelType: "NotificationCoverageRecord",
             identity: \.coverageKey
-        )
+        ) {
+            [
+                .init(
+                    "confirmedPendingCount",
+                    .integer(
+                        Int64($0.confirmedPendingCount)
+                    )
+                ),
+                .init(
+                    "coverageKey",
+                    .string($0.coverageKey)
+                ),
+                .init(
+                    "desiredCount",
+                    .integer(Int64($0.desiredCount))
+                ),
+                .init(
+                    "lastErrorCode",
+                    optionalString($0.lastErrorCode)
+                ),
+                .init(
+                    "observedAt",
+                    try timestamp($0.observedAt)
+                ),
+                .init(
+                    "scheduledThrough",
+                    try optionalTimestamp($0.scheduledThrough)
+                ),
+                .init(
+                    "statusRawValue",
+                    .string($0.statusRawValue)
+                )
+            ]
+        }
         try control(
             TodayExecutionBackfillState.self,
             modelType: "TodayExecutionBackfillState",
             identity: \.taskKey
-        )
+        ) {
+            [
+                .init(
+                    "completedAt",
+                    try optionalTimestamp($0.completedAt)
+                ),
+                .init("taskKey", .string($0.taskKey)),
+                .init(
+                    "updatedAt",
+                    try timestamp($0.updatedAt)
+                )
+            ]
+        }
         try digestFact(
             LabItemDefinitionRecord.self,
             modelType: "LabItemDefinitionRecord",
@@ -456,15 +658,17 @@ actor DataInventoryDatabaseCaptureActor {
                 modelType: "AttachmentRecord",
                 rowCount: Int64(attachmentRows.count),
                 facts: try attachmentRows.map {
-                    DataInventoryRawFact(
+                    let fields = try AttachmentDigestV1.record($0)
+                    return DataInventoryRawFact(
                         modelType: "AttachmentRecord",
                         recordType: "AttachmentRecord",
                         recordID: $0.id,
                         digestHex: try RecordDigestV1.sha256Hex(
                             recordType: "AttachmentRecord",
                             recordID: $0.id,
-                            fields: try AttachmentDigestV1.record($0)
-                        )
+                            fields: fields
+                        ),
+                        fields: fields
                     )
                 },
                 revisions: [],
@@ -486,7 +690,19 @@ actor DataInventoryDatabaseCaptureActor {
             PersonalTimelineBackfillState.self,
             modelType: "PersonalTimelineBackfillState",
             identity: \.taskKey
-        )
+        ) {
+            [
+                .init(
+                    "completedAt",
+                    try optionalTimestamp($0.completedAt)
+                ),
+                .init("taskKey", .string($0.taskKey)),
+                .init(
+                    "updatedAt",
+                    try timestamp($0.updatedAt)
+                )
+            ]
+        }
         try digestFact(
             CountdownStateRecord.self,
             modelType: "CountdownStateRecord",
@@ -509,12 +725,65 @@ actor DataInventoryDatabaseCaptureActor {
             CountdownNotificationCoverageRecord.self,
             modelType: "CountdownNotificationCoverageRecord",
             identity: \.coverageKey
-        )
+        ) {
+            [
+                .init(
+                    "confirmedPendingCount",
+                    .integer(
+                        Int64($0.confirmedPendingCount)
+                    )
+                ),
+                .init(
+                    "countdownID",
+                    optionalUUID($0.countdownID)
+                ),
+                .init(
+                    "coverageKey",
+                    .string($0.coverageKey)
+                ),
+                .init(
+                    "desiredCount",
+                    .integer(Int64($0.desiredCount))
+                ),
+                .init(
+                    "lastErrorCode",
+                    optionalString($0.lastErrorCode)
+                ),
+                .init(
+                    "observedAt",
+                    try timestamp($0.observedAt)
+                ),
+                .init(
+                    "scheduledFireAt",
+                    try optionalTimestamp($0.scheduledFireAt)
+                ),
+                .init(
+                    "statusRawValue",
+                    .string($0.statusRawValue)
+                )
+            ]
+        }
         try control(
             CountdownLifecycleBackfillState.self,
             modelType: "CountdownLifecycleBackfillState",
             identity: \.taskKey
-        )
+        ) {
+            [
+                .init(
+                    "assumedTimeZoneIdentifier",
+                    .string($0.assumedTimeZoneIdentifier)
+                ),
+                .init(
+                    "completedAt",
+                    try optionalTimestamp($0.completedAt)
+                ),
+                .init("taskKey", .string($0.taskKey)),
+                .init(
+                    "updatedAt",
+                    try timestamp($0.updatedAt)
+                )
+            ]
+        }
         try digestFact(
             CountdownCommandAuditRecord.self,
             modelType: "CountdownCommandAuditRecord",
@@ -672,6 +941,33 @@ actor DataInventoryDatabaseCaptureActor {
         return rows
     }
 
+    private func timestamp(
+        _ value: Date
+    ) throws -> RecordDigestV1.Value {
+        .timestampMicroseconds(
+            try RecordDigestV1.timestampMicroseconds(value)
+        )
+    }
+
+    private func optionalTimestamp(
+        _ value: Date?
+    ) throws -> RecordDigestV1.Value {
+        guard let value else { return .null }
+        return try timestamp(value)
+    }
+
+    private func optionalString(
+        _ value: String?
+    ) -> RecordDigestV1.Value {
+        value.map(RecordDigestV1.Value.string) ?? .null
+    }
+
+    private func optionalUUID(
+        _ value: UUID?
+    ) -> RecordDigestV1.Value {
+        value.map(RecordDigestV1.Value.uuid) ?? .null
+    }
+
     private func revisionMap(
         _ revisions: [DataInventoryDatabaseEntry],
         datasetID: UUID
@@ -746,7 +1042,9 @@ enum DataInventoryProductionStorageAudit {
             layout: layout,
             generationID: generationID,
             datasetID: database.datasetID,
-            migrationJournal: control.migrationJournal
+            migrationJournal: control.migrationJournal,
+            portableRestoreJournal:
+                control.portableRestoreJournal
         )
         return DataInventoryStorageCapture(
             categorySnapshots: [control.categorySnapshot]
@@ -759,7 +1057,9 @@ enum DataInventoryProductionStorageAudit {
         layout: AppDataStoreLayout,
         generationID: UUID,
         datasetID: UUID,
-        migrationJournal: MigrationJournal?
+        migrationJournal: MigrationJournal?,
+        portableRestoreJournal:
+            PortableRestoreJournal?
     ) throws -> [DataInventoryCategorySnapshot] {
         let children = try FileManager.default.contentsOfDirectory(
             at: layout.generationsURL,
@@ -807,6 +1107,13 @@ enum DataInventoryProductionStorageAudit {
             var roles: [DataInventoryGenerationJournalRole] = []
             if id == generationID {
                 classification = .active
+            } else if let portableRestoreJournal,
+                      portableRestoreJournal.phase
+                        == .activated,
+                      portableRestoreJournal
+                        .sourceGenerationID == id {
+                classification = .inactiveProven
+                roles = [.knownRollbackSource]
             } else if let migrationJournal,
                       migrationJournal.phase == .activated,
                       migrationJournal.sourceGenerationID == id {
@@ -830,9 +1137,23 @@ enum DataInventoryProductionStorageAudit {
                         )
                 }
                 if classification == .inactiveProven {
-                    guard let sourceSchemaVersion =
-                            migrationJournal?.sourceSchemaVersion else {
-                        throw AppDataFailure.corruptionSuspected
+                    let isPortableSource =
+                        portableRestoreJournal?
+                            .sourceGenerationID == id
+                    let sourceSchemaVersion =
+                        isPortableSource
+                        ? "12.0.0"
+                        : migrationJournal?
+                            .sourceSchemaVersion
+                    let sourceDatasetID =
+                        isPortableSource
+                        ? portableRestoreJournal?
+                            .sourceDatasetID
+                        : datasetID
+                    guard let sourceSchemaVersion,
+                          let sourceDatasetID else {
+                        throw AppDataFailure
+                            .corruptionSuspected
                     }
                     let provenance = try AppDataStoreBootstrapper(
                         layout: layout
@@ -840,7 +1161,7 @@ enum DataInventoryProductionStorageAudit {
                     .validateGenerationForDataInventory(
                         generationID: id,
                         schemaVersion: sourceSchemaVersion,
-                        expectedDatasetID: datasetID
+                        expectedDatasetID: sourceDatasetID
                     )
                     _ = try AttachmentFileStore(
                         rootURL: layout
@@ -1044,17 +1365,23 @@ actor DataInventoryProductionService {
     private let databaseActor: DataInventoryDatabaseCaptureActor
     private let attachmentStore: AttachmentFileStore
     private let dataControlCoordinator: AppDataControlCoordinator
+    private let portablePackageCleanup:
+        PortablePackageCleanupCoordinator
     private let sessionReleaseProbe:
         AppDataSessionReleaseProbe?
     private let notificationProvider =
         SystemDataInventoryNotificationProvider()
 #if DEBUG
     private var shouldFailOnceForUITest: Bool
+    private var shouldRejectExportConfirmationForUITest:
+        Bool
 #endif
 
     init?(
         store: BootstrappedAppDataStore,
         dataControlCoordinator: AppDataControlCoordinator,
+        portablePackageCleanup:
+            PortablePackageCleanupCoordinator? = nil,
         sessionReleaseProbe:
             AppDataSessionReleaseProbe? = nil
     ) {
@@ -1073,16 +1400,503 @@ actor DataInventoryProductionService {
             rootURL: store.attachmentRootURL
         )
         self.dataControlCoordinator = dataControlCoordinator
+        self.portablePackageCleanup =
+            portablePackageCleanup
+            ?? PortablePackageCleanupCoordinator(
+                layout: layout
+            )
         self.sessionReleaseProbe = sessionReleaseProbe
 #if DEBUG
         self.shouldFailOnceForUITest = ProcessInfo.processInfo.arguments
             .contains("-unmanual-ui-test-inventory-fail-once")
+        self.shouldRejectExportConfirmationForUITest =
+            ProcessInfo.processInfo.arguments.contains(
+                "-unmanual-ui-test-export-confirmation-state-changed"
+            )
 #endif
     }
 
     func manifest() async throws -> DataInventoryManifest {
-        try await dataControlCoordinator.withReadLease {
+        return try await dataControlCoordinator.withReadLease {
             try await self.manifestUnderReadLease()
+        }
+    }
+
+    func readableJSONV2(
+        capturedAt: Date = Date()
+    ) async throws -> PortableDataV2Document {
+        return try await dataControlCoordinator.withReadLease {
+            try await self.portableDocumentUnderCurrentLease(
+                capturedAt: capturedAt
+            )
+        }
+    }
+
+    func confirmedReadableJSONV2(
+        expectedIdentity: PortableExportStateIdentity,
+        capturedAt: Date
+    ) async throws -> (
+        document: PortableDataV2Document,
+        encodedData: Data
+    ) {
+#if DEBUG
+        if shouldRejectExportConfirmationForUITest {
+            shouldRejectExportConfirmationForUITest = false
+            throw PortableBackupError.stateChanged
+        }
+#endif
+        return try await dataControlCoordinator.withReadLease {
+            let document = try await self
+                .portableDocumentUnderCurrentLease(
+                    capturedAt: capturedAt
+                )
+            guard try PortableExportStateIdentity(document)
+                    == expectedIdentity else {
+                throw PortableBackupError.stateChanged
+            }
+            return (
+                document,
+                try PortableDataV2Codec.encode(document)
+            )
+        }
+    }
+
+    func completeBackupPackage(
+        capturedAt: Date = Date(),
+        expectedIdentity:
+            PortableExportStateIdentity? = nil
+    ) async throws -> AuditedPortableBackup {
+#if DEBUG
+        if expectedIdentity != nil,
+           shouldRejectExportConfirmationForUITest {
+            shouldRejectExportConfirmationForUITest = false
+            throw PortableBackupError.stateChanged
+        }
+#endif
+        return try await dataControlCoordinator.withReadLease {
+            let database = try await self.databaseActor.capture(
+                layout: self.layout
+            )
+            let manifest = try await self
+                .manifestUnderReadLease()
+            guard manifest.completeness == .complete,
+                  manifest.categories.allSatisfy({
+                      $0.status == .complete
+                  }) else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            let document = try Self.makePortableDocument(
+                database: database,
+                generationID: self.generationID,
+                capturedAt: capturedAt
+            )
+            if let expectedIdentity {
+                guard try PortableExportStateIdentity(
+                    document
+                ) == expectedIdentity else {
+                    throw PortableBackupError.stateChanged
+                }
+            }
+            let activeByID = Dictionary(
+                uniqueKeysWithValues: database.attachments
+                    .filter {
+                        $0.deletedAt == nil
+                            && $0.deleteOperationID == nil
+                    }
+                    .map {
+                        ($0.attachment.id, $0.attachment)
+                    }
+            )
+            let root = FileManager.default
+                .temporaryDirectory
+                .appending(
+                    path: "UnmanualTransfers",
+                    directoryHint: .isDirectory
+                )
+            let intent = try await self
+                .portablePackageCleanup.register(
+                    kind: .backupTransfer
+                )
+            let destination = await self
+                .portablePackageCleanup.url(
+                    for: intent
+                )
+            do {
+                try Self.prepareTransferRoot(root)
+                let audited = try PortableBackupPackageBuilder
+                    .build(
+                        document: document,
+                        destinationURL: destination
+                    ) { attachment, target in
+                        guard let snapshot =
+                                activeByID[
+                                    attachment.attachmentID
+                                ],
+                              snapshot.ownerType.rawValue
+                                == attachment.ownerType,
+                              snapshot.ownerID
+                                == attachment.ownerID,
+                              snapshot.byteCount
+                                == attachment.byteCount,
+                              snapshot.sha256Hex
+                                == attachment.sha256Hex else {
+                            throw PortableBackupError
+                                .attachmentMismatch
+                        }
+                        try self.attachmentStore
+                            .auditedCopy(
+                                snapshot,
+                                to: target
+                            )
+                    }
+                guard try await self.databaseActor
+                    .matchesWatermark(
+                        datasetID: database.datasetID,
+                        nextLocalRevision:
+                            database.nextLocalRevision
+                    ) else {
+                    throw PortableBackupError.stateChanged
+                }
+                return audited
+            } catch {
+                do {
+                    try await self
+                        .portablePackageCleanup
+                        .discard(intent)
+                } catch {
+                    throw PortablePackageCleanupError
+                        .cleanupRequired
+                }
+                throw error
+            }
+        }
+    }
+
+    private func portableDocumentUnderCurrentLease(
+        capturedAt: Date
+    ) async throws -> PortableDataV2Document {
+        let manifest = try await manifestUnderReadLease()
+        guard manifest.completeness == .complete,
+              manifest.categories.allSatisfy({
+                  $0.status == .complete
+              }) else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let database = try await databaseActor.capture(
+            layout: layout
+        )
+        guard try await databaseActor.matchesWatermark(
+            datasetID: database.datasetID,
+            nextLocalRevision:
+                database.nextLocalRevision
+        ) else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        return try Self.makePortableDocument(
+            database: database,
+            generationID: generationID,
+            capturedAt: capturedAt
+        )
+    }
+
+    func stageImportedBackup(
+        at sourceURL: URL
+    ) async throws -> AuditedPortableBackup {
+        let source = try PortableBackupPackageAuditor.audit(
+            at: sourceURL
+        )
+        let root = FileManager.default
+            .temporaryDirectory
+            .appending(
+                path: "UnmanualTransfers",
+                directoryHint: .isDirectory
+            )
+        let intent = try await portablePackageCleanup
+            .register(kind: .importTransfer)
+        let destination = await portablePackageCleanup
+            .url(for: intent)
+        do {
+            try Self.prepareTransferRoot(root)
+            return try PortableBackupPackageBuilder.build(
+                document: source.readableDocument,
+                destinationURL: destination
+            ) { attachment, target in
+                let input = source.packageURL.appending(
+                    path: attachment.packageRelativePath
+                )
+                let data = try PortableBackupFileAudit
+                    .boundedData(
+                        input,
+                        maximumBytes: Int(
+                            PortableBackupLimits
+                                .maximumAttachmentBytes
+                        )
+                    )
+                try data.write(
+                    to: target,
+                    options: [.atomic]
+                )
+            }
+        } catch {
+            do {
+                try await portablePackageCleanup
+                    .discard(intent)
+            } catch {
+                throw PortablePackageCleanupError
+                    .cleanupRequired
+            }
+            throw error
+        }
+    }
+
+    func discardTransferPackage(
+        at url: URL
+    ) async throws {
+        try await portablePackageCleanup
+            .discardTransferPackage(at: url)
+    }
+
+    func retryPendingPackageCleanup()
+        async throws -> [URL] {
+        try await portablePackageCleanup.retryPending()
+        return try await portablePackageCleanup
+            .pendingTransferURLs()
+    }
+
+    private static func prepareTransferRoot(
+        _ root: URL
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: [
+                .protectionKey: FileProtectionType.complete
+            ]
+        )
+        try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: root.path
+        )
+        var mutable = root
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try mutable.setResourceValues(values)
+    }
+
+    static func makePortableDocument(
+        database: DataInventoryDatabaseCapture,
+        generationID: UUID,
+        capturedAt: Date
+    ) throws -> PortableDataV2Document {
+        var modelRowCounts: [String: Int64] = [:]
+        var factsByKey: [String: DataInventoryDatabaseEntry] = [:]
+        var revisionsByKey:
+            [String: DataInventoryDatabaseEntry] = [:]
+        var controlKeys: Set<String> = []
+        for category in database.categorySnapshots {
+            guard case let .database(snapshot) = category.payload else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            for (modelType, count) in snapshot.modelRowCounts {
+                guard modelRowCounts.updateValue(
+                    count,
+                    forKey: modelType
+                ) == nil else {
+                    throw AppDataFailure.corruptionSuspected
+                }
+            }
+            for entry in snapshot.entries {
+                switch entry {
+                case let .fact(
+                    _,
+                    _,
+                    _,
+                    _,
+                    recordKey,
+                    _,
+                    _,
+                    _
+                ):
+                    guard factsByKey.updateValue(
+                        entry,
+                        forKey: recordKey
+                    ) == nil else {
+                        throw AppDataFailure.corruptionSuspected
+                    }
+                case let .control(modelType, identity):
+                    guard controlKeys.insert(
+                        modelType + ":" + identity
+                    ).inserted else {
+                        throw AppDataFailure
+                            .corruptionSuspected
+                    }
+                case let .revision(
+                    recordKey,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _
+                ):
+                    guard revisionsByKey.updateValue(
+                        entry,
+                        forKey: recordKey
+                    ) == nil else {
+                        throw AppDataFailure
+                            .corruptionSuspected
+                    }
+                }
+            }
+        }
+        guard modelRowCounts.count == 54,
+              database.portableFacts.count
+                == factsByKey.count,
+              database.portableFacts.count
+                == revisionsByKey.count,
+              Set(database.portableControls.map {
+                  $0.modelType + ":" + $0.stableIdentity
+              }) == controlKeys,
+              database.portableControls.count
+                == controlKeys.count else {
+            throw AppDataFailure.corruptionSuspected
+        }
+        let controls = database.portableControls.map {
+            PortableDataControl(
+                modelType: $0.modelType,
+                stableIdentity: $0.stableIdentity,
+                disposition: portableControlDisposition(
+                    $0.modelType
+                ),
+                fields: $0.fields.map {
+                    PortableDataField(
+                        name: $0.name,
+                        value: PortableDataValue($0.value)
+                    )
+                }.sorted { $0.name < $1.name }
+            )
+        }
+        let records = try database.portableFacts.map { fact in
+            let key = fact.recordType + ":"
+                + fact.recordID.uuidString.lowercased()
+            guard let entry = factsByKey[key],
+                  let revisionEntry = revisionsByKey[key],
+                  case let .fact(
+                      modelType,
+                      recordType,
+                      recordID,
+                      datasetID,
+                      recordKey,
+                      localRevision,
+                      digestVersion,
+                      digestHex
+                  ) = entry,
+                  case let .revision(
+                      revisionRecordKey,
+                      revisionRecordType,
+                      revisionRecordID,
+                      revisionDatasetID,
+                      revisionLocalRevision,
+                      revisionDigestVersion,
+                      committedAt,
+                      revisionDigestHex
+                  ) = revisionEntry,
+                  modelType == fact.modelType,
+                  recordType == fact.recordType,
+                  recordID == fact.recordID,
+                  recordKey == key,
+                  digestHex == fact.digestHex,
+                  revisionRecordKey == recordKey,
+                  revisionRecordType == recordType,
+                  revisionRecordID == recordID,
+                  revisionDatasetID == datasetID,
+                  revisionLocalRevision == localRevision,
+                  revisionDigestVersion == digestVersion,
+                  revisionDigestHex == digestHex,
+                  digestVersion
+                    == Int64(RecordDigestV1.version) else {
+                throw AppDataFailure.corruptionSuspected
+            }
+            return PortableDataRecord(
+                modelType: modelType,
+                recordType: recordType,
+                recordID: recordID,
+                recordKey: recordKey,
+                datasetID: datasetID,
+                localRevision: localRevision,
+                committedAtMicroseconds:
+                    try RecordDigestV1
+                        .timestampMicroseconds(committedAt),
+                digestVersion: Int(digestVersion),
+                digestHex: digestHex,
+                fields: fact.fields.map {
+                    PortableDataField(
+                        name: $0.name,
+                        value: PortableDataValue($0.value)
+                    )
+                }.sorted { $0.name < $1.name }
+            )
+        }.sorted { $0.recordKey < $1.recordKey }
+        let attachments = database.attachments.compactMap {
+            observation -> PortableDataAttachment? in
+            guard observation.deletedAt == nil,
+                  observation.deleteOperationID == nil else {
+                return nil
+            }
+            let value = observation.attachment
+            return PortableDataAttachment(
+                attachmentID: value.id,
+                ownerType: value.ownerType.rawValue,
+                ownerID: value.ownerID,
+                originalFilename: value.originalFilename,
+                typeIdentifier: value.typeIdentifier,
+                byteCount: value.byteCount,
+                sha256Hex: value.sha256Hex
+            )
+        }.sorted {
+            $0.attachmentID.uuidString
+                < $1.attachmentID.uuidString
+        }
+        let payload = PortableDataV2Payload(
+            datasetID: database.datasetID,
+            sourceGenerationID: generationID,
+            capturedAtMicroseconds:
+                try RecordDigestV1.timestampMicroseconds(
+                    capturedAt
+                ),
+            nextLocalRevision: database.nextLocalRevision,
+            modelCounts: modelRowCounts.map {
+                PortableDataModelCount(
+                    modelType: $0.key,
+                    rowCount: $0.value
+                )
+            }.sorted { $0.modelType < $1.modelType },
+            records: records,
+            controls: controls.sorted {
+                $0.modelType != $1.modelType
+                    ? $0.modelType < $1.modelType
+                    : $0.stableIdentity
+                        < $1.stableIdentity
+            },
+            activeAttachments: attachments
+        )
+        return try PortableDataV2Codec.makeDocument(
+            payload: payload
+        )
+    }
+
+    private static func portableControlDisposition(
+        _ modelType: String
+    ) -> PortableDataControlDisposition {
+        switch modelType {
+        case "DatasetMetadata":
+            .embeddedInEnvelope
+        case "NotificationCoverageRecord",
+             "CountdownNotificationCoverageRecord":
+            .deviceObservationOnly
+        default:
+            .rebuildOnRestore
         }
     }
 

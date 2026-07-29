@@ -310,15 +310,19 @@ struct DataInventoryValidatedActiveGenerationLayout: Sendable {
 struct DataInventoryValidatedControlSnapshot: Sendable {
     let pointer: GenerationPointer
     let migrationJournal: MigrationJournal?
+    let portableRestoreJournal: PortableRestoreJournal?
     let categorySnapshot: DataInventoryCategorySnapshot
 
     fileprivate init(
         pointer: GenerationPointer,
         migrationJournal: MigrationJournal?,
+        portableRestoreJournal: PortableRestoreJournal?,
         files: [DataInventoryRegularFileSnapshot]
     ) {
         self.pointer = pointer
         self.migrationJournal = migrationJournal
+        self.portableRestoreJournal =
+            portableRestoreJournal
         self.categorySnapshot = DataInventoryCategorySnapshot(
             key: "storage.control",
             kind: .control,
@@ -931,7 +935,11 @@ enum DataInventoryManagedRootAudit {
         )
         try requireExactChildren(
             of: recoveryURL,
-            allowed: ["migration-journal.json"],
+            allowed: [
+                "migration-journal.json",
+                "portable-restore-journal.json",
+                "portable-package-cleanup-v1.json"
+            ],
             allowMissing: true,
             relativeRoot: "Unmanual/Recovery",
             fileManager: fileManager
@@ -952,6 +960,53 @@ enum DataInventoryManagedRootAudit {
                 relativePath: "Unmanual/Recovery/migration-journal.json",
                 fileManager: fileManager
             )
+        }
+        let portableRestoreJournalURL = recoveryURL
+            .appending(
+                path: "portable-restore-journal.json"
+            )
+        if fileManager.fileExists(
+            atPath: portableRestoreJournalURL.path
+        ) {
+            _ = try DataInventoryRegularFileAudit.snapshot(
+                at: portableRestoreJournalURL,
+                relativePath:
+                    "Unmanual/Recovery/portable-restore-journal.json",
+                fileManager: fileManager
+            )
+        }
+        let portableCleanupJournalURL =
+            recoveryURL.appending(
+                path:
+                    "portable-package-cleanup-v1.json"
+            )
+        if fileManager.fileExists(
+            atPath: portableCleanupJournalURL.path
+        ) {
+            _ = try DataInventoryRegularFileAudit.snapshot(
+                at: portableCleanupJournalURL,
+                relativePath:
+                    "Unmanual/Recovery/portable-package-cleanup-v1.json",
+                fileManager: fileManager
+            )
+            do {
+                _ = try PortablePackageCleanupJournalStore(
+                    layout: AppDataStoreLayout(
+                        rootURL: unmanualURL,
+                        legacyStoreURL:
+                            applicationSupportURL
+                            .appending(
+                                path:
+                                    "PortableCleanupAudit-Legacy.sqlite"
+                            )
+                    )
+                ).readIfPresent()
+            } catch {
+                throw DataInventoryFileAuditError
+                    .readFailed(
+                        "Unmanual/Recovery/portable-package-cleanup-v1.json"
+                    )
+            }
         }
 
         let applicationSupportChildren = try contents(
@@ -1053,6 +1108,89 @@ enum DataInventoryManagedRootAudit {
         }
 
         var files = [pointerRead.snapshot]
+        let layout = AppDataStoreLayout(
+            rootURL: applicationSupportURL.appending(
+                path: "Unmanual",
+                directoryHint: .isDirectory
+            ),
+            legacyStoreURL:
+                applicationSupportURL.appending(
+                    path:
+                        "PortableRestoreAudit-Legacy.sqlite"
+                )
+        )
+        let portableJournalURL =
+            layout.portableRestoreJournalURL
+        let portableJournal:
+            PortableRestoreJournal?
+        if fileManager.fileExists(
+            atPath: portableJournalURL.path
+        ) {
+            let read = try DataInventoryRegularFileAudit.read(
+                at: portableJournalURL,
+                relativePath:
+                    "Unmanual/Recovery/portable-restore-journal.json",
+                requiresSystemManagedProtection: true,
+                fileManager: fileManager
+            )
+            let decoded: PortableRestoreJournal
+            do {
+                decoded = try PortableRestoreJournalStore(
+                    layout: layout
+                ).read()
+            } catch {
+                throw DataInventoryFileAuditError.readFailed(
+                    "Unmanual/Recovery/portable-restore-journal.json"
+                )
+            }
+            guard decoded.phase == .activated,
+                  decoded.targetGenerationID
+                    == pointer.generationID,
+                  decoded.targetDatasetID
+                    == pointer.datasetID,
+                  decoded.factCount
+                    == decoded.revisionCount,
+                  decoded.factCount
+                    <= expectedMinimumFactCount,
+                  journalGenerationExists(
+                    decoded.sourceGenerationID,
+                    applicationSupportURL:
+                        applicationSupportURL,
+                    fileManager: fileManager
+                  ) else {
+                throw DataInventoryFileAuditError.readFailed(
+                    "Unmanual/Recovery/portable-restore-journal.json"
+                )
+            }
+            files.append(read.snapshot)
+            portableJournal = decoded
+        } else {
+            portableJournal = nil
+        }
+        let cleanupJournalURL =
+            layout.portablePackageCleanupJournalURL
+        if fileManager.fileExists(
+            atPath: cleanupJournalURL.path
+        ) {
+            let read = try DataInventoryRegularFileAudit.read(
+                at: cleanupJournalURL,
+                relativePath:
+                    "Unmanual/Recovery/portable-package-cleanup-v1.json",
+                fileManager: fileManager
+            )
+            do {
+                _ = try
+                    PortablePackageCleanupJournalStore(
+                        layout: layout
+                    ).readIfPresent()
+            } catch {
+                throw DataInventoryFileAuditError
+                    .readFailed(
+                        "Unmanual/Recovery/portable-package-cleanup-v1.json"
+                    )
+            }
+            files.append(read.snapshot)
+        }
         let journalURL = applicationSupportURL
             .appending(path: "Unmanual")
             .appending(path: "Recovery")
@@ -1077,13 +1215,21 @@ enum DataInventoryManagedRootAudit {
                         "Unmanual/Recovery/migration-journal.json"
                     )
             }
+            let provesCurrentPointer =
+                decoded.targetGenerationID
+                    == pointer.generationID
+                    && decoded.origin == pointer.origin
+            let provesPortableSource =
+                portableJournal.map {
+                    decoded.targetGenerationID
+                        == $0.sourceGenerationID
+                } == true
             guard decoded.formatVersion
                     == MigrationJournal.formatVersion,
                   decoded.origin != .existingGeneration,
                   decoded.phase == .activated,
-                  decoded.targetGenerationID
-                    == pointer.generationID,
-                  decoded.origin == pointer.origin,
+                  provesCurrentPointer
+                    || provesPortableSource,
                   decoded.sourceGenerationID
                     != decoded.targetGenerationID,
                   decoded.updatedAt.timeIntervalSince1970.isFinite,
@@ -1109,12 +1255,33 @@ enum DataInventoryManagedRootAudit {
         return DataInventoryValidatedControlSnapshot(
             pointer: pointer,
             migrationJournal: journal,
+            portableRestoreJournal: portableJournal,
             files: files.sorted {
             $0.relativePath.utf8.lexicographicallyPrecedes(
                 $1.relativePath.utf8
             )
             }
         )
+    }
+
+    private static func journalGenerationExists(
+        _ generationID: UUID,
+        applicationSupportURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        let url = applicationSupportURL
+            .appending(path: "Unmanual")
+            .appending(path: "Generations")
+            .appending(
+                path: generationID.uuidString.lowercased()
+            )
+        guard let values = try? url.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ) else {
+            return false
+        }
+        return values.isDirectory == true
+            && values.isSymbolicLink != true
     }
 
     private static func validSchemaTransition(

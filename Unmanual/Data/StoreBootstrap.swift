@@ -25,6 +25,39 @@ struct AppDataStoreLayout: Equatable, Sendable {
         recoveryURL.appending(path: "migration-journal.json")
     }
 
+    var portableRestoreJournalURL: URL {
+        recoveryURL.appending(
+            path: "portable-restore-journal.json"
+        )
+    }
+
+    var portablePackageCleanupJournalURL: URL {
+        recoveryURL.appending(
+            path: "portable-package-cleanup-v1.json"
+        )
+    }
+
+    var portableRestoreStagingRootURL: URL {
+        recoveryURL.appending(
+            path: "PortableImports",
+            directoryHint: .isDirectory
+        )
+    }
+
+    func portableRestoreStagingURL(
+        for operationID: UUID
+    ) -> URL {
+        portableRestoreStagingRootURL
+            .appending(
+                path: operationID.uuidString.lowercased(),
+                directoryHint: .isDirectory
+            )
+            .appending(
+                path: "package.unmanualbackup",
+                directoryHint: .isDirectory
+            )
+    }
+
     func generationDirectoryURL(for id: UUID) -> URL {
         generationsURL.appending(path: id.uuidString.lowercased(), directoryHint: .isDirectory)
     }
@@ -52,7 +85,15 @@ struct AppDataStoreLayout: Equatable, Sendable {
                 url: storeDirectoryURL(for: generationID)
             ),
             StoreFileProtectionResource(role: .pointer, url: pointerURL),
-            StoreFileProtectionResource(role: .journal, url: journalURL)
+            StoreFileProtectionResource(role: .journal, url: journalURL),
+            StoreFileProtectionResource(
+                role: .auxiliary,
+                url: portableRestoreJournalURL
+            ),
+            StoreFileProtectionResource(
+                role: .auxiliary,
+                url: portablePackageCleanupJournalURL
+            )
         ]
     }
 
@@ -4375,7 +4416,7 @@ struct AppDataStoreBootstrapper {
     }
 }
 
-private struct ProtectedAtomicJSONWriter: Sendable {
+struct ProtectedAtomicJSONWriter: Sendable {
     let backupPolicy: SystemBackupPolicy
 
     func write<Value: Encodable>(_ value: Value, to url: URL) throws {
@@ -4393,7 +4434,7 @@ private struct ProtectedAtomicJSONWriter: Sendable {
     }
 }
 
-private extension JSONEncoder {
+extension JSONEncoder {
     static var unmanualFoundation: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -4402,7 +4443,7 @@ private extension JSONEncoder {
     }
 }
 
-private extension JSONDecoder {
+extension JSONDecoder {
     static var unmanualFoundation: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

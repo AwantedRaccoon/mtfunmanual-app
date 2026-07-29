@@ -136,7 +136,10 @@ struct ArchiveView: View {
                 )
 
 #if DEBUG
-                V25PrivacyFooter(text: "\(SystemBackupDisclosure.compact)；JSON 导入导出仅为开发原型")
+                V25PrivacyFooter(
+                    text:
+                        "\(SystemBackupDisclosure.compact)；Readable JSON v2、完整备份导出及恢复仅供 internal 验证；Legacy v1 合并器保持隔离。"
+                )
 #else
                 V25PrivacyFooter(text: SystemBackupDisclosure.compact)
 #endif
@@ -180,6 +183,8 @@ struct ArchiveView: View {
                     ArchiveLocalStorageSheet()
                 case .deleteAndReset:
                     ArchiveDataControlSheet()
+                case .visitSummary:
+                    VisitSummaryFlowView()
 #if DEBUG
                 case .rawExport:
                     ArchiveDataExportSheet()
@@ -553,25 +558,31 @@ private struct ArchiveExportDesk: View {
 
 #if DEBUG
             ArchiveActionRow(
-                kicker: "开发原型",
-                title: "试验 JSON 导出",
-                detail: snapshot.developmentExportItemCount == 0
-                    ? "留下测试记录后，可以检查结构副本流程；这不是完整或安全备份。"
-                    : "将 \(snapshot.developmentExportItemCount) 条原型可支持记录写入结构副本；这不是完整或安全备份。",
-                badge: "JSON",
+                kicker: "Internal · 先预览",
+                title: "Readable JSON v2 / 完整备份",
+                detail:
+                    "冻结 54 类本地模型并核对完整性；完整备份另含当前 active 附件，确认后才打开 Files。",
+                badge: "V2",
                 symbol: "arrow.up.right",
                 style: .secondary,
                 action: exportAction
             )
+            .accessibilityIdentifier(
+                "archive.export.data"
+            )
 
             ArchiveActionRow(
-                kicker: "开发原型",
-                title: "试验 JSON 导入",
-                detail: "当前只按 ID 试验写入，尚无 dataset、digest 或正式冲突处理；只用于开发数据。",
-                badge: "JSON",
+                kicker: "Internal · 两次确认",
+                title: "采用完整备份",
+                detail:
+                    "先核对 package 与本机状态，再选择恢复到空白设备或替换本机资料；不会静默合并两条历史。",
+                badge: "V2",
                 symbol: "arrow.down.left",
                 style: .secondary,
                 action: importAction
+            )
+            .accessibilityIdentifier(
+                "archive.import.completeBackup"
             )
 #endif
         }
@@ -951,8 +962,8 @@ private enum ArchiveDestination: String, Identifiable {
         switch self {
         case .visitSummary: "整理就诊材料"
 #if DEBUG
-        case .rawExport: "导出 App 数据"
-        case .rawImport: "导入 App 数据"
+        case .rawExport: "预览数据副本"
+        case .rawImport: "Legacy v1 实验室"
 #endif
         case .localStorage: "本地存储说明"
         case .deleteAndReset: "删除与重置"
@@ -966,7 +977,7 @@ private enum ArchiveDestination: String, Identifiable {
         case .visitSummary: "SUMMARY / PREVIEW"
 #if DEBUG
         case .rawExport: "DATA / EXPORT"
-        case .rawImport: "DATA / IMPORT"
+        case .rawImport: "DATA / RESTORE"
 #endif
         case .localStorage: "LOCAL / PRIVACY"
         case .deleteAndReset: "DATA / CONTROL"
@@ -979,8 +990,10 @@ private enum ArchiveDestination: String, Identifiable {
         switch self {
         case .visitSummary: "选择时间范围和内容，整理成一页摘要。"
 #if DEBUG
-        case .rawExport: "开发期结构副本原型，不是完整或安全备份。"
-        case .rawImport: "开发期按 ID 写入原型，正式冲突合同尚未实现。"
+        case .rawExport:
+            "先预览 Readable JSON v2 或包含 active 附件的完整目录备份。"
+        case .rawImport:
+            "核对完整 package 后，恢复到空白设备或替换本机资料；不执行自动合并。"
 #endif
         case .localStorage: "这里会逐项说明本机数据、系统备份和导出文件之间的边界。"
         case .deleteAndReset: "删除前先列出准确对象和影响范围，并再次确认。"

@@ -1,62 +1,237 @@
+import Foundation
 import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
 
 #if DEBUG
+extension UTType {
+    static let unmanualCompleteBackup = UTType(
+        exportedAs:
+            "com.mtfbook.unmanual.complete-backup",
+        conformingTo: .package
+    )
+}
+
+enum ArchiveDataExportKind:
+    String, CaseIterable, Identifiable, Sendable {
+    case readableJSON
+    case completeBackup
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .readableJSON:
+            "Readable JSON v2"
+        case .completeBackup:
+            "完整备份"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .readableJSON:
+            "可阅读、可审计的逻辑数据；列出附件清单，但不包含附件文件。"
+        case .completeBackup:
+            "目录 package；包含 Readable JSON v2 和当前 active 附件。"
+        }
+    }
+
+    var badge: String {
+        switch self {
+        case .readableJSON: "JSON V2"
+        case .completeBackup: "PACKAGE"
+        }
+    }
+
+    var contentType: UTType {
+        switch self {
+        case .readableJSON: .json
+        case .completeBackup: .unmanualCompleteBackup
+        }
+    }
+}
+
+struct ArchiveDataExportPreview: Equatable {
+    let kind: ArchiveDataExportKind
+    let capturedAt: Date
+    let schemaVersion: String
+    let recordCount: Int
+    let controlCount: Int
+    let attachmentCount: Int
+    let byteCount: Int64
+    let integrityDigest: String
+
+    init(
+        readableDocument: PortableDataV2Document,
+        encodedByteCount: Int
+    ) {
+        let payload = readableDocument.payload
+        kind = .readableJSON
+        capturedAt = Date(
+            timeIntervalSince1970:
+                TimeInterval(payload.capturedAtMicroseconds)
+                / 1_000_000
+        )
+        schemaVersion = payload.schemaVersion
+        recordCount = payload.records.count
+        controlCount = payload.controls.count
+        attachmentCount = payload.activeAttachments.count
+        byteCount = Int64(encodedByteCount)
+        integrityDigest = readableDocument.transportSHA256
+    }
+
+    init(completeBackup: AuditedPortableBackup) {
+        let payload = completeBackup.readableDocument.payload
+        kind = .completeBackup
+        capturedAt = Date(
+            timeIntervalSince1970:
+                TimeInterval(payload.capturedAtMicroseconds)
+                / 1_000_000
+        )
+        schemaVersion = payload.schemaVersion
+        recordCount = payload.records.count
+        controlCount = payload.controls.count
+        attachmentCount = payload.activeAttachments.count
+        byteCount =
+            completeBackup.manifest.payload.totalByteCount
+        integrityDigest = completeBackup.packageSHA256
+    }
+
+    var shortIntegrityDigest: String {
+        String(integrityDigest.prefix(16))
+    }
+}
+
+struct ArchiveDataExportDocument: FileDocument {
+    enum Storage: Sendable {
+        case regularFile(Data)
+        case directoryPackage(URL)
+    }
+
+    static var readableContentTypes: [UTType] {
+        [.json, .unmanualCompleteBackup]
+    }
+
+    let storage: Storage
+
+    init(data: Data) {
+        storage = .regularFile(data)
+    }
+
+    init(packageURL: URL) {
+        storage = .directoryPackage(packageURL)
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data =
+                configuration.file.regularFileContents else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        storage = .regularFile(data)
+    }
+
+    func fileWrapper(
+        configuration: WriteConfiguration
+    ) throws -> FileWrapper {
+        switch storage {
+        case let .regularFile(data):
+            FileWrapper(regularFileWithContents: data)
+        case let .directoryPackage(url):
+            try FileWrapper(url: url, options: [])
+        }
+    }
+}
+
+private struct PreparedArchiveDataExport {
+    let preview: ArchiveDataExportPreview
+    let document: ArchiveDataExportDocument
+    let stateIdentity: PortableExportStateIdentity
+    let transientPackageURL: URL?
+    let defaultFilename: String
+
+    var contentType: UTType {
+        preview.kind.contentType
+    }
+}
+
 @MainActor
 struct ArchiveDataExportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppTheme.self) private var theme
-    @Environment(\.appReadActor) private var appReadActor
+    @Environment(\.dataInventoryService)
+    private var dataInventoryService
 
-    @State private var backup: AppDataBackup?
-    @State private var document:
-        AppDataBackupDocument?
-    @State private var isLoading = true
+    @State private var selection:
+        ArchiveDataExportKind = .readableJSON
+    @State private var prepared:
+        PreparedArchiveDataExport?
+    @State private var preparationTask: Task<Void, Never>?
+    @State private var preparationToken: UUID?
+    @State private var isPreparing = false
     @State private var isExporting = false
     @State private var statusMessage: String?
+    @State private var pendingCleanupURLs: [URL] = []
 
     var body: some View {
         NavigationStack {
             V25EditorPage(
                 register: "DATA / EXPORT",
-                eyebrow: "DEVELOPMENT COPY",
-                title: "试验 JSON 导出",
-                detail: "生成开发期结构副本；它不是完整或安全备份，也没有通过 Files/iCloud 发行门禁。",
-                cancel: dismiss.callAsFunction
+                eyebrow: "INTERNAL / PREVIEW FIRST",
+                title: "数据副本预览",
+                detail:
+                    "先在 App 内冻结并核对副本，再决定是否交给 Files。此入口仅存在于 DEBUG/internal 构建。",
+                cancel: {
+                    Task { await close() }
+                }
             ) {
-                if isLoading {
+                ArchiveDataExportKindPicker(
+                    selection: Binding(
+                        get: { selection },
+                        set: { newValue in
+                            Task {
+                                await changeSelection(
+                                    newValue
+                                )
+                            }
+                        }
+                    )
+                )
+
+                if isPreparing {
                     V25FieldSurface(
-                        "正在核对",
-                        note: "先确认当前资料没有终态删除，再准备旧版开发副本。"
+                        "正在冻结副本",
+                        note:
+                            "会在同一次读取门禁中核对 54 类模型、修订、删除覆盖和 active 附件。"
                     ) {
                         ProgressView()
                             .tint(theme.indigo)
                     }
-                } else if let backup {
-                    ArchiveTransferManifest(
-                        backup: backup,
-                        mode: .export
+                    .accessibilityIdentifier(
+                        "archive.export.preparing"
                     )
-
-                    V25SectionHeader(
-                        title: "结构副本范围",
-                        detail:
-                            "共 \(backup.totalRecordCount) 条"
+                } else if let prepared {
+                    ArchiveDataExportPreviewCard(
+                        preview: prepared.preview
                     )
-                    ArchiveTransferSummary(backup: backup)
 
                     V25FieldSurface(
-                        "文件说明",
-                        note: "Files 位置可能包含 iCloud Drive 或第三方提供方；这里只用于开发数据。"
+                        "外流边界",
+                        note:
+                            "点击导出后才会打开系统 Files 位置选择器；目标可能是 iCloud Drive 或第三方文件提供方。"
                     ) {
-                        VStack(alignment: .leading, spacing: 5) {
+                        VStack(
+                            alignment: .leading,
+                            spacing: 7
+                        ) {
                             Text(
-                                "JSON · 格式版本 \(backup.schemaVersion)"
+                                selection == .readableJSON
+                                    ? "JSON v2 不含附件文件；不能单独还原附件。"
+                                    : "完整备份含当前 active 附件，可能包含照片、化验单和敏感备注。"
                             )
-                            .font(.body.weight(.black))
+                            .font(.body.weight(.bold))
                             Text(
-                                "包含记录原文、日期、单位和方案关联；不包含账号或设备标识。"
+                                "导出文件离开 App 后不再受 App Lock、温和模式或 App 内删除控制。"
                             )
                             .font(.caption)
                             .foregroundStyle(
@@ -68,14 +243,24 @@ struct ArchiveDataExportSheet: View {
                             )
                         }
                     }
+
+                    Button("丢弃并重新生成预览") {
+                        Task {
+                            await startPreparation()
+                        }
+                    }
+                    .buttonStyle(V25SecondaryButtonStyle())
+                    .accessibilityIdentifier(
+                        "archive.export.regenerate"
+                    )
                 } else {
                     V25FieldSurface(
-                        "旧版导出已停用",
+                        "尚未生成文件",
                         note: statusMessage
-                            ?? "无法证明导出内容已应用当前删除设置。这里不会读取或生成旧版结构副本。"
+                            ?? "选择一种格式后先生成内部预览；此时不会打开 Files，也不会产生外部副本。"
                     ) {
                         Text(
-                            "Readable JSON v2 与完整备份属于 Batch 7；在正式恢复合同完成前，不会用旧原型绕过逻辑删除。"
+                            selection.detail
                         )
                         .font(.caption)
                         .foregroundStyle(theme.secondaryText)
@@ -86,89 +271,650 @@ struct ArchiveDataExportSheet: View {
                     }
                 }
 
-                if backup != nil, let statusMessage {
+                if let statusMessage,
+                   prepared != nil {
                     Text(statusMessage)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.mossText)
                         .accessibilityIdentifier("archive.export.status")
                 }
+                if !pendingCleanupURLs.isEmpty {
+                    Button("重试清理内部临时文件") {
+                        Task {
+                            _ = await
+                                retryPendingCleanup()
+                        }
+                    }
+                    .buttonStyle(V25SecondaryButtonStyle())
+                    .accessibilityIdentifier(
+                        "archive.export.retryCleanup"
+                    )
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if let backup {
+                if prepared != nil {
                     V25SaveBar(
-                        title: "生成试验 JSON",
-                        isEnabled:
-                            backup.totalRecordCount > 0,
+                        title:
+                            selection == .readableJSON
+                                ? "导出 Readable JSON v2"
+                                : "导出完整备份",
+                        isEnabled: !isPreparing
+                            && !isExporting,
                         accessibilityIdentifier:
-                            "archive.export.generate",
-                        action: prepareExport
+                            "archive.export.confirm",
+                        action: {
+                            presentExporter()
+                        }
+                    )
+                } else {
+                    V25SaveBar(
+                        title: "生成内部预览",
+                        isEnabled: !isPreparing,
+                        accessibilityIdentifier:
+                            "archive.export.prepare",
+                        action: {
+                            Task {
+                                await startPreparation()
+                            }
+                        }
                     )
                 }
             }
         }
         .tint(theme.indigo)
-        .task {
-            await loadBackup()
-        }
+        .interactiveDismissDisabled(
+            isPreparing
+                || isExporting
+                || prepared?.transientPackageURL != nil
+                || !pendingCleanupURLs.isEmpty
+        )
         .fileExporter(
             isPresented: $isExporting,
-            document: document,
-            contentType: .json,
-            defaultFilename: defaultFilename
-        ) { result in
-            switch result {
-            case .success:
-                statusMessage = "试验 JSON 已交给所选位置；它不代表完整或安全备份。"
-            case let .failure(error):
-                statusMessage = "没有生成文件：\(error.localizedDescription)"
+            document: prepared?.document,
+            contentType:
+                prepared?.contentType ?? .json,
+            defaultFilename:
+                prepared?.defaultFilename,
+            onCompletion: {
+                result in
+                Task {
+                    await finishExport(result)
+                }
+            }
+        )
+        .onChange(of: isExporting) { oldValue, newValue in
+            guard oldValue, !newValue else { return }
+            Task { @MainActor in
+                await Task.yield()
+                if prepared != nil {
+                    await cancelExporter()
+                }
+            }
+        }
+        .onDisappear {
+            Task {
+                await cancelPreparationAndWait()
+                _ = await discardPreparedExport()
+                _ = await retryPendingCleanup()
             }
         }
     }
 
-    private func prepareExport() {
-        do {
-            guard let backup else { return }
-            document = try AppDataBackupDocument(backup: backup)
-            isExporting = true
-        } catch {
-            statusMessage = "暂时无法生成备份，请稍后再试。"
-        }
-    }
-
-    private func loadBackup() async {
-        isLoading = true
-        defer { isLoading = false }
-        guard let appReadActor else {
-            backup = nil
-            statusMessage =
-                "本地资料尚未准备好，旧版结构副本保持停用。"
+    private func startPreparation() async {
+        await cancelPreparationAndWait()
+        guard await discardPreparedExport() else {
             return
         }
-        do {
-            backup = try await appReadActor
-                .developmentBackup()
-            statusMessage = nil
-        } catch DataControlDeletionFailure.targetDeleted {
-            backup = nil
+        statusMessage = nil
+        guard let dataInventoryService else {
             statusMessage =
-                "当前资料含有逻辑删除记录。旧版 JSON v1 无法证明不会恢复已删除原文，因此已停用。"
-        } catch {
-            backup = nil
-            statusMessage =
-                "资料没有通过完整性检查，旧版结构副本保持停用。"
+                "当前资料会话没有可用的副本生成器。"
+            return
+        }
+
+        let requestedKind = selection
+        let token = UUID()
+        preparationToken = token
+        isPreparing = true
+        preparationTask = Task {
+            defer {
+                if preparationToken == token {
+                    preparationToken = nil
+                    preparationTask = nil
+                    isPreparing = false
+                }
+            }
+            do {
+                let next = try await prepare(
+                    requestedKind,
+                    using: dataInventoryService
+                )
+                guard !Task.isCancelled,
+                      preparationToken == token else {
+                    await discard(
+                        next.transientPackageURL,
+                        using: dataInventoryService
+                    )
+                    return
+                }
+                prepared = next
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled,
+                      preparationToken == token else {
+                    return
+                }
+                statusMessage =
+                    error.localizedDescription.isEmpty
+                        ? "副本没有通过完整性核对；没有打开 Files。"
+                        : "无法生成可信预览：\(error.localizedDescription)"
+            }
         }
     }
 
-    private var defaultFilename: String {
+    private func prepare(
+        _ kind: ArchiveDataExportKind,
+        using service: DataInventoryProductionService
+    ) async throws -> PreparedArchiveDataExport {
+        let capturedAt = Date()
+        let date = Self.filenameDate(capturedAt)
+        switch kind {
+        case .readableJSON:
+            let readable = try await service
+                .readableJSONV2(capturedAt: capturedAt)
+            let data = try await Task.detached {
+                try PortableDataV2Codec.encode(readable)
+            }.value
+            return PreparedArchiveDataExport(
+                preview: ArchiveDataExportPreview(
+                    readableDocument: readable,
+                    encodedByteCount: data.count
+                ),
+                document:
+                    ArchiveDataExportDocument(data: data),
+                stateIdentity:
+                    try PortableExportStateIdentity(readable),
+                transientPackageURL: nil,
+                defaultFilename:
+                    "Unmanual-Readable-v2-\(date)"
+            )
+        case .completeBackup:
+            let backup = try await service
+                .completeBackupPackage(
+                    capturedAt: capturedAt
+                )
+            return PreparedArchiveDataExport(
+                preview: ArchiveDataExportPreview(
+                    completeBackup: backup
+                ),
+                document: ArchiveDataExportDocument(
+                    packageURL: backup.packageURL
+                ),
+                stateIdentity:
+                    try PortableExportStateIdentity(
+                        backup.readableDocument
+                    ),
+                transientPackageURL: backup.packageURL,
+                defaultFilename:
+                    "Unmanual-Complete-Backup-\(date)"
+            )
+        }
+    }
+
+    private func presentExporter() {
+        guard !isPreparing,
+              !isExporting,
+              let frozen = prepared,
+              let dataInventoryService else {
+            return
+        }
+        let token = UUID()
+        preparationToken = token
+        isPreparing = true
+        preparationTask = Task {
+            defer {
+                if preparationToken == token {
+                    preparationToken = nil
+                    preparationTask = nil
+                    isPreparing = false
+                }
+            }
+            do {
+                let confirmed: PreparedArchiveDataExport
+                switch frozen.preview.kind {
+                case .readableJSON:
+                    let result = try await
+                        dataInventoryService
+                        .confirmedReadableJSONV2(
+                            expectedIdentity:
+                                frozen.stateIdentity,
+                            capturedAt:
+                                frozen.preview.capturedAt
+                        )
+                    confirmed = PreparedArchiveDataExport(
+                        preview: ArchiveDataExportPreview(
+                            readableDocument:
+                                result.document,
+                            encodedByteCount:
+                                result.encodedData.count
+                        ),
+                        document: ArchiveDataExportDocument(
+                            data: result.encodedData
+                        ),
+                        stateIdentity:
+                            try PortableExportStateIdentity(
+                                result.document
+                            ),
+                        transientPackageURL: nil,
+                        defaultFilename:
+                            frozen.defaultFilename
+                    )
+                case .completeBackup:
+                    let backup = try await
+                        dataInventoryService
+                        .completeBackupPackage(
+                            capturedAt:
+                                frozen.preview.capturedAt,
+                            expectedIdentity:
+                                frozen.stateIdentity
+                        )
+                    confirmed = PreparedArchiveDataExport(
+                        preview: ArchiveDataExportPreview(
+                            completeBackup: backup
+                        ),
+                        document: ArchiveDataExportDocument(
+                            packageURL: backup.packageURL
+                        ),
+                        stateIdentity:
+                            try PortableExportStateIdentity(
+                                backup.readableDocument
+                            ),
+                        transientPackageURL:
+                            backup.packageURL,
+                        defaultFilename:
+                            frozen.defaultFilename
+                    )
+                }
+                guard !Task.isCancelled,
+                      preparationToken == token,
+                      prepared?.stateIdentity
+                        == frozen.stateIdentity else {
+                    await discard(
+                        confirmed.transientPackageURL,
+                        using: dataInventoryService
+                    )
+                    return
+                }
+                if let oldURL =
+                    frozen.transientPackageURL {
+                    await discard(
+                        oldURL,
+                        using: dataInventoryService
+                    )
+                    guard !pendingCleanupURLs
+                        .contains(oldURL) else {
+                        await discard(
+                            confirmed.transientPackageURL,
+                            using:
+                                dataInventoryService
+                        )
+                        return
+                    }
+                }
+                prepared = confirmed
+                isExporting = true
+            } catch let error as PortableBackupError
+                where error == .stateChanged {
+                _ = await discardPreparedExport()
+                statusMessage =
+                    "预览后本地资料发生了变化；没有打开 Files，请重新生成并核对。"
+            } catch {
+                statusMessage =
+                    "导出确认没有通过：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func finishExport(
+        _ result: Result<URL, Error>
+    ) async {
+        let exportedKind = prepared?.preview.kind
+        let didCleanInternalPackage =
+            await discardPreparedExport()
+        switch result {
+        case .success:
+            if !didCleanInternalPackage {
+                statusMessage =
+                    "外部副本已生成，但内部临时 package 尚未清理。请留在此页并重试丢弃。"
+            } else {
+                statusMessage =
+                    exportedKind == .completeBackup
+                        ? "完整备份已交给所选位置；内部临时 package 已清理。"
+                        : "Readable JSON v2 已交给所选位置。"
+            }
+        case let .failure(error):
+            if didCleanInternalPackage {
+                statusMessage =
+                    "导出没有完成，内部临时 package 已清理：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func cancelExporter() async {
+        if await discardPreparedExport() {
+            statusMessage =
+                "已取消导出；本次内部临时 package 已清理。"
+        }
+    }
+
+    private func close() async {
+        await cancelPreparationAndWait()
+        guard await discardPreparedExport() else {
+            return
+        }
+        guard await retryPendingCleanup() else {
+            return
+        }
+        dismiss()
+    }
+
+    private func changeSelection(
+        _ newValue: ArchiveDataExportKind
+    ) async {
+        guard selection != newValue else { return }
+        await cancelPreparationAndWait()
+        guard await discardPreparedExport() else {
+            return
+        }
+        selection = newValue
+        statusMessage = nil
+    }
+
+    private func cancelPreparationAndWait() async {
+        let task = preparationTask
+        preparationTask = nil
+        preparationToken = nil
+        isPreparing = false
+        task?.cancel()
+        await task?.value
+    }
+
+    @discardableResult
+    private func discardPreparedExport() async -> Bool {
+        guard let current = prepared else { return true }
+        guard let packageURL =
+                current.transientPackageURL else {
+            prepared = nil
+            return true
+        }
+        guard let dataInventoryService else {
+            statusMessage =
+                "内部临时 package 尚未清理；当前会话缺少精确清理器。"
+            return false
+        }
+        do {
+            try await dataInventoryService
+                .discardTransferPackage(at: packageURL)
+            prepared = nil
+            return true
+        } catch {
+            statusMessage =
+                "内部临时 package 尚未清理：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func discard(
+        _ packageURL: URL?,
+        using service: DataInventoryProductionService?
+    ) async {
+        guard let packageURL, let service else { return }
+        do {
+            try await service.discardTransferPackage(
+                at: packageURL
+            )
+        } catch {
+            if !pendingCleanupURLs.contains(
+                packageURL
+            ) {
+                pendingCleanupURLs.append(packageURL)
+            }
+            statusMessage =
+                "内部临时 package 尚未清理；请重试后再关闭。\(error.localizedDescription)"
+        }
+    }
+
+    @discardableResult
+    private func retryPendingCleanup() async -> Bool {
+        guard let dataInventoryService else {
+            guard !pendingCleanupURLs.isEmpty else {
+                return true
+            }
+            statusMessage =
+                "内部临时 package 尚未清理；当前会话缺少精确清理器。"
+            return false
+        }
+        do {
+            pendingCleanupURLs =
+                try await dataInventoryService
+                .retryPendingPackageCleanup()
+            statusMessage =
+                "内部临时 package 已清理。"
+            return true
+        } catch {
+            pendingCleanupURLs =
+                (try? await dataInventoryService
+                    .retryPendingPackageCleanup())
+                ?? pendingCleanupURLs
+        }
+        statusMessage =
+            "仍有内部临时 package 未清理；请重试。"
+        return false
+    }
+
+    private static func filenameDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone =
+            TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
-        return "Unmanual-Backup-\(formatter.string(from: Date()))"
+        return formatter.string(from: date)
+    }
+}
+
+private struct ArchiveDataExportKindPicker: View {
+    @Environment(AppTheme.self) private var theme
+
+    @Binding var selection: ArchiveDataExportKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            V25SectionHeader(
+                title: "选择副本格式",
+                detail: "两者用途不同"
+            )
+            ForEach(ArchiveDataExportKind.allCases) { kind in
+                Button {
+                    selection = kind
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Rectangle()
+                            .fill(
+                                selection == kind
+                                    ? theme.vermilion
+                                    : theme.blue
+                            )
+                            .frame(width: 5, height: 46)
+                        VStack(
+                            alignment: .leading,
+                            spacing: 4
+                        ) {
+                            Text(kind.title)
+                                .font(.body.weight(.black))
+                            Text(kind.detail)
+                                .font(.caption)
+                                .foregroundStyle(
+                                    theme.secondaryText
+                                )
+                                .fixedSize(
+                                    horizontal: false,
+                                    vertical: true
+                                )
+                        }
+                        Spacer(minLength: 8)
+                        Text(kind.badge)
+                            .font(theme.utility(9))
+                            .tracking(0.6)
+                        Image(
+                            systemName:
+                                selection == kind
+                                    ? "checkmark.square.fill"
+                                    : "square"
+                        )
+                    }
+                    .foregroundStyle(theme.indigoDeep)
+                    .padding(13)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: 72,
+                        alignment: .leading
+                    )
+                    .background(theme.paper)
+                    .overlay {
+                        Rectangle().stroke(
+                            selection == kind
+                                ? theme.vermilion
+                                : theme.indigo,
+                            lineWidth:
+                                selection == kind ? 2 : 1
+                        )
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(V25PressStyle())
+                .accessibilityLabel(
+                    "\(kind.title)，\(kind.detail)"
+                )
+                .accessibilityValue(
+                    selection == kind ? "已选择" : "未选择"
+                )
+                .accessibilityIdentifier(
+                    "archive.export.kind.\(kind.rawValue)"
+                )
+            }
+        }
+    }
+}
+
+private struct ArchiveDataExportPreviewCard: View {
+    @Environment(AppTheme.self) private var theme
+
+    let preview: ArchiveDataExportPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("FROZEN PREVIEW")
+                        .font(theme.utility(10))
+                        .tracking(1)
+                        .foregroundStyle(theme.mustard)
+                    Text(preview.kind.title)
+                        .font(
+                            theme.display(
+                                27,
+                                relativeTo: .title2
+                            )
+                        )
+                }
+                Spacer(minLength: 8)
+                Text("SCHEMA \(preview.schemaVersion)")
+                    .font(theme.utility(9))
+                    .tracking(0.5)
+                    .padding(.horizontal, 7)
+                    .frame(minHeight: 26)
+                    .overlay {
+                        Rectangle().stroke(
+                            theme.paper,
+                            lineWidth: 1
+                        )
+                    }
+            }
+
+            Rectangle().fill(theme.paper).frame(height: 1)
+
+            HStack(spacing: 14) {
+                metric(preview.recordCount, "事实")
+                metric(preview.controlCount, "控制")
+                metric(preview.attachmentCount, "附件")
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(
+                    "生成于 "
+                        + preview.capturedAt.formatted(
+                            date: .abbreviated,
+                            time: .shortened
+                        )
+                )
+                Text(
+                    "内容大小 "
+                        + ByteCountFormatter.string(
+                            fromByteCount: preview.byteCount,
+                            countStyle: .file
+                        )
+                )
+                Text(
+                    "完整性摘要 "
+                        + preview.shortIntegrityDigest
+                        + "…"
+                )
+                .monospaced()
+            }
+            .font(.caption)
+            .foregroundStyle(theme.paper)
+        }
+        .foregroundStyle(theme.paper)
+        .padding(16)
+        .background(theme.indigoDeep)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(theme.moss).frame(width: 6)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(preview.kind.title)预览，"
+                + "\(preview.recordCount) 条事实，"
+                + "\(preview.controlCount) 条控制记录，"
+                + "\(preview.attachmentCount) 个附件"
+        )
+        .accessibilityIdentifier(
+            "archive.export.preview"
+        )
+    }
+
+    private func metric(
+        _ value: Int,
+        _ label: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value, format: .number)
+                .font(
+                    theme.display(
+                        29,
+                        relativeTo: .title2
+                    )
+                )
+                .monospacedDigit()
+            Text(label)
+                .font(.caption.weight(.bold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 @MainActor
-struct ArchiveDataImportSheet: View {
+struct LegacyArchiveDataImportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(AppTheme.self) private var theme
@@ -182,21 +928,25 @@ struct ArchiveDataImportSheet: View {
     var body: some View {
         NavigationStack {
             V25EditorPage(
-                register: "DATA / IMPORT",
-                eyebrow: "DEVELOPMENT MERGE",
-                title: "试验 JSON 导入",
-                detail: "当前只按 ID 试验写入，没有 dataset、digest 或正式冲突处理；仅使用开发数据。",
+                register: "LEGACY V1 / IMPORT",
+                eyebrow: "DEBUG LAB ONLY",
+                title: "Legacy JSON v1 实验室",
+                detail:
+                    "这是旧版按 ID 合并器，与 Readable JSON v2 和完整备份无关；不得用于恢复真实资料。",
                 cancel: dismiss.callAsFunction
             ) {
                 if let importResult {
                     ArchiveImportReceipt(result: importResult)
                 } else if let backup {
-                    ArchiveTransferManifest(backup: backup, mode: .import)
+                    ArchiveTransferManifest(backup: backup)
 
                     V25SectionHeader(title: "文件内容", detail: selectedFilename ?? "JSON")
                     ArchiveTransferSummary(backup: backup)
 
-                    V25SectionHeader(title: "原型写入规则", detail: "仅供 DEBUG")
+                    V25SectionHeader(
+                        title: "Legacy v1 写入规则",
+                        detail: "仅供隔离的 DEBUG 测试"
+                    )
                     ArchiveMergeRules()
 
                     Button("改选其他备份") {
@@ -207,6 +957,11 @@ struct ArchiveDataImportSheet: View {
                 } else {
                     ArchiveImportPicker(action: { isChoosingFile = true })
                 }
+
+                V25PrivacyFooter(
+                    text:
+                        "此入口不会读取 Readable JSON v2 或完整备份，也不代表 Batch 7 恢复路径。请勿放入真实医疗资料。"
+                )
 
                 if let errorMessage {
                     Text(errorMessage)
@@ -226,7 +981,8 @@ struct ArchiveDataImportSheet: View {
                     )
                 } else if let backup {
                     V25SaveBar(
-                        title: "确认导入 \(backup.totalRecordCount) 条记录",
+                        title:
+                            "运行 Legacy v1 合并 \(backup.totalRecordCount) 条",
                         isEnabled: backup.totalRecordCount > 0,
                         accessibilityIdentifier: "archive.import.confirm",
                         action: importSelectedBackup
@@ -270,7 +1026,8 @@ struct ArchiveDataImportSheet: View {
         } catch {
             backup = nil
             selectedFilename = nil
-            errorMessage = "无法读取这个文件。请选择由 Unmanual 生成的 JSON 备份。"
+            errorMessage =
+                "无法读取这个 Legacy v1 文件。Readable JSON v2 和完整备份不会由此入口处理。"
         }
     }
 
@@ -285,31 +1042,25 @@ struct ArchiveDataImportSheet: View {
     }
 }
 
-private enum ArchiveTransferMode {
-    case export
-    case `import`
-}
-
 private struct ArchiveTransferManifest: View {
     @Environment(AppTheme.self) private var theme
 
     let backup: AppDataBackup
-    let mode: ArchiveTransferMode
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Rectangle()
-                .fill(mode == .export ? theme.mustard : theme.rose)
+                .fill(theme.rose)
                 .offset(x: 6, y: 6)
 
             VStack(alignment: .leading, spacing: 13) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(mode == .export ? "UNMANUAL BACKUP" : "BACKUP FOUND")
+                        Text("LEGACY V1 FOUND")
                             .font(theme.utility(10))
                             .tracking(1)
                             .foregroundStyle(theme.mustard)
-                        Text(mode == .export ? "可带走的本机副本" : "等待确认的备份")
+                        Text("等待确认的旧版测试文件")
                             .font(theme.display(24, relativeTo: .title2))
                     }
                     Spacer(minLength: 8)
@@ -463,15 +1214,15 @@ private struct ArchiveImportPicker: View {
                 .font(theme.utility(10))
                 .tracking(0.9)
                 .foregroundStyle(theme.vermilionText)
-            Text("先找到你的备份")
+            Text("选择 Legacy v1 测试文件")
                 .font(theme.display(27, relativeTo: .title2))
                 .foregroundStyle(theme.indigoDeep)
-            Text("支持由 Unmanual 导出的 JSON 文件。选中后这里只展示清单，不会立即改变本机记录。")
+            Text("仅支持旧版开发期 JSON v1。Readable JSON v2 和完整备份不会进入这个写入器；选中后先展示清单，不会立即改变记录。")
                 .font(.body)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("选择备份文件", action: action)
+            Button("选择 Legacy v1 文件", action: action)
                 .buttonStyle(V25PrimaryButtonStyle())
                 .accessibilityIdentifier("archive.import.chooseFile")
         }
@@ -523,27 +1274,6 @@ private struct ArchiveImportReceipt: View {
                 .monospacedDigit()
             Text(label).font(.caption.weight(.bold))
         }
-    }
-}
-
-private struct AppDataBackupDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
-
-    let data: Data
-
-    init(backup: AppDataBackup) throws {
-        data = try AppDataBackupService.encode(backup)
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
-        self.data = data
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        FileWrapper(regularFileWithContents: data)
     }
 }
 

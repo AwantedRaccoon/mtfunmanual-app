@@ -234,6 +234,33 @@ struct UnmanualApp: App {
                     }
                 )
                 .environment(
+                    \.portableRestoreAction,
+                    session
+                        .portableRestorePreparationService
+                        .map { service in
+                            PortableRestoreAction(
+                                makePlan: {
+                                    package,
+                                    mode in
+                                    try await service
+                                        .makePlan(
+                                            for: package,
+                                            mode: mode
+                                        )
+                                },
+                                confirm: {
+                                    package,
+                                    plan in
+                                    try await dataRuntime
+                                        .beginPortableRestore(
+                                            package: package,
+                                            plan: plan
+                                        )
+                                }
+                            )
+                        }
+                )
+                .environment(
                     \.attachmentMutationService,
                     session.attachmentMutationService
                 )
@@ -283,6 +310,33 @@ struct UnmanualApp: App {
                     }
                 )
                 .environment(
+                    \.portableRestoreAction,
+                    session
+                        .portableRestorePreparationService
+                        .map { service in
+                            PortableRestoreAction(
+                                makePlan: {
+                                    package,
+                                    mode in
+                                    try await service
+                                        .makePlan(
+                                            for: package,
+                                            mode: mode
+                                        )
+                                },
+                                confirm: {
+                                    package,
+                                    plan in
+                                    try await dataRuntime
+                                        .beginPortableRestore(
+                                            package: package,
+                                            plan: plan
+                                        )
+                                }
+                            )
+                        }
+                )
+                .environment(
                     \.attachmentMutationService,
                     session.attachmentMutationService
                 )
@@ -315,6 +369,14 @@ struct UnmanualApp: App {
             DataResetStatusView(kind: .restartRequired)
         case .resetRecovery:
             DataResetStatusView(kind: .recovery)
+        case .portableRestoreRestartRequired:
+            PortableRestoreStatusView(
+                kind: .restartRequired
+            )
+        case .portableRestoreRecovery:
+            PortableRestoreStatusView(
+                kind: .recovery
+            )
         }
     }
 
@@ -329,6 +391,10 @@ struct UnmanualApp: App {
             NavigationStack {
                 JourneyView()
             }
+        } else if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-archive-legacy-import"
+        ) {
+            LegacyArchiveDataImportSheet()
         } else if ProcessInfo.processInfo.arguments.contains("-unmanual-archive-import") {
             ArchiveDataImportSheet()
         } else if ProcessInfo.processInfo.arguments.contains("-unmanual-archive-export") {

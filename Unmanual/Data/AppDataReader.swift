@@ -218,6 +218,100 @@ struct AppDataReader: Sendable {
         }
     }
 
+    func visitSummarySnapshot(
+        configuration: VisitSummaryConfiguration,
+        generatedAt: Date = Date(),
+        displayTimeZoneIdentifier: String =
+            TimeZone.autoupdatingCurrent.identifier
+    ) async throws -> VisitSummarySnapshot {
+        try await withReadLease {
+            let overlay = try await storage
+                .dataControlTerminalOverlay()
+            let parentRecordOverlay = try await storage
+                .parentRecordTerminalOverlay()
+            return try await storage.visitSummarySnapshot(
+                configuration: configuration,
+                terminalOverlay: overlay,
+                parentRecordOverlay: parentRecordOverlay,
+                generatedAt: generatedAt,
+                displayTimeZoneIdentifier:
+                    displayTimeZoneIdentifier
+            )
+        }
+    }
+
+#if DEBUG
+    func confirmedVisitSummaryPDF(
+        frozen: VisitSummarySnapshot,
+        configuration: VisitSummaryConfiguration,
+        displayTimeZoneIdentifier: String =
+            TimeZone.autoupdatingCurrent.identifier
+    ) async throws -> Data {
+        try await withReadLease {
+            let current = try await self
+                .visitSummarySnapshotUnderCurrentLease(
+                    configuration: configuration,
+                    generatedAt: frozen.generatedAt,
+                    displayTimeZoneIdentifier:
+                        displayTimeZoneIdentifier
+                )
+            try VisitSummaryExportGate.validate(
+                frozen: frozen,
+                current: current
+            )
+            return try await MainActor.run {
+                try VisitSummaryPDFRenderer.render(frozen)
+            }
+        }
+    }
+
+    func confirmedVisitSummaryCSVPackage(
+        frozen: VisitSummarySnapshot,
+        configuration: VisitSummaryConfiguration,
+        displayTimeZoneIdentifier: String =
+            TimeZone.autoupdatingCurrent.identifier
+    ) async throws -> [String: Data] {
+        try await withReadLease {
+            let current = try await self
+                .visitSummarySnapshotUnderCurrentLease(
+                    configuration: configuration,
+                    generatedAt: frozen.generatedAt,
+                    displayTimeZoneIdentifier:
+                        displayTimeZoneIdentifier
+                )
+            try VisitSummaryExportGate.validate(
+                frozen: frozen,
+                current: current
+            )
+            return Dictionary(
+                uniqueKeysWithValues:
+                    VisitSummaryCSVEncoder.encode(frozen).map {
+                        ($0.filename, $0.data)
+                    }
+            )
+        }
+    }
+#endif
+
+    private func visitSummarySnapshotUnderCurrentLease(
+        configuration: VisitSummaryConfiguration,
+        generatedAt: Date,
+        displayTimeZoneIdentifier: String
+    ) async throws -> VisitSummarySnapshot {
+        let overlay = try await storage
+            .dataControlTerminalOverlay()
+        let parentRecordOverlay = try await storage
+            .parentRecordTerminalOverlay()
+        return try await storage.visitSummarySnapshot(
+            configuration: configuration,
+            terminalOverlay: overlay,
+            parentRecordOverlay: parentRecordOverlay,
+            generatedAt: generatedAt,
+            displayTimeZoneIdentifier:
+                displayTimeZoneIdentifier
+        )
+    }
+
 #if DEBUG
     func developmentBackup() async throws -> AppDataBackup {
         try await withReadLease {

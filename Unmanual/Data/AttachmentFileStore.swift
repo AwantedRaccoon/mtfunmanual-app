@@ -1008,6 +1008,40 @@ struct AttachmentFileStore: Sendable {
         return url
     }
 
+    func auditedCopy(
+        _ attachment: AttachmentSnapshot,
+        to destinationURL: URL
+    ) throws {
+        let sourceURL = try auditedFileURL(
+            for: attachment
+        )
+        guard !FileManager.default.fileExists(
+            atPath: destinationURL.path
+        ) else {
+            throw AttachmentFileStoreFailure.unsafePath
+        }
+        do {
+            try FileManager.default.copyItem(
+                at: sourceURL,
+                to: destinationURL
+            )
+            let snapshot = try PortableBackupFileAudit
+                .snapshot(destinationURL)
+            guard snapshot.byteCount
+                    == attachment.byteCount,
+                  snapshot.sha256Hex
+                    == attachment.sha256Hex else {
+                throw AttachmentFileStoreFailure
+                    .integrityMismatch
+            }
+        } catch {
+            try? FileManager.default.removeItem(
+                at: destinationURL
+            )
+            throw error
+        }
+    }
+
     func fileURL(forRelativePath relativePath: String) throws -> URL {
         guard !relativePath.hasPrefix("/"),
               !relativePath.split(separator: "/").contains("..") else {

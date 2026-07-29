@@ -47,9 +47,13 @@ final class AppDataSession {
     let attachmentMutationService: AttachmentMutationService
     let attachmentMutationRecoveryLatch: AttachmentMutationRecoveryLatch
     let dataInventoryService: DataInventoryProductionService?
+    let portablePackageCleanup:
+        PortablePackageCleanupCoordinator?
     let dataControlDeletionService: DataControlDeletionService?
     let dataResetPreparationService:
         DataResetPreparationService?
+    let portableRestorePreparationService:
+        PortableRestorePreparationService?
 
     init(
         store: BootstrappedAppDataStore,
@@ -101,9 +105,16 @@ final class AppDataSession {
             recoveryLatch: recoveryLatch,
             onRecoveryRequired: onAttachmentIntegrityFailure
         )
+        let portablePackageCleanup = store.layout.map {
+            PortablePackageCleanupCoordinator(layout: $0)
+        }
+        self.portablePackageCleanup =
+            portablePackageCleanup
         let dataInventoryService = DataInventoryProductionService(
             store: store,
             dataControlCoordinator: dataControlCoordinator,
+            portablePackageCleanup:
+                portablePackageCleanup,
             sessionReleaseProbe: releaseProbe
         )
         self.dataInventoryService = dataInventoryService
@@ -126,6 +137,26 @@ final class AppDataSession {
                 coordinator: dataControlCoordinator
             )
         }
+        self.portableRestorePreparationService =
+            dataInventoryService.map {
+#if targetEnvironment(simulator)
+                let verificationMode:
+                    StoreFileProtectionVerificationMode =
+                        .simulatorTestHarness
+#else
+                let verificationMode:
+                    StoreFileProtectionVerificationMode =
+                        .live
+#endif
+                return PortableRestorePreparationService(
+                    store: store,
+                    inventory: $0,
+                    coordinator: dataControlCoordinator,
+                    portablePackageCleanup:
+                        portablePackageCleanup,
+                    verificationMode: verificationMode
+                )
+            }
     }
 }
 
@@ -139,6 +170,8 @@ final class AppDataRuntime {
         case resetPreparing
         case resetRestartRequired
         case resetRecovery
+        case portableRestoreRestartRequired
+        case portableRestoreRecovery
     }
 
     private(set) var state: State = .opening
@@ -216,6 +249,38 @@ final class AppDataRuntime {
         state = .resetPreparing
     }
 
+    func beginPortableRestore(
+        package: AuditedPortableBackup,
+        plan: PortableImportPlan
+    ) async throws {
+        guard case let .ready(session) = state,
+              let service =
+                session
+                    .portableRestorePreparationService else {
+            throw PortableRestoreServiceError.unavailable
+        }
+        let prepared: PortableRestorePreparedOperation
+        do {
+            prepared = try await service.prepare(
+                auditedPackage: package,
+                plan: plan
+            )
+        } catch let error as PortableRestoreServiceError {
+            if error == .recoveryRequired {
+                openSequence += 1
+                state = .portableRestoreRecovery
+            }
+            throw error
+        }
+        guard prepared.journal.phase
+                == .restartRequired else {
+            throw PortableRestoreServiceError
+                .recoveryRequired
+        }
+        openSequence += 1
+        state = .portableRestoreRestartRequired
+    }
+
     func continueResetAfterSessionRelease() async {
         guard case .resetPreparing = state,
               !isContinuingReset,
@@ -285,6 +350,12 @@ final class AppDataRuntime {
             } catch is DataResetStateMachineError {
                 guard sequence == openSequence else { return }
                 state = .resetRecovery
+            } catch is PortableRestoreServiceError {
+                guard sequence == openSequence else { return }
+                state = .portableRestoreRecovery
+            } catch is PortableRestoreJournalError {
+                guard sequence == openSequence else { return }
+                state = .portableRestoreRecovery
             } catch let failure as AppDataFailure {
                 guard sequence == openSequence else { return }
                 state = .recovery(AppDataRecoveryState(reason: failure))
@@ -359,10 +430,35 @@ private actor AppDataBootstrapWorker {
                     .deletingLastPathComponent(),
                 storeLayout: urls.layout
             )
+            try await PortablePackageCleanupCoordinator
+                .recoverBeforeStoreOpen(
+                    layout: urls.layout
+                )
+            let portableJournalExists =
+                FileManager.default.fileExists(
+                    atPath:
+                        urls.layout
+                            .portableRestoreJournalURL
+                            .path
+                )
+            let resetJournalExists =
+                FileManager.default.fileExists(
+                    atPath: resetLayout.journalURL.path
+                )
+            guard !(portableJournalExists
+                && resetJournalExists) else {
+                throw PortableRestoreServiceError
+                    .recoveryRequired
+            }
             let openedStore: BootstrappedAppDataStore
-            if FileManager.default.fileExists(
-                atPath: resetLayout.journalURL.path
-            ) {
+            if portableJournalExists {
+                openedStore = try await
+                    PortableRestoreColdLaunchCoordinator(
+                        layout: urls.layout,
+                        verificationMode:
+                            .simulatorTestHarness
+                    ).open()
+            } else if resetJournalExists {
                 openedStore = try await
                     DataResetColdLaunchCoordinator(
                         layoutProvider: {
@@ -394,15 +490,47 @@ private actor AppDataBootstrapWorker {
                 layout.rootURL.deletingLastPathComponent(),
             storeLayout: layout
         )
+        try await PortablePackageCleanupCoordinator
+            .recoverBeforeStoreOpen(layout: layout)
         let resetJournalExists =
             FileManager.default.fileExists(
                 atPath: resetLayout.journalURL.path
             )
+        let portableJournalExists =
+            FileManager.default.fileExists(
+                atPath:
+                    layout.portableRestoreJournalURL.path
+            )
+        guard !(portableJournalExists
+            && resetJournalExists) else {
+            throw PortableRestoreServiceError
+                .recoveryRequired
+        }
+#if targetEnvironment(simulator)
+        let portableVerificationMode:
+            StoreFileProtectionVerificationMode =
+                .simulatorTestHarness
+#else
+        let portableVerificationMode:
+            StoreFileProtectionVerificationMode = .live
+#endif
         do {
+            if portableJournalExists {
+                return try await
+                    PortableRestoreColdLaunchCoordinator(
+                        layout: layout,
+                        verificationMode:
+                            portableVerificationMode
+                    ).open()
+            }
             return try await DataResetColdLaunchCoordinator(
                 layoutProvider: { layout }
             ).open()
         } catch {
+            if portableJournalExists {
+                throw PortableRestoreServiceError
+                    .recoveryRequired
+            }
             if resetJournalExists {
                 throw DataResetServiceFailure
                     .recoveryRequired

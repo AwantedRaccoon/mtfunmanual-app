@@ -30,6 +30,14 @@ targets:
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
         NSFaceIDUsageDescription: 用于解锁本机资料。
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.mtfbook.unmanual.complete-backup
+            UTTypeDescription: Unmanual Complete Backup
+            UTTypeConformsTo:
+              - com.apple.package
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - unmanualbackup
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
