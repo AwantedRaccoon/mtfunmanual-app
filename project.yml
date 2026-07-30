@@ -59,6 +59,11 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Unmanual/Resources/Unmanual.entitlements
         DEVELOPMENT_TEAM: ""
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        Release:
+          EXCLUDED_SOURCE_FILE_NAMES:
+            - medication-catalog-candidate-v1.json
+            - regimen-analysis-candidate-v1.json
     scheme:
       testTargets:
         - UnmanualTests

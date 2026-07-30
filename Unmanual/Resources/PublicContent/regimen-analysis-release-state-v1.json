@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1",
+  "status": "pendingHumanReviewAndClassification",
+  "contentPackVersion": "regimen-analysis-content-2026.07.30-candidate.2",
+  "ruleSetVersion": "regimen-analysis-rules-2026.07.30-candidate.1",
+  "message": "候选方案分析内容未完成真实人类内容复核、医疗复核和发行分类，因此 Release 不运行这套分析。",
+  "candidateResourceExcluded": true,
+  "medicalClassificationResolved": false,
+  "approvedResourceName": null
+}

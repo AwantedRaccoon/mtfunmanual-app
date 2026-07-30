@@ -6,7 +6,7 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 网站负责解释“这件事通常是什么”，App 负责帮助用户看见“这件事在我身上是怎样发生的”。完整知识内容仍由 [mtfbook.com](https://mtfbook.com/) 提供。
 
-> **当前状态（2026-07-29）**
+> **当前状态（2026-07-30）**
 >
 > - App 版本：`1.0`（build `1`）；`V2.5` 只是内部视觉迭代名。
 > - 工程阶段：Batch 0 已完成；Batch 1 的本地实现与 Simulator 自动化已完成，但整体完成门禁尚未关闭；Batch 2、Batch 3、Batch 5、正式首次设置、HRT 历程生命周期、Batch 5 后续专项、Batch 6 与 Batch 7，均已完成本地实现。Batch 4 库存不进入 App 1.0，保留阶段编号但后置为需求验证项。
@@ -127,14 +127,16 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 | 应用锁、最近任务遮挡与全 App 数据控制 | 已完成（Simulator / 自动化范围） | V11/V12、LocalAuthentication、非 active 遮挡、54-model manifest、关联逻辑删除、exclusive reset 与两次启动重置恢复 |
 | 就诊摘要、PDF/CSV 与完整备份 | 已完成（Simulator / 自动化范围；Release 外流门禁待验证） | 预览优先的就诊摘要、Readable JSON v2、含附件 package、完整性审计、恢复/替换计划、inactive generation、journal 续做与 pointer-last 激活；Files 导入/导出只在 DEBUG/internal 暴露 |
 | 库存与 lot ledger | 已移出 App 1.0 | 不是遗漏或发布待办；只有真实需求得到验证并重新立项后才会评估 |
-| 公共内容、确定性分析与发布硬化 | 计划中 | 分别属于 Batch 8A、8B 与 Batch 9，详见下方 Roadmap |
+| Batch 8A 构建期药品目录 | 候选实现已落地（Debug/Test；Release 关闭） | 33 个精确成分、31 个记录产品、44 个待监管核验 presentation、版本化完整性快照、来源/许可/digest validator 与逐条监管证据门禁 |
+| Batch 8B 确定性方案分析 | 候选实现已落地（Debug/Test；Release 关闭） | 精确 ingredient ID、瞬态安全边界、逐组成项解释、来源卡/产品规则卡和规则版本；Release 精确依赖已批准的 8A 目录，不解析剂量或化验 |
+| Batch 9 发布硬化 | 计划中 | Files 外流、真机、签名 RC、发行分类与内容批准等发布门禁 |
 
 ### 已闭环的当前能力
 
 - 正式 onboarding：先说明本地存储、系统管理备份和当前尚未实现的隐私能力，再建立必需封存方案；开始日、提醒和 Countdown 可跳过，完成后可从“档案”再次进入相关设置；
 - “今天”：基于 HRT 多周期事实显示当前周期日，以及从首次开始后经过的自然日（包括暂停日），并提供暂停/恢复入口；同时展示完整 Countdown、快速记录和按封存方案派生的执行台账，可记录已使用/跳过、追加纠错、稍后提醒并管理本地提醒；
 - “旅程”：通过统一时间线回看 HRT 历程、化验、状态、执行、方案和终态 Countdown 事件；可新增结构化化验与状态记录、查看单项趋势、追加纠错或在关联影响复核后终态删除，并管理当前及历史目标日；
-- “方案”：用 civil date 区分当前、未来和历史版本；方案组成可保存为草稿，经变更与历史关联影响核对后封存；
+- “方案”：用 civil date 区分当前、未来和历史版本；方案组成可保存为草稿，经变更与历史关联影响核对后封存；Debug/Test 候选目录可按 33 个精确成分记录版本化 product snapshot，当前与历史封存版本可用 Batch 8B 的当前候选规则生成教育性讨论材料；
 - “检查”：保留 legacy 入口兼容，V5 `LabSample` / `LabResult` 是不可变原始事实，V10 lifecycle leaf 是当前有效投影；
 - “档案”：查看由同一份 54-model manifest 驱动的本机数据清单与外部边界，管理应用锁、关联删除和全部数据重置，整理就诊摘要并生成 PDF/CSV；Readable JSON v2、含附件完整备份和恢复/替换界面已完成 internal 验证，但对 Files 的入口在 Release 中保持隐藏，Legacy JSON v1 合并器继续隔离；
 - 最近任务遮挡：scene 离开 active 时以无动画中性表面覆盖全部 App 内容；它不等于温和模式，也不承诺阻止 active 状态截图、录屏或清除系统备份；
@@ -151,8 +153,8 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 尚未实现或尚未闭环的主要能力包括：
 
 - HRT 任意历史周期的 append-only 纠错，以及是否需要让方案或提醒随暂停联动，仍需另立合同；当前暂停只改变历程状态，不改写方案、执行或提醒事实；
-- 经许可与人工复核的正式药品目录、构建期公共内容包、离线资料搜索与收藏；
-- 带来源、适用边界和规则版本的确定性方案分析；
+- 8A/8B 候选内容仍需真实人类内容复核、医疗内容复核、首发地区与医疗分析发行分类；门禁关闭前 Release 目录与方案分析均保持关闭；
+- 离线资料的全局搜索、收藏和文章阅读器尚未立项为已实现能力；8B 当前只提供与封存方案关联的来源卡；
 - 对外 Files 导入/导出的发行政策、第三方文件提供方失败/取消矩阵，以及真机数据保护与完整备份恢复；
 - 真机通知、系统备份恢复、最低设备性能、完整辅助技术人工矩阵，以及签名 Archive、隐私/医疗分类、内容授权等发布门禁。
 
@@ -160,10 +162,12 @@ Unmanual 是一个轻量、私密、可以长期使用的个人 HRT 记录工具
 
 ## 最近验证
 
-2026-07-29 当前本地 Schema V12 Simulator / 自动化基线：
+2026-07-30 当前本地 Schema V12 Simulator / 自动化基线：
 
-- generic iOS Simulator 无签名 Debug 与 Release build 均通过；
-- 单元、集成与多尺寸渲染 `791/791`、完整 UI `59/59` 通过，合计 `850/850`，失败 `0`、跳过 `0`；
+- 2026-07-30 Batch 8A/8B 最新定向目录、来源、严格 schema、快照完整性、确定性规则与 Release 合同合计 `54/54` 通过；候选范围为 33 个精确成分、31 个记录产品和 44 个 `candidateUnverified` presentation。候选目录为 candidate.2；盐酯使用稳定母体 ID，剂型与标签途径分离，Release 只接受逐条 `regulatoryVerified` 且绑定同辖区、同监管机构产品来源的 presentation；
+- 2026-07-30 Batch 8B 真实当前与两个独立历史入口、关闭重进、内容不可用、目录检索和自定义回退 UI `7/7` 通过；同输入确定性、冻结停止顺序、逐层严格 JSON schema、33 个 ingredient profile 全覆盖、逐组成项解释、来源与产品规则分离、只要求实际显示的安全问题、未知/损坏/语义漂移快照 fail closed、固定无参数外链，以及 8B Release 对已批准 8A 版本、digest 与成分集合的精确依赖均有回归。这些工程证据不能替代真实人类内容与医疗复核；
+- generic iOS Simulator 无签名 Debug build 与 Release Simulator build 均通过；
+- 当前完整测试套件（单元、集成、多尺寸渲染与 UI）合计 `910/910` 通过，失败 `0`、跳过 `0`；其中单元/集成/渲染 `844/844`、真实 UI `66/66`。既有 V5 migration fixture 的低概率 WAL checkpoint 竞态已改为独立冻结副本，原始 main/WAL 字节哈希合同仍保留；
 - Batch 7 回归覆盖就诊摘要范围与脱敏选择、仅含附件的化验披露、中文/emoji 单条长记录 PDF 分页、CSV 精确格式，以及在同一 read lease 内复核身份并生成最终 PDF/CSV/JSON/完整备份字节；Readable JSON v2 覆盖 54-record/9-control schema、未知字段与重复身份拒绝、大小与单模型 250,000 条上限；附件 package 覆盖与正式附件存储一致的 20 MiB 单文件、image/PDF 类型、每 owner 6 个/60 MiB 上限，以及路径、symlink、hardlink 和摘要审计；
 - 恢复/替换回归另覆盖写 journal 前与 durable staging 后各一次隔离内存 V12 语义预检、冲突计划过期与乱序请求门禁、durable journal 后旧会话立即失效、来源状态变化拒绝、`activationCleanupPending` 及所有 durable 阶段的冷启动续做；generation pointer、migration journal、cleanup journal 与 restore journal 采用内容寻址的确定性原子 sibling，测试覆盖 pre-swap、post-swap、old-cleanup 冷重放和 digest 不匹配的外来条目保留，语义无效 canonical 会映射为各自的领域损坏错误。restore journal v1 覆盖 source-active partial target、target-active restart、合同篡改和迁移持久化失败重放。临时 package 使用带 `active / cleanupPending` 生命周期的持久化 ownership intent，当前会话的泛化重试不会删除仍在构建或仍由界面持有的 active package，显式丢弃会先持久化清理状态，崩溃遗留则在 ModelContainer 打开前精确回放。恢复 staging 的创建、写入、readback 与 exact-tree/root-digest 审计保持在同一次 no-follow 目录 FD lease 内；激活窗口把 App 自有目录与 Store/Files 普通文件规范化并设为只读，在 pointer 写入前后复核祖先及 Files root 的 identity/mode/mtime/ctime，以及常规文件的 inode、链接数、大小、mode、时间戳和流式 SHA-256 内容封印；旧 descriptor 的同 inode 内容改写、文件或目录 mode/ctime ABA 会拒绝激活并保持来源 pointer，退出窗口后精确恢复 `0700/0600`。清理在 quarantine 前冻结整棵已登记子树的 inode/type snapshot，并在 mutation 后及逐项 `unlinkat` 前复核；祖先、目标或子项 symlink、未知类型、验证后 foreign replacement 与新增条目都会零外部写入/删除失败，未登记 sibling 不会被扫描或删除。完整备份预览不建立 wrapper，确认时恰好建立一个；普通文件、目录和内部节点限额分离，2,000 附件形成的 4,004 节点压力 fixture 通过且临时 descriptor 峰值为 3。导出快照回归证明 `.withoutMapping` 取得的自有 FileWrapper 在来源 manifest 被同 inode 改写后仍保留原始 bytes，磁盘 package 与 ownership intent 在交给 UI 前已清理；边界测试覆盖 64 MiB 内容 bytes 上限及连续失败清理。真实 UI 覆盖就诊摘要生成/修改/重入、JSON v2 与完整备份预览、外流边界、取消、临时文件清理，以及确认导出时状态已变化则在打开 Files 前终止；
 - Batch 6 回归覆盖 V10 → V11 → V12、新装与 legacy adoption、应用锁状态机和过期认证回调、最近任务遮挡、54-model manifest、完整性失败语义、五类关联删除的真实持久化重开、通知点击后等待解锁再路由、exclusive reset、首次与后续 journal 写盘失败、各阶段续做、清理失败、quarantine 路径与 symlink 防护、旧任务失效、全新 dataset 身份与 post-audit；真实 UI 另覆盖逐项删除取消/确认/重开，以及整库重置取消/确认/冷启动/再次重开；
@@ -193,8 +197,8 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 | Batch 5 后续专项 / Schema V10 | 已完成（Simulator / 自动化范围） | 化验趋势、确定性同维单位换算、化验/状态父记录 append-only 纠错与终态删除 |
 | **Batch 6** | **已完成（Simulator / 自动化范围）** | 应用锁、最近任务遮挡、全 App 数据清单、关联删除与全部重置 |
 | **Batch 7** | **已完成（Simulator / 自动化范围；Release 外流门禁待 Batch 9）** | 就诊摘要、PDF/CSV、Readable JSON v2、含附件完整备份与安全恢复/替换 |
-| Batch 8A | 计划中 | 构建期公共内容包 |
-| Batch 8B | 计划中 | 确定性分析 |
+| Batch 8A | 候选实现已落地；Release 待真实人类内容复核 | 构建期药品目录、来源/许可/digest 门禁、版本化选择快照 |
+| Batch 8B | 候选实现已落地；Release 待内容/医疗复核与发行分类 | 确定性摘要、停止分支、讨论卡、来源卡和规则版本 |
 | Batch 9 | 计划中 | 发布硬化与真机门禁 |
 
 ## GitHub 与 App Store 状态
@@ -202,7 +206,7 @@ Batch 3 的今日执行与基础本地提醒由 ADR 0006 冻结，Countdown 生�
 “源码可以提交到 GitHub”和“App 可以上架”是两件事：
 
 - **GitHub 阶段快照**：许可证、AppIcon 来源、Batch 0 合同、Batch 1–3 工程阶段报告、Batch 5 的化验/状态/附件/统一时间线、Batch 3 Countdown、库存后置、正式 onboarding、HRT 生命周期、化验趋势、父记录生命周期、Batch 6 与 Batch 7 按模块形成阶段报告。内部工作日志、构建产物、Simulator 标识和本机路径不进入公开提交。阶段快照不是 App Release；
-- **App Store**：当前不 ready。主要剩余项是 Batch 8A/8B 的经许可公共内容与确定性分析，以及 Batch 9 的 Files 外流门禁、真机、签名 Release Candidate、发行主体/地区、隐私与医疗分类、内容授权等发布门禁；库存不再是 1.0 发布前置条件；
+- **App Store**：当前不 ready。Batch 8A/8B 的候选工程实现已经落地，但正式内容仍需真实人类内容/医疗复核、首发地区与医疗分析发行分类；Batch 9 还要关闭 Files 外流、真机、签名 Release Candidate、发行主体、隐私声明和内容授权等门禁。库存不再是 1.0 发布前置条件；
 - 任何 `git push`、TestFlight 上传或 App Store 提交都需要当次明确授权，不由本地构建或测试自动触发。
 
 ## 产品原则
@@ -290,7 +294,7 @@ docs/              产品、视觉与技术决策
 project.yml        XcodeGen 工程定义
 ```
 
-历史早期进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)；它不是当前状态事实源。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与基础本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，化验、状态、附件与个人时间线见 [ADR 0007](docs/architecture/0007-labs-status-attachments-and-personal-timeline.md)，Countdown 生命周期与统一本地提醒见 [ADR 0008](docs/architecture/0008-countdown-lifecycle-and-unified-local-reminders.md)，库存后置决策见 [ADR 0009](docs/architecture/0009-inventory-deferred-from-app-1.0.md)，正式 onboarding 与 V8 采用策略见 [ADR 0010](docs/architecture/0010-formal-onboarding-and-v8-adoption.md)，HRT 历程生命周期见 [ADR 0011](docs/architecture/0011-hrt-journey-lifecycle-and-multiple-cycles.md)，化验趋势与确定性单位换算见 [ADR 0012](docs/architecture/0012-lab-trends-and-deterministic-unit-conversion.md)，父记录纠错与删除见 [ADR 0013](docs/architecture/0013-parent-record-correction-and-deletion.md)，应用锁与最近任务遮挡见 [ADR 0014](docs/architecture/0014-batch-6-app-lock-and-privacy-shield.md)，全 App 数据清单、关联删除与全部重置见 [ADR 0015](docs/architecture/0015-batch-6-data-inventory-deletion-and-reset.md)，Schema V11/V12 与 generation retention 见 [ADR 0016](docs/architecture/0016-schema-v11-and-generation-retention.md)，报告、便携数据与完整备份见 [ADR 0017](docs/architecture/0017-batch-7-reports-and-portable-data.md)，工程约束见 [AGENTS.md](AGENTS.md)。
+历史早期进度见 [Stage 0–2 开发快照](docs/progress/0001-stage-0-2-development-snapshot.md)；它不是当前状态事实源。产品范围见 [产品规划方案 1.0](docs/product/MTF不全书-App-产品规划方案-1.0.md)，本地后端合同见 [ADR 0002](docs/architecture/0002-batch-0-contract-freeze.md)，数据安全底座见 [ADR 0003](docs/architecture/0003-data-safety-foundation.md)，性能证据边界见 [ADR 0004](docs/architecture/0004-batch-1-performance-evidence-protocol.md)，时间与方案核心见 [ADR 0005](docs/architecture/0005-time-and-regimen-core.md)，今日执行与基础本地提醒见 [ADR 0006](docs/architecture/0006-today-execution-and-local-reminders.md)，化验、状态、附件与个人时间线见 [ADR 0007](docs/architecture/0007-labs-status-attachments-and-personal-timeline.md)，Countdown 生命周期与统一本地提醒见 [ADR 0008](docs/architecture/0008-countdown-lifecycle-and-unified-local-reminders.md)，库存后置决策见 [ADR 0009](docs/architecture/0009-inventory-deferred-from-app-1.0.md)，正式 onboarding 与 V8 采用策略见 [ADR 0010](docs/architecture/0010-formal-onboarding-and-v8-adoption.md)，HRT 历程生命周期见 [ADR 0011](docs/architecture/0011-hrt-journey-lifecycle-and-multiple-cycles.md)，化验趋势与确定性单位换算见 [ADR 0012](docs/architecture/0012-lab-trends-and-deterministic-unit-conversion.md)，父记录纠错与删除见 [ADR 0013](docs/architecture/0013-parent-record-correction-and-deletion.md)，应用锁与最近任务遮挡见 [ADR 0014](docs/architecture/0014-batch-6-app-lock-and-privacy-shield.md)，全 App 数据清单、关联删除与全部重置见 [ADR 0015](docs/architecture/0015-batch-6-data-inventory-deletion-and-reset.md)，Schema V11/V12 与 generation retention 见 [ADR 0016](docs/architecture/0016-schema-v11-and-generation-retention.md)，报告、便携数据与完整备份见 [ADR 0017](docs/architecture/0017-batch-7-reports-and-portable-data.md)，构建期药品目录见 [ADR 0018](docs/architecture/0018-batch-8a-medication-catalog.md)，确定性方案分析见 [ADR 0019](docs/architecture/0019-batch-8b-deterministic-regimen-analysis.md)，工程约束见 [AGENTS.md](AGENTS.md)。
 
 ## 参与贡献
 

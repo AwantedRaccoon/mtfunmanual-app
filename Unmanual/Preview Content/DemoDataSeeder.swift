@@ -15,6 +15,9 @@ enum DemoDataSeeder {
         if arguments.contains("-unmanual-onboarding-eligible-regimen") {
             try? await seedTodayExecution(container: container)
         }
+        if arguments.contains("-unmanual-regimen-analysis-fixture") {
+            try? await seedRegimenAnalysis(container: container)
+        }
         if arguments.contains("-unmanual-countdown-due") {
             try? await seedDueCountdown(container: container)
         }
@@ -151,6 +154,129 @@ enum DemoDataSeeder {
                 draftDigest: preview.draftDigest,
                 committedAt: now
             )
+        )
+    }
+
+    private static func seedRegimenAnalysis(
+        container: ModelContainer
+    ) async throws {
+        let context = container.mainContext
+        guard try context.fetchCount(
+            FetchDescriptor<RegimenPlanVersionRecord>()
+        ) == 0 else {
+            return
+        }
+
+        guard let catalogEntry = MedicationCatalog.entries.first(
+            where: { $0.id == "estradiol" }
+        ),
+            let catalogProduct = catalogEntry.products.first(
+                where: { $0.id == "record.estradiol.oral-tablet" }
+            ) else {
+            return
+        }
+        let medicationDraft = catalogEntry.draft(for: catalogProduct)
+
+        let now = Date()
+        let timeZoneIdentifier = TimeZone.autoupdatingCurrent.identifier
+        let calendar = Calendar.autoupdatingCurrent
+        let writer = AppWriteActor(modelContainer: container)
+        let versionIDs = [
+            UUID(
+                uuidString: "99000000-0000-0000-0000-000000000001"
+            )!,
+            UUID(
+                uuidString: "99000000-0000-0000-0000-000000000002"
+            )!,
+            UUID(
+                uuidString: "99000000-0000-0000-0000-000000000003"
+            )!
+        ]
+
+        func civilDate(daysFromNow: Int) throws -> CivilDateFact {
+            let date = calendar.date(
+                byAdding: .day,
+                value: daysFromNow,
+                to: now
+            ) ?? now
+            return try HistoricalTimestamp.captured(
+                instant: date,
+                timeZoneIdentifier: timeZoneIdentifier,
+                provenance: .captured
+            ).localDate
+        }
+
+        func sealVersion(
+            index: Int,
+            daysFromNow: Int,
+            previousVersionID: UUID?
+        ) async throws {
+            let draftID = versionIDs[index]
+            try await writer.saveRegimenDraft(
+                SaveRegimenDraftCommand(
+                    recordID: draftID,
+                    previousVersionID: previousVersionID,
+                    code: "R-8B-0\(index + 1)",
+                    title: index == 2
+                        ? "当前测试方案"
+                        : "历史测试方案 \(index + 1)",
+                    effectiveStartDate: try civilDate(
+                        daysFromNow: daysFromNow
+                    ),
+                    changeReason: "DEBUG Batch 8B UI fixture",
+                    items: [
+                        RegimenItemInput(
+                            catalogProductID: medicationDraft.catalogID,
+                            catalogVersion: medicationDraft.catalogVersion,
+                            displayName: medicationDraft.name,
+                            genericName: medicationDraft.englishName,
+                            dosageForm: medicationDraft.dosageForm,
+                            route: medicationDraft.route,
+                            doseOriginal: "用户原文",
+                            unitOriginal: "原单位",
+                            productSnapshot: medicationDraft.productSnapshot,
+                            schedule: RegimenScheduleInput(
+                                kind: .dailyTimes,
+                                localTimes: "08:00",
+                                timeZoneBehavior: .floatingLocal
+                            )
+                        )
+                    ],
+                    committedAt: now.addingTimeInterval(
+                        TimeInterval(index)
+                    )
+                )
+            )
+            let preview = try await writer.previewRegimenChange(
+                draftID: draftID
+            )
+            try await writer.sealRegimenDraft(
+                SealRegimenDraftCommand(
+                    draftID: draftID,
+                    expectedNextLocalRevision:
+                        preview.expectedNextLocalRevision,
+                    draftDigest: preview.draftDigest,
+                    committedAt: now.addingTimeInterval(
+                        TimeInterval(index) + 0.5
+                    )
+                )
+            )
+        }
+
+        try await sealVersion(
+            index: 0,
+            daysFromNow: -60,
+            previousVersionID: nil
+        )
+        try await sealVersion(
+            index: 1,
+            daysFromNow: -30,
+            previousVersionID: versionIDs[0]
+        )
+        try await sealVersion(
+            index: 2,
+            daysFromNow: 0,
+            previousVersionID: versionIDs[1]
         )
     }
 

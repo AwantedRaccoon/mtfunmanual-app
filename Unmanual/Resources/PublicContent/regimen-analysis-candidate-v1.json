@@ -1,0 +1,1032 @@
+{
+  "manifest": {
+    "schemaVersion": "1",
+    "contentPackVersion": "regimen-analysis-content-2026.07.30-candidate.2",
+    "ruleSetVersion": "regimen-analysis-rules-2026.07.30-candidate.1",
+    "requiredCatalogVersion": "medication-catalog-2026.07.30-candidate.2",
+    "requiredCatalogContentDigest": "0c510f8f16498754b925ba75493707473c541c9a07de6c089adc01c1dde5362c",
+    "generatedAt": "2026-07-30",
+    "coverageStatement": "只按 Batch 8A 精确 ingredient ID 整理已封存方案；不解析剂量、化验值或适用性。",
+    "contentDigest": "72b1069d026e2e894abf4123a9884aa4f9749cd972ad05ceb9749d34667aa911",
+    "requiredIngredientIDs": [
+      "bicalutamide",
+      "buserelin-acetate",
+      "conjugated-estrogens",
+      "cyproterone-acetate",
+      "degarelix-acetate",
+      "drospirenone",
+      "dutasteride",
+      "dydrogesterone",
+      "elagolix",
+      "esterified-estrogens",
+      "estetrol",
+      "estradiol",
+      "estradiol-acetate",
+      "estradiol-benzoate",
+      "estradiol-cypionate",
+      "estradiol-valerate",
+      "estriol",
+      "ethinyl-estradiol",
+      "finasteride",
+      "flutamide",
+      "gonadorelin",
+      "goserelin-acetate",
+      "histrelin-acetate",
+      "leuprolide-acetate",
+      "medroxyprogesterone-acetate",
+      "nafarelin-acetate",
+      "nilutamide",
+      "norethindrone-acetate",
+      "progesterone",
+      "relugolix",
+      "spironolactone",
+      "triptorelin-acetate",
+      "triptorelin-pamoate"
+    ],
+    "globalBoundaryCardIDs": [
+      "boundary.educational-only",
+      "boundary.no-lab-interpretation"
+    ],
+    "limitedCardIDs": [
+      "confirmation.unmapped"
+    ],
+    "review": {
+      "status": "candidate",
+      "ownerRole": "产品负责人和合格医疗内容复核人",
+      "contentReviewerDisplayName": null,
+      "medicalReviewerDisplayName": null,
+      "completedAt": null,
+      "scope": "全部规则、33 个成分 profile、来源卡、停止文案与适用边界"
+    },
+    "medicalClassificationStatus": "pending"
+  },
+  "sources": [
+    {
+      "id": "cdc-vte-2025",
+      "institution": "U.S. Centers for Disease Control and Prevention",
+      "title": "About Venous Thromboembolism",
+      "versionOrPublishedAt": "2025-03-05",
+      "officialURL": "https://www.cdc.gov/blood-clots/about/",
+      "retrievedAt": "2026-07-30",
+      "applicablePopulation": "一般公众；仅用于血栓与及时就医边界",
+      "applicableRegions": [
+        "general"
+      ],
+      "licenseIdentifier": "U.S. Government work; link-first candidate use",
+      "licenseURL": "https://www.cdc.gov/other/agencymaterials.html",
+      "redistribution": "publicDomain",
+      "attributionText": "Source: U.S. Centers for Disease Control and Prevention",
+      "boundary": "不能诊断用户存在血栓，也不能据此决定药物、途径或用量。"
+    },
+    {
+      "id": "ema-cyproterone-2020",
+      "institution": "European Medicines Agency",
+      "title": "Cyproterone-containing medicinal products referral",
+      "versionOrPublishedAt": "2020-03-27 / updated 2020-05-20",
+      "officialURL": "https://www.ema.europa.eu/en/medicines/human/referrals/cyproterone-containing-medicinal-products",
+      "retrievedAt": "2026-07-30",
+      "applicablePopulation": "欧盟含醋酸环丙孕酮药品的监管安全语境",
+      "applicableRegions": [
+        "EU"
+      ],
+      "licenseIdentifier": "EMA website legal notice; link-only candidate use",
+      "licenseURL": "https://www.ema.europa.eu/en/about-us/about-website/legal-notice",
+      "redistribution": "linkOnly",
+      "attributionText": null,
+      "boundary": "不能泛化为其他地区标签、个人因果关系或用药动作。"
+    },
+    {
+      "id": "endocrine-society-gender-incongruence-2017",
+      "institution": "Endocrine Society",
+      "title": "Endocrine Treatment of Gender-Dysphoric/Gender-Incongruent Persons",
+      "versionOrPublishedAt": "JCEM 2017 / resource page updated 2024-10-25",
+      "officialURL": "https://www.endocrine.org/clinical-practice-guidelines/gender-dysphoria-gender-incongruence",
+      "retrievedAt": "2026-07-30",
+      "applicablePopulation": "寻求跨性别内分泌照护的成人与青少年；临床专业框架",
+      "applicableRegions": [
+        "international-framework"
+      ],
+      "licenseIdentifier": "Copyright; link-only",
+      "licenseURL": "https://www.endocrine.org/products-and-services/licensing",
+      "redistribution": "linkOnly",
+      "attributionText": null,
+      "boundary": "上位临床框架不能证明某个个人方案适用、安全、有效或在当地获批。"
+    },
+    {
+      "id": "nlm-medlineplus-emergency-services-2026",
+      "institution": "U.S. National Library of Medicine",
+      "title": "Emergency Medical Services",
+      "versionOrPublishedAt": "updated 2026-05-24",
+      "officialURL": "https://medlineplus.gov/emergencymedicalservices.html",
+      "retrievedAt": "2026-07-30",
+      "applicablePopulation": "一般公众；仅用于急性、可能危及生命情况的及时求助边界",
+      "applicableRegions": [
+        "general",
+        "US-emergency-number-context"
+      ],
+      "licenseIdentifier": "U.S. National Library of Medicine public-domain health topic content",
+      "licenseURL": "https://medlineplus.gov/about/using/usingcontent/",
+      "redistribution": "publicDomain",
+      "attributionText": "Source: MedlinePlus, U.S. National Library of Medicine",
+      "boundary": "只支持不要等待 App、应联系当地急救服务的通用边界；不能诊断急症，也不能解释药品风险。"
+    },
+    {
+      "id": "nlm-dailymed-about-2026",
+      "institution": "U.S. National Library of Medicine",
+      "title": "About DailyMed",
+      "versionOrPublishedAt": "retrieved 2026-07-30",
+      "officialURL": "https://dailymed.nlm.nih.gov/dailymed/about-dailymed.cfm",
+      "retrievedAt": "2026-07-30",
+      "applicablePopulation": "需要核对美国药品 submitted in-use labeling 的读者",
+      "applicableRegions": [
+        "US"
+      ],
+      "licenseIdentifier": "NLM website; link-only",
+      "licenseURL": "https://www.nlm.nih.gov/web_policies.html",
+      "redistribution": "linkOnly",
+      "attributionText": null,
+      "boundary": "DailyMed 也包含未批准内容，且 in-use labeling 不一定等同最新 FDA-approved labeling。"
+    },
+    {
+      "id": "wpath-soc8-2022",
+      "institution": "World Professional Association for Transgender Health",
+      "title": "Standards of Care for the Health of Transgender and Gender Diverse People, Version 8",
+      "versionOrPublishedAt": "2022 / DOI 10.1080/26895269.2022.2100644",
+      "officialURL": "https://wpath.org/publications/soc8/",
+      "retrievedAt": "2026-07-30",
+      "applicablePopulation": "跨性别与性别多元人群；跨学科照护框架",
+      "applicableRegions": [
+        "international-framework"
+      ],
+      "licenseIdentifier": "Article-specific terms unverified; link-only",
+      "licenseURL": "https://www.tandfonline.com/terms-and-conditions",
+      "redistribution": "linkOnly",
+      "attributionText": null,
+      "boundary": "Open Access 不自动等于允许复制或改编；不能据此生成个人方案或用量结论。"
+    }
+  ],
+  "cards": [
+    {
+      "id": "boundary.educational-only",
+      "kind": "boundary",
+      "evidenceBasis": "externalAuthority",
+      "title": "这是一份讨论材料",
+      "body": "页面只整理你已经记录的方案，并指出公开资料里的上位讨论主题。它不判断方案是否适合你，也不替代医生或药师。",
+      "boundary": "任何用药决定都需要结合个人情况和当地正式标签由医疗专业人员处理。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 900
+    },
+    {
+      "id": "boundary.no-lab-interpretation",
+      "kind": "boundary",
+      "evidenceBasis": "productRule",
+      "title": "不会自动解读化验",
+      "body": "App 不读取化验数值来判断治疗是否充分，也不能确认你保存的样本是否包含某个讨论项目。",
+      "boundary": "当前没有可用于医疗规则的正式 analyte stable ID；名称、简称和 code 都可能被用户修改。",
+      "sourceIDs": [],
+      "sortOrder": 910
+    },
+    {
+      "id": "confirmation.exact-label",
+      "kind": "confirmation",
+      "evidenceBasis": "externalAuthority",
+      "title": "核对药盒与当地正式标签",
+      "body": "带上药盒、处方或药房标签，核对精确成分、剂型、途径、地区和产品身份。目录记录本身不能证明当地批准或当前在售。",
+      "boundary": "美国 DailyMed 只能帮助定位部分 submitted in-use labeling，且有自己的批准状态边界。",
+      "sourceIDs": [
+        "nlm-dailymed-about-2026"
+      ],
+      "sortOrder": 300
+    },
+    {
+      "id": "confirmation.fertility",
+      "kind": "confirmation",
+      "evidenceBasis": "externalAuthority",
+      "title": "生育力相关事项",
+      "body": "如果生育力保存与你有关，可以把是否已经讨论过、目前是否仍需讨论写进就诊问题。",
+      "boundary": "App 不知道你的意愿、既往处置、生殖器官情况或是否仍处在开始治疗之前。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 310
+    },
+    {
+      "id": "confirmation.unmapped",
+      "kind": "confirmation",
+      "evidenceBasis": "productRule",
+      "title": "当前只能核对原始记录",
+      "body": "方案中存在自定义条目、未知成分或尚未建立精确医疗对应的成分。App 保留原文，但不会按药名相似度猜测。",
+      "boundary": "补充药盒或处方上的精确信息后，仍需等待相应来源和人工复核进入规则包。",
+      "sourceIDs": [],
+      "sortOrder": 320
+    },
+    {
+      "id": "framework.antiandrogen-context",
+      "kind": "framework",
+      "evidenceBasis": "externalAuthority",
+      "title": "抗雄激素相关记录属于完整方案的一部分",
+      "body": "公开临床框架把抗雄激素与其余方案、个人情况和持续随访放在一起讨论；App 只建立精确成分到讨论主题的对应。",
+      "boundary": "这不表示需要使用、继续使用或比较任何药物，也不判断某个产品在当地获批。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 115
+    },
+    {
+      "id": "framework.progestogen-context",
+      "kind": "framework",
+      "evidenceBasis": "externalAuthority",
+      "title": "孕激素相关记录属于上位讨论语境",
+      "body": "当前来源包只确认它需要放回完整方案和临床情境中讨论，不把精确成分解释为常规选择或必要组成。",
+      "boundary": "不同成分、产品、地区和用途不能互相替代。",
+      "sourceIDs": [
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 120
+    },
+    {
+      "id": "framework.puberty-suppression",
+      "kind": "framework",
+      "evidenceBasis": "externalAuthority",
+      "title": "GnRH 项目需要专科语境",
+      "body": "公开框架把青春期抑制和青少年内分泌照护放在有相关经验的多学科团队中。App 只能识别记录里的精确成分。",
+      "boundary": "同一成分也可能存在成人或其他适应证产品；App 不据此判断用途。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 110
+    },
+    {
+      "id": "framework.record-only",
+      "kind": "framework",
+      "evidenceBasis": "externalAuthority",
+      "title": "仅建立记录对应",
+      "body": "当前规则包没有为这个精确成分建立跨性别照护中的药品特异监测卡，只保留原始记录和来源边界。",
+      "boundary": "目录收录不表示推荐、适应证、当地批准或可获得性。",
+      "sourceIDs": [
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 130
+    },
+    {
+      "id": "framework.sex-steroid",
+      "kind": "framework",
+      "evidenceBasis": "externalAuthority",
+      "title": "性激素治疗的上位照护框架",
+      "body": "公开资料把性激素治疗放在专业评估、知情讨论和持续随访的临床框架中。",
+      "boundary": "这里只建立类别层对应，不判断这个精确成分、剂型、途径或用量是否适合个人。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 100
+    },
+    {
+      "id": "monitoring.bone-context",
+      "kind": "monitoring",
+      "evidenceBasis": "externalAuthority",
+      "title": "骨健康情境",
+      "body": "公开框架把骨健康放在存在相关风险因素等具体情境中讨论。可以向专业人员确认这是否与你有关。",
+      "boundary": "App 未收集手术、停用性激素、骨质疏松风险或其他决定适用性的资料。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 440
+    },
+    {
+      "id": "monitoring.cardiometabolic",
+      "kind": "monitoring",
+      "evidenceBasis": "externalAuthority",
+      "title": "心血管与代谢风险因素",
+      "body": "公开框架把心血管与代谢风险因素列为临床复核主题。可以带上既往病史和已有检查，与专业人员确认需要讨论什么。",
+      "boundary": "App 不进行风险评分，也不从化验、途径或用量推导个人风险。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 430
+    },
+    {
+      "id": "monitoring.clinical-review",
+      "kind": "monitoring",
+      "evidenceBasis": "externalAuthority",
+      "title": "临床变化与不适的持续复核",
+      "body": "复诊时可以带上开始日期、方案变化、实际使用记录，以及你想说明的身体变化或不适。",
+      "boundary": "App 不把个人感受自动归因于某种药，也不判断治疗效果。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 400
+    },
+    {
+      "id": "monitoring.hormone-levels",
+      "kind": "monitoring",
+      "evidenceBasis": "externalAuthority",
+      "title": "性激素相关监测讨论",
+      "body": "公开框架把性激素相关监测放在临床随访中。可以询问专业人员哪些项目与你的情况有关。",
+      "boundary": "App 不提供数值阈值、目标区间、频率安排或治疗充分性结论。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 410
+    },
+    {
+      "id": "monitoring.prolactin",
+      "kind": "monitoring",
+      "evidenceBasis": "externalAuthority",
+      "title": "泌乳素是否需要讨论",
+      "body": "Endocrine Society 的公开框架提到接受雌激素治疗时的泌乳素监测。可以询问专业人员这一主题是否适用于你。",
+      "boundary": "App 不知道你的个体风险、症状、既往结果或当地实践，也不解释任何数值。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 420
+    },
+    {
+      "id": "monitoring.spironolactone-electrolytes",
+      "kind": "monitoring",
+      "evidenceBasis": "externalAuthority",
+      "title": "螺内酯与电解质讨论主题",
+      "body": "Endocrine Society 的公开框架把螺内酯使用者的电解质，尤其是钾，列为可由临床专业人员结合个人情况安排的监测主题。",
+      "boundary": "App 不提供阈值、频率、剂量建议或化验解读，也不知道这一主题是否适用于你的当前情况。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 430
+    },
+    {
+      "id": "monitoring.specialist-followup",
+      "kind": "monitoring",
+      "evidenceBasis": "externalAuthority",
+      "title": "专科随访主题",
+      "body": "GnRH 相关记录需要回到年龄、用途、发育阶段和具体产品语境，由有相关经验的团队决定随访内容。",
+      "boundary": "App 不建立复查时间表，也不把一个产品的标签泛化到其他用途或地区。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 450
+    },
+    {
+      "id": "stop.acute.unknown",
+      "kind": "stop",
+      "evidenceBasis": "productRule",
+      "title": "请先回答急性情况",
+      "body": "在你确认是否正因急性情况寻求判断之前，App 不继续显示药品特异讨论卡。",
+      "boundary": "这只是页面门禁，不是诊断，也不改变你的用药记录。",
+      "sourceIDs": [],
+      "sortOrder": 11
+    },
+    {
+      "id": "stop.acute.yes",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "请及时寻求医疗帮助",
+      "body": "如果你正因急性情况寻求判断，请不要等待 App 完成分析；联系当地急救服务或医疗专业人员。",
+      "boundary": "App 无法判断发生了什么，也不会据此改写或解释你的方案。",
+      "sourceIDs": [
+        "nlm-medlineplus-emergency-services-2026"
+      ],
+      "sortOrder": 10
+    },
+    {
+      "id": "stop.age.under18",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "未成年人需要专门的照护语境",
+      "body": "App 停止药品特异分析，只保留你的方案原文。请由有相关经验的多学科团队核对。",
+      "boundary": "停止的是 App 分析，不是任何用药动作。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 20
+    },
+    {
+      "id": "stop.age.unknown",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "请先确认年龄范围",
+      "body": "成人与未成年人的公开照护框架不同；未确认前，App 不继续显示药品特异讨论卡。",
+      "boundary": "App 不从身份、称呼或其他记录推断年龄。",
+      "sourceIDs": [
+        "endocrine-society-gender-incongruence-2017"
+      ],
+      "sortOrder": 21
+    },
+    {
+      "id": "stop.cpa.meningioma.unknown",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "请先核对脑膜瘤病史",
+      "body": "方案记录含醋酸环丙孕酮。未确认相关病史前，App 停止药品特异分析。",
+      "boundary": "EMA 来源属于欧盟监管语境；停止的是 App 分析，不是任何用药动作。",
+      "sourceIDs": [
+        "ema-cyproterone-2020"
+      ],
+      "sortOrder": 51
+    },
+    {
+      "id": "stop.cpa.meningioma.yes",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "请与医疗专业人员核对这项病史",
+      "body": "方案记录含醋酸环丙孕酮，且你选择了已知脑膜瘤病史。App 不继续药品特异分析。",
+      "boundary": "App 不判断因果或个人风险；停止的是 App 分析，不是任何用药动作。",
+      "sourceIDs": [
+        "ema-cyproterone-2020"
+      ],
+      "sortOrder": 50
+    },
+    {
+      "id": "stop.pregnancy.unknown",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "请先确认妊娠可能是否适用",
+      "body": "未确认这一边界前，App 不继续显示药品特异讨论卡。",
+      "boundary": "可以选择“不适用”；App 不从身份、称呼或身体结构推断答案。",
+      "sourceIDs": [
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 31
+    },
+    {
+      "id": "stop.pregnancy.yes",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "妊娠可能需要专业核对",
+      "body": "App 停止药品特异分析。请把精确药品和妊娠可能一起交给医生或药师核对。",
+      "boundary": "停止的是 App 分析，不是任何用药动作；App 不判断妊娠或药品适用性。",
+      "sourceIDs": [
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 30
+    },
+    {
+      "id": "stop.snapshot",
+      "kind": "stop",
+      "evidenceBasis": "productRule",
+      "title": "药品快照无法核对",
+      "body": "至少一项目录药品的版本化快照损坏或与保存的目录身份不一致。App 只显示原始方案。",
+      "boundary": "不能按显示名猜测成分；原始记录没有被修改。",
+      "sourceIDs": [],
+      "sortOrder": 1
+    },
+    {
+      "id": "stop.vte.unknown",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "请先核对血栓病史或已知风险",
+      "body": "方案记录含雌激素相关成分。未确认这一边界前，App 停止药品特异分析。",
+      "boundary": "App 不做风险评分，也不比较剂型或途径。",
+      "sourceIDs": [
+        "cdc-vte-2025",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 41
+    },
+    {
+      "id": "stop.vte.yes",
+      "kind": "stop",
+      "evidenceBasis": "externalAuthority",
+      "title": "血栓病史或已知风险需要专业核对",
+      "body": "方案记录含雌激素相关成分，且你选择了已知病史或风险。App 不继续药品特异分析。",
+      "boundary": "App 不判断个人风险，也不据此比较或改变药物、剂型、途径和用量。",
+      "sourceIDs": [
+        "cdc-vte-2025",
+        "wpath-soc8-2022"
+      ],
+      "sortOrder": 40
+    }
+  ],
+  "ingredientProfiles": [
+    {
+      "ingredientID": "bicalutamide",
+      "ingredientNameZH": "比卡鲁胺",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "其他适应证产品，仅供忠实记录。"
+    },
+    {
+      "ingredientID": "buserelin-acetate",
+      "ingredientNameZH": "醋酸布舍瑞林",
+      "correspondence": "specialistContext",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.puberty-suppression",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.bone-context",
+        "monitoring.specialist-followup"
+      ],
+      "boundary": "用途、年龄、剂型和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "conjugated-estrogens",
+      "ingredientNameZH": "结合雌激素",
+      "correspondence": "classLevel",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.sex-steroid",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.hormone-levels",
+        "monitoring.prolactin",
+        "monitoring.cardiometabolic",
+        "monitoring.bone-context"
+      ],
+      "boundary": "混合成分，不能与雌二醇静默等同。"
+    },
+    {
+      "ingredientID": "cyproterone-acetate",
+      "ingredientNameZH": "醋酸环丙孕酮",
+      "correspondence": "recordOnly",
+      "safetyFlags": [
+        "cyproteroneAcetate"
+      ],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "地区、产品和监管安全语境必须逐项核对。"
+    },
+    {
+      "ingredientID": "degarelix-acetate",
+      "ingredientNameZH": "醋酸地加瑞克",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "GnRH 拮抗剂，仅供记录，不归入常规青春期抑制框架。"
+    },
+    {
+      "ingredientID": "drospirenone",
+      "ingredientNameZH": "屈螺酮",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.progestogen-context",
+        "confirmation.exact-label"
+      ],
+      "boundary": "单方、复方、用途和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "dutasteride",
+      "ingredientNameZH": "度他雄胺",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "当前只建立记录对应，不生成药品特异监测卡。"
+    },
+    {
+      "ingredientID": "dydrogesterone",
+      "ingredientNameZH": "地屈孕酮",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.progestogen-context",
+        "confirmation.exact-label"
+      ],
+      "boundary": "地区性产品，只提供上位讨论语境。"
+    },
+    {
+      "ingredientID": "elagolix",
+      "ingredientNameZH": "艾拉戈克",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "其他适应证语境，仅供忠实记录。"
+    },
+    {
+      "ingredientID": "esterified-estrogens",
+      "ingredientNameZH": "酯化雌激素",
+      "correspondence": "recordOnly",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "历史记录，不生成常规监测卡。"
+    },
+    {
+      "ingredientID": "estetrol",
+      "ingredientNameZH": "雌四醇",
+      "correspondence": "recordOnly",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "候选目录主要见固定复方语境，不生成虚假单方医疗对应。"
+    },
+    {
+      "ingredientID": "estradiol",
+      "ingredientNameZH": "雌二醇",
+      "correspondence": "classLevel",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.sex-steroid",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.hormone-levels",
+        "monitoring.prolactin",
+        "monitoring.cardiometabolic",
+        "monitoring.bone-context"
+      ],
+      "boundary": "只建立类别层框架，不解释剂型、途径或用量。"
+    },
+    {
+      "ingredientID": "estradiol-acetate",
+      "ingredientNameZH": "醋酸雌二醇",
+      "correspondence": "classLevel",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.sex-steroid",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.hormone-levels",
+        "monitoring.prolactin",
+        "monitoring.cardiometabolic",
+        "monitoring.bone-context"
+      ],
+      "boundary": "精确酯型和地区用途必须另行核对。"
+    },
+    {
+      "ingredientID": "estradiol-benzoate",
+      "ingredientNameZH": "苯甲酸雌二醇",
+      "correspondence": "classLevel",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.sex-steroid",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.hormone-levels",
+        "monitoring.prolactin",
+        "monitoring.cardiometabolic",
+        "monitoring.bone-context"
+      ],
+      "boundary": "地区性精确酯型；类别框架不证明当地产品状态。"
+    },
+    {
+      "ingredientID": "estradiol-cypionate",
+      "ingredientNameZH": "环戊丙酸雌二醇",
+      "correspondence": "classLevel",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.sex-steroid",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.hormone-levels",
+        "monitoring.prolactin",
+        "monitoring.cardiometabolic",
+        "monitoring.bone-context"
+      ],
+      "boundary": "精确酯型；类别框架不比较注射与其他途径。"
+    },
+    {
+      "ingredientID": "estradiol-valerate",
+      "ingredientNameZH": "戊酸雌二醇",
+      "correspondence": "classLevel",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.sex-steroid",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.hormone-levels",
+        "monitoring.prolactin",
+        "monitoring.cardiometabolic",
+        "monitoring.bone-context"
+      ],
+      "boundary": "精确酯型；类别框架不计算与母体的等效关系。"
+    },
+    {
+      "ingredientID": "estriol",
+      "ingredientNameZH": "雌三醇",
+      "correspondence": "classLevel",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.sex-steroid",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.hormone-levels",
+        "monitoring.prolactin",
+        "monitoring.cardiometabolic",
+        "monitoring.bone-context"
+      ],
+      "boundary": "不能与雌二醇等同；地区和用途必须另行核对。"
+    },
+    {
+      "ingredientID": "ethinyl-estradiol",
+      "ingredientNameZH": "炔雌醇",
+      "correspondence": "recordOnly",
+      "safetyFlags": [
+        "estrogenRelated"
+      ],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "主要见复方，仅供记录，不生成常规监测卡。"
+    },
+    {
+      "ingredientID": "finasteride",
+      "ingredientNameZH": "非那雄胺",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "当前只建立记录对应，不生成药品特异监测卡。"
+    },
+    {
+      "ingredientID": "flutamide",
+      "ingredientNameZH": "氟他胺",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "其他适应证或历史记录，不生成常规监测卡。"
+    },
+    {
+      "ingredientID": "gonadorelin",
+      "ingredientNameZH": "戈那瑞林",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "只核对历史或地区记录，不等同其他 GnRH 项目。"
+    },
+    {
+      "ingredientID": "goserelin-acetate",
+      "ingredientNameZH": "醋酸戈舍瑞林",
+      "correspondence": "specialistContext",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.puberty-suppression",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.bone-context",
+        "monitoring.specialist-followup"
+      ],
+      "boundary": "用途、年龄、植入产品和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "histrelin-acetate",
+      "ingredientNameZH": "醋酸组氨瑞林",
+      "correspondence": "specialistContext",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.puberty-suppression",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.bone-context",
+        "monitoring.specialist-followup"
+      ],
+      "boundary": "用途、年龄、植入产品和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "leuprolide-acetate",
+      "ingredientNameZH": "醋酸亮丙瑞林",
+      "correspondence": "specialistContext",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.puberty-suppression",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.bone-context",
+        "monitoring.specialist-followup"
+      ],
+      "boundary": "用途、年龄、释放周期和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "medroxyprogesterone-acetate",
+      "ingredientNameZH": "醋酸甲羟孕酮",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.progestogen-context",
+        "confirmation.exact-label"
+      ],
+      "boundary": "精确产品、用途、剂型和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "nafarelin-acetate",
+      "ingredientNameZH": "醋酸那法瑞林",
+      "correspondence": "specialistContext",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.puberty-suppression",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.bone-context",
+        "monitoring.specialist-followup"
+      ],
+      "boundary": "用途、年龄、鼻喷产品当前状态和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "nilutamide",
+      "ingredientNameZH": "尼鲁米特",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "其他适应证或历史记录，不生成常规监测卡。"
+    },
+    {
+      "ingredientID": "norethindrone-acetate",
+      "ingredientNameZH": "醋酸炔诺酮",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.progestogen-context",
+        "confirmation.exact-label"
+      ],
+      "boundary": "单方、复方、用途和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "progesterone",
+      "ingredientNameZH": "黄体酮／孕酮",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.progestogen-context",
+        "confirmation.exact-label"
+      ],
+      "boundary": "formulation、用途和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "relugolix",
+      "ingredientNameZH": "瑞卢戈利",
+      "correspondence": "recordOnly",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.record-only",
+        "confirmation.exact-label"
+      ],
+      "boundary": "GnRH 拮抗剂，仅供记录，不归入常规青春期抑制框架。"
+    },
+    {
+      "ingredientID": "spironolactone",
+      "ingredientNameZH": "螺内酯",
+      "correspondence": "classLevel",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.antiandrogen-context",
+        "confirmation.exact-label",
+        "monitoring.spironolactone-electrolytes"
+      ],
+      "boundary": "这里只提供上位照护与监测讨论主题；不解释数值、不设阈值或时间表，也不判断产品适用性。"
+    },
+    {
+      "ingredientID": "triptorelin-acetate",
+      "ingredientNameZH": "醋酸曲普瑞林",
+      "correspondence": "specialistContext",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.puberty-suppression",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.bone-context",
+        "monitoring.specialist-followup"
+      ],
+      "boundary": "用途、年龄、释放周期和地区必须分别核对。"
+    },
+    {
+      "ingredientID": "triptorelin-pamoate",
+      "ingredientNameZH": "双羟萘酸曲普瑞林",
+      "correspondence": "specialistContext",
+      "safetyFlags": [],
+      "cardIDs": [
+        "framework.puberty-suppression",
+        "confirmation.exact-label",
+        "confirmation.fertility",
+        "monitoring.clinical-review",
+        "monitoring.bone-context",
+        "monitoring.specialist-followup"
+      ],
+      "boundary": "用途、年龄、释放周期和地区必须分别核对。"
+    }
+  ],
+  "safetyRules": [
+    {
+      "id": "stop.snapshot",
+      "priority": 10,
+      "condition": "corruptSnapshot",
+      "stopCardID": "stop.snapshot"
+    },
+    {
+      "id": "stop.acute.yes",
+      "priority": 20,
+      "condition": "acuteConcernYes",
+      "stopCardID": "stop.acute.yes"
+    },
+    {
+      "id": "stop.acute.unknown",
+      "priority": 21,
+      "condition": "acuteConcernUnknown",
+      "stopCardID": "stop.acute.unknown"
+    },
+    {
+      "id": "stop.age.under18",
+      "priority": 30,
+      "condition": "ageUnder18",
+      "stopCardID": "stop.age.under18"
+    },
+    {
+      "id": "stop.age.unknown",
+      "priority": 31,
+      "condition": "ageUnknown",
+      "stopCardID": "stop.age.unknown"
+    },
+    {
+      "id": "stop.pregnancy.yes",
+      "priority": 40,
+      "condition": "pregnancyPossibilityYes",
+      "stopCardID": "stop.pregnancy.yes"
+    },
+    {
+      "id": "stop.pregnancy.unknown",
+      "priority": 41,
+      "condition": "pregnancyPossibilityUnknown",
+      "stopCardID": "stop.pregnancy.unknown"
+    },
+    {
+      "id": "stop.vte.yes",
+      "priority": 50,
+      "condition": "estrogenVteRiskYes",
+      "stopCardID": "stop.vte.yes"
+    },
+    {
+      "id": "stop.vte.unknown",
+      "priority": 51,
+      "condition": "estrogenVteRiskUnknown",
+      "stopCardID": "stop.vte.unknown"
+    },
+    {
+      "id": "stop.cpa.meningioma.yes",
+      "priority": 60,
+      "condition": "cyproteroneMeningiomaYes",
+      "stopCardID": "stop.cpa.meningioma.yes"
+    },
+    {
+      "id": "stop.cpa.meningioma.unknown",
+      "priority": 61,
+      "condition": "cyproteroneMeningiomaUnknown",
+      "stopCardID": "stop.cpa.meningioma.unknown"
+    }
+  ]
+}

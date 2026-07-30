@@ -383,7 +383,11 @@ struct UnmanualApp: App {
     @ViewBuilder
     private var rootView: some View {
 #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-unmanual-medication-picker") {
+        if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-regimen-analysis"
+        ) {
+            RegimenAnalysisView(regimen: RegimenAnalysisDebugFixture.regimen)
+        } else if ProcessInfo.processInfo.arguments.contains("-unmanual-medication-picker") {
             NavigationStack {
                 MedicationCatalogPicker(backAction: {}, chooseAction: { _ in })
             }

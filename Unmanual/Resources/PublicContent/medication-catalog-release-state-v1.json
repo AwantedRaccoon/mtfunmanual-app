@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1",
+  "status": "pendingHumanReview",
+  "catalogVersion": "medication-catalog-2026.07.30-candidate.2",
+  "message": "正式药品目录尚未提供；候选内容正在等待真实人类复核。",
+  "candidateResourceExcluded": true,
+  "approvedResourceName": null
+}

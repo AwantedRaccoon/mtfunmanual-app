@@ -4439,10 +4439,22 @@ final class StoreBootstrapTests: XCTestCase {
     ) throws -> V5SourceFixture {
         let generationID = UUID()
         let storeURL = layout.storeURL(for: generationID)
+        let stagingDirectory = layout.rootURL
+            .appending(
+                path: "V5Seed-" + UUID().uuidString,
+                directoryHint: .isDirectory
+            )
+        let stagingURL = stagingDirectory
+            .appending(path: "user.sqlite")
         try FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        try FileManager.default.createDirectory(
+            at: stagingDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: stagingDirectory) }
         var datasetID: UUID!
         var factCount = 0
         var revisionCount = 0
@@ -4456,7 +4468,7 @@ final class StoreBootstrapTests: XCTestCase {
             : nil
         try autoreleasepool {
             let container = try AppModelContainerFactory
-                .makePersonalTimelineContainer(at: storeURL)
+                .makePersonalTimelineContainer(at: stagingURL)
             let context = ModelContext(container)
             if let activeCountdownID,
                let archivedCountdownID,
@@ -4498,6 +4510,27 @@ final class StoreBootstrapTests: XCTestCase {
                 FetchDescriptor<RecordRevision>()
             )
             factCount = revisionCount
+
+            // Freeze an independent source while the writable seed container
+            // is retained and idle. Its eventual deinit may checkpoint WAL
+            // bytes into the staging main file, but cannot mutate this copy.
+            for suffix in ["", "-wal", "-shm"] {
+                let source = URL(
+                    fileURLWithPath: stagingURL.path + suffix
+                )
+                guard FileManager.default.fileExists(
+                    atPath: source.path
+                ) else {
+                    continue
+                }
+                let destination = URL(
+                    fileURLWithPath: storeURL.path + suffix
+                )
+                try FileManager.default.copyItem(
+                    at: source,
+                    to: destination
+                )
+            }
         }
         try GenerationPointerStore(layout: layout).write(
             GenerationPointer(

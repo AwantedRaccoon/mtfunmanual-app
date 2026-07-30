@@ -188,23 +188,8 @@ struct RegimenVersionEditor: View {
         }
         draftMedications = source.items.map {
             RegimenMedicationDraft(
-                id: isCloningSealedVersion ? UUID() : $0.id,
-                catalogID: $0.catalogProductID,
-                catalogVersion: $0.catalogVersion,
-                name: $0.displayName,
-                englishName: $0.genericName,
-                detail: $0.productSnapshot.isEmpty
-                    ? [$0.dosageForm, $0.route, $0.doseOriginal, $0.unitOriginal]
-                        .filter { !$0.isEmpty }
-                        .joined(separator: " · ")
-                    : $0.productSnapshot,
-                dosageForm: $0.dosageForm,
-                route: $0.route,
-                doseOriginal: $0.doseOriginal,
-                unitOriginal: $0.unitOriginal,
-                schedule: $0.schedule?.input(cloningIdentity: isCloningSealedVersion),
-                productSnapshot: $0.productSnapshot,
-                origin: $0.catalogProductID == nil ? .custom : .catalog
+                snapshot: $0,
+                cloningIdentity: isCloningSealedVersion
             )
         }
         didLoadCurrentVersion = true

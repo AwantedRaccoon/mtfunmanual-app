@@ -92,6 +92,12 @@ struct RegimenView: View {
                         medications: persistedMedications,
                         latestSampleDateText: latestSampleDateText,
                         isLatestSampleLinked: latestSampleRegimen?.id == activeRegimen.id,
+                        analysisAction: {
+                            presentAnalysis(
+                                activeRegimen,
+                                isHistorical: false
+                            )
+                        },
                         changeAction: presentNewVersion
                     )
                 } else {
@@ -109,7 +115,15 @@ struct RegimenView: View {
                 }
 
                 if !historicalRegimens.isEmpty {
-                    RegimenPlanArchiveNote(regimens: historicalRegimens)
+                    RegimenPlanArchiveNote(
+                        regimens: historicalRegimens,
+                        openAnalysis: {
+                            presentAnalysis(
+                                $0,
+                                isHistorical: true
+                            )
+                        }
+                    )
                         .padding(.top, 16)
                 }
 
@@ -148,8 +162,25 @@ struct RegimenView: View {
                 RegimenVersionEditor(existingDraftID: draftID)
             case .labImport:
                 LabSampleEditor()
+            case let .analysis(regimen, isHistorical):
+                RegimenAnalysisView(
+                    regimen: regimen,
+                    isHistorical: isHistorical,
+                    loadState: analysisLoadState
+                )
             }
         }
+    }
+
+    private var analysisLoadState: RegimenAnalysisLoadState {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-regimen-analysis-unavailable"
+        ) {
+            return .unavailable(.missingResource)
+        }
+#endif
+        return RegimenAnalysisContent.loadState
     }
 
     private var contextDetail: String {
@@ -164,6 +195,16 @@ struct RegimenView: View {
 
     private func presentLabImport() {
         presentedSheet = .labImport
+    }
+
+    private func presentAnalysis(
+        _ regimen: CoreRegimenVersionSnapshot,
+        isHistorical: Bool
+    ) {
+        presentedSheet = .analysis(
+            regimen,
+            isHistorical: isHistorical
+        )
     }
 
     private func presentDraft(_ draftID: UUID) {
@@ -202,6 +243,7 @@ private struct RegimenPlanFolio: View {
     let medications: [RegimenPlanEntry]
     let latestSampleDateText: String?
     let isLatestSampleLinked: Bool
+    let analysisAction: () -> Void
     let changeAction: () -> Void
 
     var body: some View {
@@ -229,10 +271,15 @@ private struct RegimenPlanFolio: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Button("编辑当前方案", action: changeAction)
-                .buttonStyle(V25PrimaryButtonStyle())
-                .padding(12)
-                .accessibilityIdentifier("regimen.newVersion")
+            VStack(spacing: 9) {
+                Button("查看方案分析", action: analysisAction)
+                    .buttonStyle(V25PrimaryButtonStyle())
+                    .accessibilityIdentifier("regimen.analysis")
+                Button("编辑当前方案", action: changeAction)
+                    .buttonStyle(V25SecondaryButtonStyle())
+                    .accessibilityIdentifier("regimen.newVersion")
+            }
+            .padding(12)
         }
         .background(theme.paper)
         .clipped()
@@ -550,19 +597,55 @@ private struct RegimenPlanArchiveNote: View {
     @Environment(AppTheme.self) private var theme
 
     let regimens: [CoreRegimenVersionSnapshot]
+    let openAnalysis: (CoreRegimenVersionSnapshot) -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("ARCHIVE")
-                .font(theme.utility(9))
-                .tracking(0.8)
-                .foregroundStyle(theme.vermilionText)
-            Text("另有 \(regimens.count) 个历史版本")
-                .font(.subheadline.weight(.bold))
-            Spacer()
-            Text(regimens.first?.code ?? "")
-                .font(theme.utility(10))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("ARCHIVE")
+                    .font(theme.utility(9))
+                    .tracking(0.8)
+                    .foregroundStyle(theme.vermilionText)
+                Text("\(regimens.count) 个历史版本")
+                    .font(.subheadline.weight(.bold))
+            }
+
+            Text("历史版本会用当前规则包重新整理，不是永久保存的历史分析结论。")
+                .font(.caption)
                 .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("regimen.analysis.historyNotice")
+
+            ForEach(regimens) { regimen in
+                Button {
+                    openAnalysis(regimen)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(regimen.code)
+                            .font(theme.utility(10))
+                        Text(regimen.title)
+                            .font(.subheadline.weight(.semibold))
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 8)
+                        Text("核对")
+                            .font(.caption.weight(.bold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+                .accessibilityLabel(
+                    "用当前规则核对历史方案 "
+                        + regimen.code
+                        + " "
+                        + regimen.title
+                )
+                .accessibilityIdentifier(
+                    "regimen.analysis.history.\(regimen.id.uuidString)"
+                )
+            }
         }
         .foregroundStyle(theme.indigoDeep)
         .padding(.vertical, 12)
@@ -572,7 +655,6 @@ private struct RegimenPlanArchiveNote: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.indigo).frame(height: 1.5)
         }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -704,12 +786,18 @@ private enum RegimenPlanSheet: Identifiable {
     case createVersion
     case editDraft(UUID)
     case labImport
+    case analysis(
+        CoreRegimenVersionSnapshot,
+        isHistorical: Bool
+    )
 
     var id: String {
         switch self {
         case .createVersion: "createVersion"
         case let .editDraft(id): "editDraft-" + id.uuidString
         case .labImport: "labImport"
+        case let .analysis(regimen, _):
+            "analysis-" + regimen.id.uuidString
         }
     }
 }

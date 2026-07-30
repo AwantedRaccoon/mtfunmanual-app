@@ -49,211 +49,37 @@ struct RegimenMedicationDraft: Identifiable, Equatable {
         self.productSnapshot = productSnapshot ?? detail
         self.origin = origin
     }
-}
 
-struct MedicationCatalogEntry: Identifiable, Hashable {
-    enum Group: Hashable {
-        case estrogen
-        case antiandrogen
-        case progestogen
-
-        var title: String {
-            switch self {
-            case .estrogen: "雌激素相关"
-            case .antiandrogen: "抗雄激素相关"
-            case .progestogen: "孕激素相关"
-            }
-        }
-    }
-
-    let id: String
-    let name: String
-    let englishName: String
-    let aliases: [String]
-    let forms: String
-    let group: Group
-    let routes: [MedicationCatalogRoute]
-    let products: [MedicationProductVariant]
-
-    var searchText: String {
-        ([name, englishName, forms, group.title] + aliases).joined(separator: " ")
-    }
-
-    func draft(for product: MedicationProductVariant) -> RegimenMedicationDraft {
-        RegimenMedicationDraft(
-            catalogID: product.id,
-            name: product.displayName,
-            englishName: englishName,
-            detail: "\(product.manufacturer) · \(product.form) · \(product.routeTitle)",
-            dosageForm: product.form,
-            route: product.routeTitle,
-            productSnapshot: "\(product.manufacturer) · \(product.form) · \(product.routeTitle)",
-            origin: .catalog
+    init(snapshot: CoreRegimenItemSnapshot, cloningIdentity: Bool) {
+        self.init(
+            id: cloningIdentity ? UUID() : snapshot.id,
+            catalogID: snapshot.catalogProductID,
+            catalogVersion: snapshot.catalogVersion,
+            name: snapshot.displayName,
+            englishName: snapshot.genericName,
+            detail: MedicationCatalogSelectionSnapshotV1
+                .decode(snapshot.productSnapshot)?
+                .displaySummary
+                ?? (
+                    snapshot.productSnapshot.isEmpty
+                        ? [
+                            snapshot.dosageForm,
+                            snapshot.route,
+                            snapshot.doseOriginal,
+                            snapshot.unitOriginal
+                        ]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: " · ")
+                        : snapshot.productSnapshot
+                ),
+            dosageForm: snapshot.dosageForm,
+            route: snapshot.route,
+            doseOriginal: snapshot.doseOriginal,
+            unitOriginal: snapshot.unitOriginal,
+            schedule: snapshot.schedule?.input(cloningIdentity: cloningIdentity),
+            productSnapshot: snapshot.productSnapshot,
+            origin: snapshot.catalogProductID == nil ? .custom : .catalog
         )
-    }
-}
-
-struct MedicationCatalogRoute: Identifiable, Hashable {
-    let id: String
-    let title: String
-    let detail: String
-}
-
-struct MedicationProductVariant: Identifiable, Hashable {
-    let id: String
-    let routeID: String
-    let routeTitle: String
-    let displayName: String
-    let manufacturer: String
-    let form: String
-    let sourceStatus: String
-}
-
-enum MedicationCatalog {
-#if DEBUG
-    static let entries: [MedicationCatalogEntry] = [
-        MedicationCatalogEntry(
-            id: "estradiol",
-            name: "雌二醇",
-            englishName: "Estradiol",
-            aliases: ["17β-雌二醇", "E2"],
-            forms: "片剂、贴片、凝胶等",
-            group: .estrogen,
-            routes: [
-                MedicationCatalogRoute(id: "oral", title: "口服", detail: "片剂等"),
-                MedicationCatalogRoute(id: "transdermal", title: "经皮", detail: "贴片、凝胶等")
-            ],
-            products: [
-                MedicationProductVariant(
-                    id: "estradiol-oral-placeholder",
-                    routeID: "oral",
-                    routeTitle: "口服",
-                    displayName: "雌二醇片",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "片剂",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                ),
-                MedicationProductVariant(
-                    id: "estradiol-patch-placeholder",
-                    routeID: "transdermal",
-                    routeTitle: "经皮",
-                    displayName: "雌二醇透皮贴片",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "贴片",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                ),
-                MedicationProductVariant(
-                    id: "estradiol-gel-placeholder",
-                    routeID: "transdermal",
-                    routeTitle: "经皮",
-                    displayName: "雌二醇凝胶",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "凝胶",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                )
-            ]
-        ),
-        MedicationCatalogEntry(
-            id: "estradiol-valerate",
-            name: "戊酸雌二醇",
-            englishName: "Estradiol valerate",
-            aliases: ["补佳乐"],
-            forms: "片剂、注射剂等",
-            group: .estrogen,
-            routes: [
-                MedicationCatalogRoute(id: "oral", title: "口服", detail: "片剂等"),
-                MedicationCatalogRoute(id: "injection", title: "注射", detail: "注射剂等")
-            ],
-            products: [
-                MedicationProductVariant(
-                    id: "estradiol-valerate-oral-placeholder",
-                    routeID: "oral",
-                    routeTitle: "口服",
-                    displayName: "戊酸雌二醇片",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "片剂",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                ),
-                MedicationProductVariant(
-                    id: "estradiol-valerate-injection-placeholder",
-                    routeID: "injection",
-                    routeTitle: "注射",
-                    displayName: "戊酸雌二醇注射剂",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "注射剂",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                )
-            ]
-        ),
-        MedicationCatalogEntry(
-            id: "spironolactone",
-            name: "螺内酯",
-            englishName: "Spironolactone",
-            aliases: ["安体舒通"],
-            forms: "片剂等",
-            group: .antiandrogen,
-            routes: [MedicationCatalogRoute(id: "oral", title: "口服", detail: "片剂等")],
-            products: [
-                MedicationProductVariant(
-                    id: "spironolactone-oral-placeholder",
-                    routeID: "oral",
-                    routeTitle: "口服",
-                    displayName: "螺内酯片",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "片剂",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                )
-            ]
-        ),
-        MedicationCatalogEntry(
-            id: "cyproterone-acetate",
-            name: "醋酸环丙孕酮",
-            englishName: "Cyproterone acetate",
-            aliases: ["色普龙"],
-            forms: "片剂等",
-            group: .antiandrogen,
-            routes: [MedicationCatalogRoute(id: "oral", title: "口服", detail: "片剂等")],
-            products: [
-                MedicationProductVariant(
-                    id: "cyproterone-acetate-oral-placeholder",
-                    routeID: "oral",
-                    routeTitle: "口服",
-                    displayName: "醋酸环丙孕酮片",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "片剂",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                )
-            ]
-        ),
-        MedicationCatalogEntry(
-            id: "progesterone",
-            name: "黄体酮",
-            englishName: "Progesterone",
-            aliases: ["孕酮", "微粒化黄体酮"],
-            forms: "胶囊等",
-            group: .progestogen,
-            routes: [MedicationCatalogRoute(id: "oral", title: "口服", detail: "胶囊等")],
-            products: [
-                MedicationProductVariant(
-                    id: "progesterone-oral-placeholder",
-                    routeID: "oral",
-                    routeTitle: "口服",
-                    displayName: "黄体酮胶囊",
-                    manufacturer: "厂商与批准资料待官方目录接入",
-                    form: "胶囊",
-                    sourceStatus: "界面示例 · 尚未建立官方资料关联"
-                )
-            ]
-        )
-    ]
-#else
-    static let entries: [MedicationCatalogEntry] = []
-#endif
-
-    static func search(_ query: String) -> [MedicationCatalogEntry] {
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else { return entries }
-        return entries.filter { $0.searchText.localizedCaseInsensitiveContains(term) }
     }
 }
 
@@ -286,7 +112,7 @@ struct MedicationCatalogPicker: View {
                     Text("添加药物")
                         .font(theme.display(36, relativeTo: .largeTitle))
                         .foregroundStyle(theme.indigoDeep)
-                    Text("先从成分开始查找。进入条目后，再按给药途径和厂商定位具体产品。")
+                    Text("先从精确成分开始查找。进入条目后，再按给药途径、剂型和地区证据定位记录模板。")
                         .font(.subheadline)
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -296,6 +122,11 @@ struct MedicationCatalogPicker: View {
 
                 MedicationSearchIndex(query: $query, isFocused: $searchIsFocused)
 
+                if let snapshot = MedicationCatalog.loadState.snapshot {
+                    MedicationCatalogProvenanceNote(snapshot: snapshot)
+                        .padding(.top, 14)
+                }
+
                 V25SectionHeader(
                     title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "药品索引" : "检索结果",
                     detail: "\(results.count) 项"
@@ -304,7 +135,7 @@ struct MedicationCatalogPicker: View {
                 if results.isEmpty {
                     MedicationNoResults(
                         query: query,
-                        catalogUnavailable: MedicationCatalog.entries.isEmpty
+                        unavailableReason: MedicationCatalog.loadState.unavailableReason
                     )
                 } else {
                     VStack(spacing: 0) {
@@ -350,8 +181,13 @@ struct MedicationCatalogPicker: View {
     }
 
     private func open(_ entry: MedicationCatalogEntry) {
-        openedEntry = entry
         searchIsFocused = false
+        guard !entry.products.isEmpty else {
+            query = entry.name
+            showsCustomEditor = true
+            return
+        }
+        openedEntry = entry
     }
 
     private func presentCustomEditor() {
@@ -368,26 +204,85 @@ private struct MedicationPickerHeader: View {
     let backAction: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: backAction) {
-                Label(dynamicTypeSize.isAccessibilitySize ? "返回" : label, systemImage: "chevron.left")
-                    .font(.body.weight(.semibold))
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                HStack {
+                    backButton
+                        .fixedSize(horizontal: true, vertical: false)
+                    Spacer()
+                }
+            } else {
+                HStack(spacing: 10) {
+                    backButton
+                    Spacer()
+                    Text("LOCAL / INDEX")
+                        .font(theme.utility(10))
+                        .tracking(0.9)
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(label)
-
-            Spacer()
-
-            Text(dynamicTypeSize.isAccessibilitySize ? "本机索引" : "LOCAL / INDEX")
-                .font(theme.utility(10))
-                .tracking(0.9)
         }
         .foregroundStyle(theme.indigo)
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.indigo).frame(height: 1)
         }
+    }
+
+    private var backButton: some View {
+        Button(action: backAction) {
+            Label(dynamicTypeSize.isAccessibilitySize ? "返回" : label, systemImage: "chevron.left")
+                .font(.body.weight(.semibold))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct MedicationCatalogProvenanceNote: View {
+    @Environment(AppTheme.self) private var theme
+
+    let snapshot: MedicationCatalogSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(
+                    snapshot.manifest.review.status == .approved
+                        ? "HUMAN REVIEWED"
+                        : "CANDIDATE / DEBUG"
+                )
+                    .font(theme.utility(9))
+                    .tracking(0.7)
+                    .foregroundStyle(theme.vermilionText)
+                Spacer()
+                Text(snapshot.manifest.generatedAt)
+                    .font(theme.utility(9))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            Text(snapshot.manifest.catalogVersion)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(theme.indigoDeep)
+                .textSelection(.enabled)
+            Text(snapshot.manifest.coverageStatement)
+                .font(.caption)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(snapshot.sourceFreezeSummary)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(theme.blueText)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(snapshot.acknowledgement)
+                .font(.caption2)
+                .foregroundStyle(theme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.mustard.opacity(0.13))
+        .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1) }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("medication.catalog.provenance")
     }
 }
 
@@ -406,7 +301,7 @@ private struct MedicationSearchIndex: View {
                     .tracking(0.9)
                 if !dynamicTypeSize.isAccessibilitySize {
                     Spacer()
-                    Text("中文 · ENGLISH · 商品名")
+                    Text("中文 · ENGLISH · 别名")
                         .font(theme.utility(8))
                         .tracking(0.5)
                         .foregroundStyle(theme.secondaryText)
@@ -425,7 +320,7 @@ private struct MedicationSearchIndex: View {
                     .accessibilityHidden(true)
 
                 TextField(
-                    dynamicTypeSize.isAccessibilitySize ? "搜索药品名称" : "搜索成分、通用名或商品名",
+                    dynamicTypeSize.isAccessibilitySize ? "搜索药品名称" : "搜索成分、通用名或别名",
                     text: $query
                 )
                     .focused(isFocused)
@@ -479,7 +374,7 @@ private struct MedicationCatalogRow: View {
                     VStack(alignment: .leading, spacing: 10) {
                         entryCopy
                         HStack {
-                            Text(entry.group.title)
+                            Text(entry.roleTitle)
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(groupTextColor)
                             Spacer()
@@ -491,7 +386,7 @@ private struct MedicationCatalogRow: View {
                         entryCopy
                         Spacer(minLength: 4)
                         VStack(alignment: .trailing, spacing: 4) {
-                            Text(entry.group.title)
+                            Text(entry.roleTitle)
                                 .font(.caption.weight(.black))
                                 .foregroundStyle(groupTextColor)
                             actionMark
@@ -518,7 +413,9 @@ private struct MedicationCatalogRow: View {
         .buttonStyle(V25PressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(entry.name)，\(entry.englishName)，\(entry.group.title)，\(entry.routes.count) 种给药途径，打开产品选择"
+            entry.products.isEmpty
+                ? "\(entry.name)，\(entry.englishName)，\(entry.roleTitle)，\(entry.tier.title)，没有完整产品事实，转到按标签自定义记录"
+                : "\(entry.name)，\(entry.englishName)，\(entry.roleTitle)，\(entry.tier.title)，\(entry.routes.count) 种给药途径，打开记录模板"
         )
         .accessibilityIdentifier("medication.catalog.\(entry.id)")
     }
@@ -532,7 +429,11 @@ private struct MedicationCatalogRow: View {
                 .font(theme.utility(10))
                 .tracking(0.25)
                 .foregroundStyle(theme.secondaryText)
-            Text("\(entry.routes.count) 种给药途径 · \(entry.products.count) 个产品条目")
+            Text(
+                entry.products.isEmpty
+                    ? "\(entry.tier.title) · 需要按标签自定义记录"
+                    : "\(entry.tier.title) · \(entry.routes.count) 种给药途径 · \(entry.products.count) 个记录模板"
+            )
                 .font(.caption)
                 .foregroundStyle(theme.secondaryText)
         }
@@ -547,47 +448,71 @@ private struct MedicationCatalogRow: View {
     }
 
     private var groupColor: Color {
-        switch group {
-        case .estrogen: theme.vermilion
-        case .antiandrogen: theme.blue
-        case .progestogen: theme.moss
+        switch primaryRole {
+        case .estrogen:
+            theme.vermilion
+        case .progestogen:
+            theme.moss
+        case .historicalRecord:
+            theme.mustard
+        case .androgenSuppressing, .fiveAlphaReductaseInhibitor,
+                .gnrhAgonist, .gnrhAntagonist:
+            theme.blue
         }
     }
 
     private var groupTextColor: Color {
-        switch group {
-        case .estrogen: theme.vermilionText
-        case .antiandrogen: theme.blueText
-        case .progestogen: theme.mossText
+        switch primaryRole {
+        case .estrogen:
+            theme.vermilionText
+        case .progestogen:
+            theme.mossText
+        case .historicalRecord:
+            theme.indigoDeep
+        case .androgenSuppressing, .fiveAlphaReductaseInhibitor,
+                .gnrhAgonist, .gnrhAntagonist:
+            theme.blueText
         }
     }
 
-    private var group: MedicationCatalogEntry.Group { entry.group }
+    private var primaryRole: MedicationRole {
+        entry.roles.first ?? .historicalRecord
+    }
 }
 
 private struct MedicationNoResults: View {
     @Environment(AppTheme.self) private var theme
 
     let query: String
-    let catalogUnavailable: Bool
+    let unavailableReason: MedicationCatalogUnavailableReason?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(catalogUnavailable ? "CATALOG PENDING" : "NO MATCH")
+            Text(unavailableReason == nil ? "NO MATCH" : "CATALOG UNAVAILABLE")
                 .font(theme.utility(10))
                 .tracking(0.8)
                 .foregroundStyle(theme.vermilionText)
             Text(
-                catalogUnavailable
-                    ? "正式药品目录尚未提供。"
+                unavailableReason != nil
+                    ? (unavailableReason?.title ?? "正式药品目录尚未提供")
                     : "索引里暂时没有“\(query)”。"
             )
                 .font(theme.display(23, relativeTo: .title3))
                 .foregroundStyle(theme.indigoDeep)
-            Text("你仍然可以按药盒、处方或自己的原始记录添加，不需要换成目录里的近似名称。")
+                .accessibilityIdentifier("medication.noResults.title")
+            Text(
+                unavailableReason?.detail
+                    ?? "你仍然可以按药盒、处方或自己的原始记录添加，不需要换成目录里的近似名称。"
+            )
                 .font(.subheadline)
                 .foregroundStyle(theme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+            if unavailableReason != nil {
+                Text("自定义记录仍可使用；目录不可用不会删除或改写已有方案。")
+                    .font(.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(15)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -652,7 +577,7 @@ private struct MedicationProductPicker: View {
     }
 
     private var visibleProducts: [MedicationProductVariant] {
-        entry.products.filter { $0.routeID == selectedRouteID }
+        entry.products.filter { $0.routeIDs.contains(selectedRouteID) }
     }
 
     var body: some View {
@@ -676,7 +601,7 @@ private struct MedicationProductPicker: View {
                     ForEach(entry.routes) { route in
                         MedicationRouteRow(
                             route: route,
-                            productCount: entry.products.filter { $0.routeID == route.id }.count,
+                            productCount: entry.products.filter { $0.routeIDs.contains(route.id) }.count,
                             isSelected: selectedRouteID == route.id,
                             action: { selectRoute(route) }
                         )
@@ -685,7 +610,7 @@ private struct MedicationProductPicker: View {
                 .background(theme.paper)
                 .overlay { Rectangle().stroke(theme.indigo, lineWidth: 1.5) }
 
-                V25SectionHeader(title: "选择厂商与产品", detail: "2 / 2")
+                V25SectionHeader(title: "选择剂型与记录模板", detail: "2 / 2")
 
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .top, spacing: 9) {
@@ -693,7 +618,7 @@ private struct MedicationProductPicker: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(theme.blue)
                             .accessibilityHidden(true)
-                        Text("正式目录中，每个厂商、剂型和批准信息都会拆成独立产品条目；当前只展示页面结构。")
+                        Text("每个模板保留精确成分、剂型、地区状态、来源边界和目录版本。收录只帮助忠实记录，不表示推荐、当地获批或可获得。")
                             .font(.caption)
                             .foregroundStyle(theme.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
@@ -753,11 +678,11 @@ private struct MedicationIngredientMasthead: View {
             copy
 
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(entry.group.title)
+                Text(entry.roleTitle)
                     .font(.caption.weight(.black))
                     .foregroundStyle(groupTextColor)
                 if !dynamicTypeSize.isAccessibilitySize {
-                    Text("\(entry.routes.count) 种途径 · \(entry.products.count) 个产品条目")
+                    Text("\(entry.tier.title) · \(entry.routes.count) 种途径 · \(entry.products.count) 个记录模板")
                         .font(.caption)
                         .foregroundStyle(theme.secondaryText)
                 }
@@ -786,7 +711,7 @@ private struct MedicationIngredientMasthead: View {
 
     private var copy: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("INGREDIENT / 已确定")
+            Text("INGREDIENT / RECORDING INDEX")
                 .font(theme.utility(9))
                 .tracking(0.8)
                 .foregroundStyle(theme.vermilionText)
@@ -801,19 +726,35 @@ private struct MedicationIngredientMasthead: View {
     }
 
     private var groupColor: Color {
-        switch entry.group {
-        case .estrogen: theme.vermilion
-        case .antiandrogen: theme.blue
-        case .progestogen: theme.moss
+        switch primaryRole {
+        case .estrogen:
+            theme.vermilion
+        case .progestogen:
+            theme.moss
+        case .historicalRecord:
+            theme.mustard
+        case .androgenSuppressing, .fiveAlphaReductaseInhibitor,
+                .gnrhAgonist, .gnrhAntagonist:
+            theme.blue
         }
     }
 
     private var groupTextColor: Color {
-        switch entry.group {
-        case .estrogen: theme.vermilionText
-        case .antiandrogen: theme.blueText
-        case .progestogen: theme.mossText
+        switch primaryRole {
+        case .estrogen:
+            theme.vermilionText
+        case .progestogen:
+            theme.mossText
+        case .historicalRecord:
+            theme.indigoDeep
+        case .androgenSuppressing, .fiveAlphaReductaseInhibitor,
+                .gnrhAgonist, .gnrhAntagonist:
+            theme.blueText
         }
+    }
+
+    private var primaryRole: MedicationRole {
+        entry.roles.first ?? .historicalRecord
     }
 }
 
@@ -898,7 +839,7 @@ private struct MedicationRouteRow: View {
 
                 Spacer()
 
-                Text("\(productCount) 个产品条目")
+                Text("\(productCount) 个记录模板")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(theme.secondaryText)
             }
@@ -914,7 +855,7 @@ private struct MedicationRouteRow: View {
         }
         .buttonStyle(V25PressStyle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(route.title)，\(route.detail)，\(productCount) 个产品条目")
+        .accessibilityLabel("\(route.title)，\(route.detail)，\(productCount) 个记录模板")
         .accessibilityValue(isSelected ? "已选择" : "")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityIdentifier("medication.route.\(route.id)")
@@ -940,17 +881,27 @@ private struct MedicationProductRow: View {
                     Text(product.displayName)
                         .font(.body.weight(.black))
                         .foregroundStyle(theme.indigoDeep)
-                    Text(product.manufacturer)
+                    Text(product.holderOrManufacturer)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 7) {
-                        Text("\(product.routeTitle) · \(product.form)")
-                        Text(product.sourceStatus)
-                            .foregroundStyle(theme.vermilionText)
-                    }
+                    Text("\(product.routeTitle) · \(product.form)")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(product.sourceStatus)
+                        .foregroundStyle(theme.vermilionText)
+                        .fixedSize(horizontal: false, vertical: true)
                     .font(theme.utility(8))
                     .tracking(0.25)
+                    Text(product.boundaryNote)
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let source = product.sourceRecords.first {
+                        Text("来源：\(source.title) · \(source.versionOrPublishedAt)")
+                            .font(.caption2)
+                            .foregroundStyle(theme.blueText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -966,7 +917,7 @@ private struct MedicationProductRow: View {
         .buttonStyle(V25PressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(product.displayName)，\(product.manufacturer)，\(product.routeTitle)，\(product.form)，\(product.sourceStatus)"
+            "\(product.displayName)，\(product.holderOrManufacturer)，\(product.routeTitle)，\(product.form)，\(product.sourceStatus)，\(product.boundaryNote)"
         )
         .accessibilityValue(isSelected ? "已选择" : "")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
