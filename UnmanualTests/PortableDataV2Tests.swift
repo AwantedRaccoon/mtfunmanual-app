@@ -181,7 +181,7 @@ final class PortableDataV2Tests: XCTestCase {
         )
     }
 
-    func testReadableV2RoundTripHasExact54ModelTaxonomyAndStableDigest()
+    func testCurrentReadableV2RoundTripHasExact55ModelTaxonomyAndStableDigest()
         throws {
         let document = try makeDocument()
         let first = try PortableDataV2Codec.encode(document)
@@ -190,13 +190,36 @@ final class PortableDataV2Tests: XCTestCase {
 
         XCTAssertEqual(decoded, document)
         XCTAssertEqual(first, second)
-        XCTAssertEqual(decoded.payload.modelCounts.count, 54)
+        XCTAssertEqual(decoded.payload.schemaVersion, "13.0.0")
+        XCTAssertEqual(decoded.payload.modelCounts.count, 55)
         XCTAssertEqual(
             decoded.payload.modelCounts.map(\.modelType),
             DataInventoryTaxonomy
                 .allDatabaseModelNames.sorted()
         )
         XCTAssertEqual(decoded.transportSHA256.count, 64)
+    }
+
+    func testFrozenV12ReadableV2StillRoundTripsExact54ModelTaxonomy()
+        throws {
+        let v12Payload = payload(
+            schemaVersion:
+                PortableDataSchemaContract.v12.schemaVersion,
+            records: [try record()]
+        )
+        let document = try PortableDataV2Codec.makeDocument(
+            payload: v12Payload
+        )
+        let decoded = try PortableDataV2Codec.decode(
+            PortableDataV2Codec.encode(document)
+        )
+
+        XCTAssertEqual(decoded.payload.schemaVersion, "12.0.0")
+        XCTAssertEqual(decoded.payload.modelCounts.count, 54)
+        XCTAssertEqual(
+            decoded.payload.modelCounts.map(\.modelType),
+            PortableDataSchemaContract.v12.modelNames.sorted()
+        )
     }
 
     func testDecodeRejectsDuplicateJSONKeysBeforeTypedDecoding() {
@@ -323,23 +346,59 @@ final class PortableDataV2Tests: XCTestCase {
         }
     }
 
-    func testRecordSchemaCoversEveryRevisionedTaxonomyModel() {
-        let expected = Set(
-            DataInventoryTaxonomy.allDatabaseModelNames
-        )
-        .subtracting(
-            DataInventoryTaxonomy.allowedUnrevisionedControlModels
-        )
-        .subtracting(["RecordRevision"])
+    func testRecordSchemasCoverFrozenV12AndCurrentV13Taxonomies() {
+        let expectedV12 =
+            PortableDataSchemaContract.v12.revisionedModelNames
+        let expectedV13 =
+            PortableDataSchemaContract.v13.revisionedModelNames
 
         XCTAssertEqual(
             Set(
                 PortableDataV2RecordSchema
                     .fieldsByModelType.keys
             ),
-            expected
+            expectedV12
         )
-        XCTAssertEqual(expected.count, 44)
+        XCTAssertEqual(
+            Set(
+                PortableDataV2RecordSchema
+                    .v13FieldsByModelType.keys
+            ),
+            expectedV13
+        )
+        XCTAssertEqual(expectedV12.count, 44)
+        XCTAssertEqual(expectedV13.count, 45)
+    }
+
+    func testDecodeRejectsSelfConsistentV13FavoriteWithNonNFCVersion()
+        throws {
+        let nonNFC = "candidate-e\u{301}"
+        let record = try favoriteRecord(
+            contentVersion: nonNFC
+        )
+        let changedPayload = favoritePayload(
+            records: [record]
+        )
+        let document = PortableDataV2Document(
+            payload: changedPayload,
+            transportSHA256:
+                try PortableDataV2Codec.transportDigest(
+                    changedPayload
+                )
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+
+        XCTAssertThrowsError(
+            try PortableDataV2Codec.decode(
+                encoder.encode(document)
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? PortableDataV2Error,
+                .invalidRecord
+            )
+        }
     }
 
     func testDecodeRejectsRecordWithUnexpectedField()
@@ -415,7 +474,9 @@ final class PortableDataV2Tests: XCTestCase {
                 try PortableDataV2RecordSchema.validate(
                     modelType: modelType,
                     recordType: modelType,
-                    fields: exactFields
+                    fields: exactFields,
+                    schemaVersion:
+                        PortableDataSchemaContract.v12.schemaVersion
                 ),
                 modelType
             )
@@ -430,7 +491,10 @@ final class PortableDataV2Tests: XCTestCase {
                         try PortableDataV2RecordSchema.validate(
                             modelType: modelType,
                             recordType: modelType,
-                            fields: nullFields
+                            fields: nullFields,
+                            schemaVersion:
+                                PortableDataSchemaContract.v12
+                                .schemaVersion
                         ),
                         "\(modelType).\(contract.name)"
                     )
@@ -439,7 +503,10 @@ final class PortableDataV2Tests: XCTestCase {
                         try PortableDataV2RecordSchema.validate(
                             modelType: modelType,
                             recordType: modelType,
-                            fields: nullFields
+                            fields: nullFields,
+                            schemaVersion:
+                                PortableDataSchemaContract.v12
+                                .schemaVersion
                         ),
                         "\(modelType).\(contract.name)"
                     )
@@ -595,14 +662,18 @@ final class PortableDataV2Tests: XCTestCase {
     }
 
     private func payload(
+        schemaVersion: String =
+            PortableDataSchemaContract.v13.schemaVersion,
         records: [PortableDataRecord],
         activeAttachments:
             [PortableDataAttachment] = [],
         capturedAtMicroseconds:
             Int64 = 1_750_000_000_000_000
     ) -> PortableDataV2Payload {
-        let counts = DataInventoryTaxonomy
-            .allDatabaseModelNames.sorted().map {
+        let models = try! PortableDataSchemaContract.resolve(
+            schemaVersion: schemaVersion
+        ).modelNames
+        let counts = models.sorted().map {
                 PortableDataModelCount(
                     modelType: $0,
                     rowCount: ["HRTProfile", "RecordRevision"]
@@ -610,6 +681,7 @@ final class PortableDataV2Tests: XCTestCase {
                 )
             }
         return PortableDataV2Payload(
+            schemaVersion: schemaVersion,
             datasetID: datasetID,
             sourceGenerationID: generationID,
             capturedAtMicroseconds:
@@ -692,6 +764,176 @@ final class PortableDataV2Tests: XCTestCase {
             typeIdentifier: typeIdentifier,
             byteCount: byteCount,
             sha256Hex: String(repeating: "a", count: 64)
+        )
+    }
+
+    private func favoritePayload(
+        records: [PortableDataRecord]
+    ) -> PortableDataV2Payload {
+        let counts = PortableDataSchemaContract.v13
+            .modelNames.sorted().map {
+                PortableDataModelCount(
+                    modelType: $0,
+                    rowCount:
+                        $0 == "DatasetMetadata"
+                            || $0 == "ContentFavoriteRecord"
+                            || $0 == "RecordRevision"
+                        ? 1 : 0
+                )
+            }
+        return PortableDataV2Payload(
+            schemaVersion:
+                PortableDataSchemaContract.v13.schemaVersion,
+            datasetID: datasetID,
+            sourceGenerationID: generationID,
+            capturedAtMicroseconds:
+                1_750_000_000_000_000,
+            nextLocalRevision: 2,
+            modelCounts: counts,
+            records: records,
+            controls: [
+                PortableDataControl(
+                    modelType: "DatasetMetadata",
+                    stableIdentity: DatasetMetadata.fixedKey,
+                    disposition: .embeddedInEnvelope,
+                    fields: [
+                        PortableDataField(
+                            name: "createdAt",
+                            value: PortableDataValue(
+                                kind: .timestampMicroseconds,
+                                integerValue:
+                                    1_750_000_000_000_000
+                            )
+                        ),
+                        PortableDataField(
+                            name: "datasetID",
+                            value: PortableDataValue(
+                                kind: .uuid,
+                                uuidValue: datasetID
+                            )
+                        ),
+                        PortableDataField(
+                            name: "digestVersion",
+                            value: PortableDataValue(
+                                kind: .integer,
+                                integerValue: Int64(
+                                    RecordDigestV1.version
+                                )
+                            )
+                        ),
+                        PortableDataField(
+                            name: "lastCommittedAt",
+                            value: PortableDataValue(
+                                kind: .timestampMicroseconds,
+                                integerValue:
+                                    1_750_000_000_000_000
+                            )
+                        ),
+                        PortableDataField(
+                            name: "nextLocalRevision",
+                            value: PortableDataValue(
+                                kind: .integer,
+                                integerValue: 2
+                            )
+                        ),
+                        PortableDataField(
+                            name: "singletonKey",
+                            value: PortableDataValue(
+                                kind: .string,
+                                stringValue:
+                                    DatasetMetadata.fixedKey
+                            )
+                        )
+                    ]
+                )
+            ],
+            activeAttachments: []
+        )
+    }
+
+    private func favoriteRecord(
+        contentVersion: String
+    ) throws -> PortableDataRecord {
+        let recordID = UUID(
+            uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        )!
+        let committedAt: Int64 =
+            1_750_000_000_000_000
+        let portableFields = [
+            PortableDataField(
+                name: "cardDigest",
+                value: PortableDataValue(
+                    kind: .string,
+                    stringValue:
+                        String(repeating: "a", count: 64)
+                )
+            ),
+            PortableDataField(
+                name: "contentID",
+                value: PortableDataValue(
+                    kind: .string,
+                    stringValue: "card.non-nfc"
+                )
+            ),
+            PortableDataField(
+                name: "contentVersion",
+                value: PortableDataValue(
+                    kind: .string,
+                    stringValue: contentVersion
+                )
+            ),
+            PortableDataField(
+                name: "createdAt",
+                value: PortableDataValue(
+                    kind: .timestampMicroseconds,
+                    integerValue: committedAt
+                )
+            ),
+            PortableDataField(
+                name: "lastOperationID",
+                value: PortableDataValue(
+                    kind: .uuid,
+                    uuidValue: UUID(
+                        uuidString:
+                            "11111111-2222-3333-4444-555555555555"
+                    )!
+                )
+            ),
+            PortableDataField(
+                name: "removedAt",
+                value: PortableDataValue(kind: .null)
+            ),
+            PortableDataField(
+                name: "updatedAt",
+                value: PortableDataValue(
+                    kind: .timestampMicroseconds,
+                    integerValue: committedAt
+                )
+            )
+        ]
+        let digestFields = try portableFields.map {
+            RecordDigestV1.Field(
+                $0.name,
+                try $0.value.recordDigestValue()
+            )
+        }
+        return PortableDataRecord(
+            modelType: ContentFavoriteContract.recordType,
+            recordType: ContentFavoriteContract.recordType,
+            recordID: recordID,
+            recordKey:
+                ContentFavoriteContract.recordKey(recordID),
+            datasetID: datasetID,
+            localRevision: 1,
+            committedAtMicroseconds: committedAt,
+            digestVersion: RecordDigestV1.version,
+            digestHex: try RecordDigestV1.sha256Hex(
+                recordType:
+                    ContentFavoriteContract.recordType,
+                recordID: recordID,
+                fields: digestFields
+            ),
+            fields: portableFields
         )
     }
 

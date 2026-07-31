@@ -1,0 +1,2908 @@
+{
+  "attribution": {
+    "adaptationStatus": "modified",
+    "creator": "MtF Manual contributors",
+    "licenseIdentifier": "CC-BY-SA-4.0",
+    "licenseURL": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "modificationNote": "把冻结短卡与三个主题改编为 App 离线必要摘要，移除站内导航并增加产品适用边界。",
+    "shareAlikeStatement": "改编内容按 CC BY-SA 4.0 或兼容许可证共享；外部书目和链接目标不因此被再许可。",
+    "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+    "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+  },
+  "cards": [
+    {
+      "aliases": [
+        "dysphoria",
+        "not universal"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "da55103ad7cdc2e89b45f6af64aa4189fecc14427c8df0dda4b0373625ffa29a",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 1,
+      "expiresAt": "2027-06-04",
+      "id": "card.identity-childhood-required-001",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_identity_childhood_required_001.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "8576985bc4f3d243670932b2788d131e9f20d6a7ff4855c1ddd2f3e2a0b6c690",
+        "sourcePath": "cards/zh-CN/card_identity_childhood_required_001.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.apa-gender-dysphoria-dsm5tr",
+        "source.trevor-ally-guide"
+      ],
+      "summary": "不一定。有人很早就清楚地知道，也有人是在青春期、成年之后，甚至是接触到相关概念之后，才慢慢理解自己。意识到的时间早晚，并不是一场身份考试。\n\n很多人在找到语言之前，可能只是觉得哪里不对劲、有点麻木，或者莫名羡慕别人——后来才慢慢把这种感受认出来、说清楚。常被误会的是，好像只有从小就坚定地说自己是女孩的人才算跨性别；其实，理解自己本来就有各种各样的节奏，晚一点明白，并不会让它变得不真实。",
+      "title": "我必须从小就知道自己是女生才算跨性别吗？"
+    },
+    {
+      "aliases": [
+        "dysphoria",
+        "DSM-5-TR context",
+        "not universal"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "a2536384a018ffe1a0cb3a9a6fc26000d0a2e6cb0b96148b6dcfa9805ed9600c",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 2,
+      "expiresAt": "2027-06-04",
+      "id": "card.dysphoria-required-002",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_dysphoria_required_002.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "bd068bdb74ede10197488a78aa371afa527d22eb66c85852eebc2acd9aa2df3a",
+        "sourcePath": "cards/zh-CN/card_dysphoria_required_002.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.apa-gender-dysphoria-dsm5tr"
+      ],
+      "summary": "可能算。性别焦虑是一些人会经历的痛苦，也是一个临床诊断概念，但它并不等于\"跨性别身份本身\"。\n\n有的人确实主要感受到的是痛苦，也有人最先注意到的，是某种羡慕、轻松，是终于对上的性别欣快，或是一种长期的麻木。常被误会的是，好像必须痛苦到符合诊断，才有资格去探索自己的性别；其实真正重要的，是你怎么理解自己的性别体验，而不是去和别人比谁更痛苦。",
+      "title": "没有强烈性别焦虑，还算跨性别吗？"
+    },
+    {
+      "aliases": [
+        "identity",
+        "medical transition diversity",
+        "care_pathway",
+        "hormone choice"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "028ae015ab4d93d3d91f02137e0bf28fce263622ad476e5a86b148aa0d769b55",
+      "category": "hrtAndCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 3,
+      "expiresAt": "2026-12-04",
+      "id": "card.medical-transition-required-003",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_medical_transition_required_003.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "48a64f8aff302dd46f80ce279caac5a6553ae0d40064f2ce54fe56ab8152f210",
+        "sourcePath": "cards/zh-CN/card_medical_transition_required_003.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.who-icd11-gender-incongruence",
+        "source.trans-care-bc-primary-care-toolkit",
+        "source.trevor-ally-guide"
+      ],
+      "summary": "算不算 MtF，并不由 HRT 或手术来决定。医学层面的过渡是一些人的需要，而不是所有人都必须跨过的身份门槛。\n\n有人需要激素、手术或别的医疗支持，才能更舒服地生活；也有人只做社交层面的调整——称谓、穿着、声音——或者完全不走任何医学步骤。常被误会的是，好像不做医学过渡就不是真正的跨；其实路径不同，并不代表身份就不真实。每个人需要的东西本来就不一样。",
+      "title": "不 HRT 或不手术，还算 MtF 吗？"
+    },
+    {
+      "aliases": [
+        "HRT",
+        "time course",
+        "expected effects",
+        "plain definition"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "9211ba71fae551e0056e28c87e679d3eaa4f9849ca3dbb8761bbf39e242aaeb6",
+      "category": "hrtAndCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 4,
+      "expiresAt": "2026-12-04",
+      "id": "card.hrt-what-changes-004",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_hrt_what_changes_004.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "fd99ba132f85ac62755cd8ac62bb1b5c8ee63d3855a680aede3b887519a726eb",
+        "sourcePath": "cards/zh-CN/card_hrt_what_changes_004.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.endocrine-society-2017",
+        "source.ucsf-feminizing-hormone-therapy",
+        "source.transhub-feminising-hormones",
+        "source.johns-hopkins-gaht"
+      ],
+      "summary": "可能包括乳房发育、皮下脂肪重新分布、肌肉量下降、体毛变淡，以及皮肤和气味的变化——但具体会变到哪、多快，因人而异。\n\n把 HRT 想成一段长期的身体变化过程，而不是一个能精确点单的外貌开关。遗传、开始的年龄、身体状态、用药方案和监测，都会影响最后的样子。所以与其纠结\"多久会怎样\"，不如和医生一起把预期和监测谈清楚。\n\n常被误会的是：开始 HRT 后，每个人都会按同一张时间表变化——其实并没有这张表。\n\n这一页只帮你建立预期，不是用药建议，也不含剂量或调药方法。",
+      "title": "女性化 HRT 大概会改变什么？"
+    },
+    {
+      "aliases": [
+        "HRT",
+        "monitoring"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "bb55a0000beeffd32b6bc09bed6d95b770ab2ee7f6c0a2595e5b68b87326af3f",
+      "category": "hrtAndCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 5,
+      "expiresAt": "2026-09-04",
+      "id": "card.hrt-monitoring-005",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_hrt_monitoring_005.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "91b66d1d2dbbf3d12ebe655f01cd85f779a45aaf60534dc67b57414362df9d2c",
+        "sourcePath": "cards/zh-CN/card_hrt_monitoring_005.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.endocrine-society-2017",
+        "source.rainbow-health-ontario-feminizing-ht",
+        "source.transhub-feminising-hormones"
+      ],
+      "summary": "因为激素治疗需要同时看两件事：效果和风险。定期复诊和化验，能帮医生了解身体的反应、按情况调整方案，也能尽早发现一些潜在的问题。\n\n只靠体感，很容易漏掉那些没有明显感觉的风险。不同的指南都会强调，在刚开始的阶段，临床评估和实验室监测要更密集一些；但具体查什么、多久查一次、化验结果该怎么解读，都需要医疗人员结合你的实际情况来定。常被误会的是，验血只是走个流程，或者自己看着数值就能调药——其实这正是需要专业判断的地方。\n\n不要根据一张短卡片就自行加减药，或自己去解释化验结果。",
+      "title": "为什么 HRT 需要复诊和验血？"
+    },
+    {
+      "aliases": [
+        "HRT",
+        "language"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "267ef21ea1b329a456e843ad6f069e8b42f7f1ceba2d3217d1b003c6586a6881",
+      "category": "hrtAndCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 6,
+      "expiresAt": "2027-06-04",
+      "id": "card.terms-feminising-006",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_terms_feminising_006.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "a5c226713b905619281074581a918ba9cd6344f7b1d6bd79186ddefce3361be1",
+        "sourcePath": "cards/zh-CN/card_terms_feminising_006.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.transhub-feminising-hormones",
+        "source.trevor-ally-guide"
+      ],
+      "summary": "不是。这里的\"女性化\"主要描述的是身体变化的方向，而不是在给使用的人贴上某种性别标签。\n\n跨女、一部分非二元者，以及其他性别多元的人，都可能会用到女性化激素；反过来，用不用它，也并不决定一个人究竟是谁。常被误会的是，好像用了女性化激素才让一个人\"成为\"女性，或者只有二元的跨女才能用——其实这两种说法都不成立。激素影响的是身体，而不是身份。",
+      "title": "\"女性化激素\"是不是只属于跨女？"
+    },
+    {
+      "aliases": [
+        "voice",
+        "communication scope",
+        "person-centered goals"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "e88d8eb1b0d56d68d065668cfd31fa1c9a91d632c9496ea9c44b3ffd48110470",
+      "category": "voiceAndPresentation",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 7,
+      "expiresAt": "2026-12-04",
+      "id": "card.voice-not-only-pitch-007",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_voice_not_only_pitch_007.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "92f88ab3f51319fc158271906fbb0daa0adaf7c06f08a813514111526e158a9e",
+        "sourcePath": "cards/zh-CN/card_voice_not_only_pitch_007.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.asha-gender-affirming-voice"
+      ],
+      "summary": "不是。声音和沟通涉及的东西其实很多——音高、共鸣、语调、音质、说话方式、那些非语言的声音，还有在不同场景里的安全感。\n\n把音高拉高，并不等于就拿到了你想要的声音。更值得追求的目标，通常是找到一种真实、舒服、安全，而且能在日常生活里稳定用下去的表达方式。常被误会的是，好像只要把音高调高就等于声音女性化了；其实音高只是其中一环，整体听起来是否自然、用起来是否轻松，才更重要。",
+      "title": "声音训练是不是只练音高？"
+    },
+    {
+      "aliases": [
+        "family",
+        "respect and privacy",
+        "misgendering"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "2dad0570b06558ab21f48d4500b3f0a071508a5df535c3aace80537dcce10631",
+      "category": "privacyAndRelationships",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 8,
+      "expiresAt": "2027-06-04",
+      "id": "card.family-names-pronouns-008",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_family_names_pronouns_008.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "64f5ee2700c792ff51a3a560130ca3637bbe43d85e5416225918186b3c7a27c3",
+        "sourcePath": "cards/zh-CN/card_family_names_pronouns_008.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.trevor-ally-guide",
+        "source.pflag-trans-ally-guide"
+      ],
+      "summary": "名字和称谓，关系到尊重、隐私，也关系到安全。在某些环境里，叫错称谓还可能在无意间暴露一个人的跨性别身份。\n\n如果叫错了，比较好的做法通常是简短地更正一下、接着把话说下去、下次再多留意——而不是把场面弄得好像反过来还要被叫错的人来安慰你。常被误会的是，只要不是故意的，叫错就没什么伤害；其实即使没有恶意，它带来的影响也是真实存在的，所以才值得认真对待。",
+      "title": "家人叫错名字和称谓，为什么不是小事？"
+    },
+    {
+      "aliases": [
+        "fertility",
+        "timing",
+        "sperm cryopreservation",
+        "access and ethics"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "62b7fced49a8ca898f8959aa9e7d862c5c1d92e8c57fff070516831a1cd2f485",
+      "category": "hrtAndCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 9,
+      "expiresAt": "2026-09-04",
+      "id": "card.fertility-before-hrt-009",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_fertility_before_hrt_009.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "81bca24c189a05e811947894c26f66b6a22c0edd45e4e486c0f972c4f7c90899",
+        "sourcePath": "cards/zh-CN/card_fertility_before_hrt_009.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.mayo-feminizing-hormone-therapy",
+        "source.ucsf-fertility-guideline",
+        "source.johns-hopkins-fertility-preservation",
+        "source.asrm-trans-fertility-access-2021"
+      ],
+      "summary": "因为女性化 HRT 可能会影响生育力。即使你现在还不确定以后要不要孩子，也值得在开始之前，先了解一下精子冷冻这类的选择。\n\n这并不是在逼你将来一定要孩子，而是为了避免日后才发现\"当时怎么没人告诉我\"。比较合适的时间，通常是在开始治疗之前，就和医生或生殖医学团队把这件事谈清楚。常被误会的是，好像只有已经决定要孩子的人，才需要去了解生育力保存；其实正因为未来还不确定，提前知道有哪些选项才更重要。\n\n这张卡片不是生殖医学建议。如果已经开始 HRT，或者有了具体的生育计划，请找医疗人员来评估。",
+      "title": "HRT 前为什么要先想生育力？"
+    },
+    {
+      "aliases": [
+        "fertility",
+        "contraception"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "824a4d6de0e53c7d661725561c94d3886689801716f20fcf6691a80d382ba98c",
+      "category": "hrtAndCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 10,
+      "expiresAt": "2026-09-04",
+      "id": "card.hrt-not-contraception-010",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_hrt_not_contraception_010.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "a56296697fff3812f468b0011908255d28012189826a66017ce78c84ed178fa7",
+        "sourcePath": "cards/zh-CN/card_hrt_not_contraception_010.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-fertility-guideline",
+        "source.endocrine-society-patient-treatments"
+      ],
+      "summary": "不能这么假设。性别肯定激素治疗本身，并不是一种可靠的避孕方式。\n\n女性化 HRT 通常会让精子的生成减少，但\"减少\"并不等于完全、稳定、可预测地避孕。只要有可能让人怀孕的性行为，就还是要和医疗人员聊一聊避孕和性健康的安排。常被误会的是，精子变少就等于不会让别人怀孕；其实在没有可靠避孕措施的情况下，这样的推断并不安全。\n\n这张卡片不提供具体的避孕方案。",
+      "title": "HRT 后是不是就不会让别人怀孕？"
+    },
+    {
+      "aliases": [
+        "HRT",
+        "risks",
+        "monitoring",
+        "reversibility"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "c56bfe3d57487a1d9fc7f3e470e6671ac500465f548c4f24de13d6d94c52b9bc",
+      "category": "hrtAndCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 11,
+      "expiresAt": "2026-09-04",
+      "id": "card.hrt-risks-011",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_hrt_risks_011.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "ecee1db50099415c122617667c4e1800eb3d417fa401ee5cdd8b3e722d578b48",
+        "sourcePath": "cards/zh-CN/card_hrt_risks_011.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.mayo-feminizing-hormone-therapy",
+        "source.endocrine-society-2017",
+        "source.johns-hopkins-gaht"
+      ],
+      "summary": "风险既不是\"一定会出事\"，也不是\"可以完全忽略\"。真正的重点，是在有经验的医疗人员支持下去评估、监测和调整。\n\n可靠的资料往往会同时说两件事：女性化 HRT 可以帮到许多人，同时它也可能带来血栓、中风、心血管方面的问题，以及钾、泌乳素、不孕等方面的风险。你需要的是专业的照护，而不是自己把自己吓住，也不是一个人硬扛。常被误会的是，看到一长串风险清单就觉得 HRT 很可怕，或者反过来，听说\"很多人都没事\"就以为不用监测了；其实这两种态度都偏了，风险需要的是被认真对待，并在专业陪伴下管理。\n\n不要根据一张短卡片就自行加减药。",
+      "title": "HRT 的风险应该怎么理解？"
+    },
+    {
+      "aliases": [
+        "hair_removal",
+        "modalities",
+        "laser suitability",
+        "electrolysis",
+        "barriers"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "8703dd60f9ef6c1a26ad2f3615f31b9027e2fd0ddf891ba216336c2648f512f6",
+      "category": "voiceAndPresentation",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 12,
+      "expiresAt": "2026-12-04",
+      "id": "card.hair-removal-laser-electrolysis-012",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_hair_removal_laser_electrolysis_012.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "c2aeaecc5b707ab972d57ccf85767d4b8a5afdf08803695fc88aaf7c92b50e80",
+        "sourcePath": "cards/zh-CN/card_hair_removal_laser_electrolysis_012.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-hair-removal"
+      ],
+      "summary": "激光常用来减少大面积、颜色较深、较粗的毛发；电解在美国被 FDA 批准用于永久脱毛。两者各有适用场景，选哪一种取决于你的毛发、肤色、目标、预算和当地能不能做。\n\n这其实不是谁绝对更高级的问题。有人先用激光把密度降下来，再用电解处理残留；也有人因为毛色偏浅或有手术方面的需要，直接考虑电解。常被以为的是一种方法适合所有部位、所有肤色、所有毛发——其实并没有这样万能的方案。比较稳妥的做法，是找有跨性别服务经验的人帮你评估。",
+      "title": "激光和电解脱毛怎么理解？"
+    },
+    {
+      "aliases": [
+        "hair_removal",
+        "surgery preparation"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "7a35874f79d1681b488c0b4f256704f515cba1ab866480e9ee12ba41048912b5",
+      "category": "surgery",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 13,
+      "expiresAt": "2026-12-04",
+      "id": "card.surgery-hair-removal-013",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_surgery_hair_removal_013.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "e9ac659390bcbb51477a1bdac3540350043c6cd81672b531627e311feb6a3126",
+        "sourcePath": "cards/zh-CN/card_surgery_hair_removal_013.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-hair-removal",
+        "source.ucsf-transition-roadmap"
+      ],
+      "summary": "可能需要提前规划，但具体做哪些部位、用什么方式、什么时间做，都得按手术团队的要求来。\n\nUCSF 提到，一些跨性别女性会为了阴道成形术做生殖器区域的脱毛。问题在于不同术式、不同医生的要求未必一样，自己提前乱做不一定省事，甚至可能做错方向。常被以为的是所有下身手术的术前脱毛要求都一样——其实并非如此，最好等手术团队给出明确说明再动手。\n\n这张卡不能替代手术团队的术前说明，具体安排请以他们的要求为准。",
+      "title": "以后想做下身手术，要现在就脱毛吗？"
+    },
+    {
+      "aliases": [
+        "social_transition",
+        "individualized path",
+        "tucking",
+        "definition"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "cdf965ecd443e4387dd75ea5d9b4beefbb4e1f90c5aa387cdb652a5981736247",
+      "category": "voiceAndPresentation",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 14,
+      "expiresAt": "2026-12-04",
+      "id": "card.tucking-not-required-014",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_tucking_not_required_014.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "e7b1ecc70540fc43d0a1801526cd6027bc6f997695935df4af6b646deb86e43d",
+        "sourcePath": "cards/zh-CN/card_tucking_not_required_014.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-transition-roadmap",
+        "source.ucsf-testicular-scrotal-pain"
+      ],
+      "summary": "不是。收束只是一些人在社交过渡里会用到的工具，不是衡量身份的门槛。\n\n有人觉得它能缓解焦虑，或让衣服的轮廓更舒服；也有人觉得疼、麻烦、用不上，或者不安全。这些感受都很正常。常被以为的是跨女就\"应该\"收束，不能收束就不够认真——其实过渡没有统一的顺序，也没有哪一步必须做完，才能证明你是谁。",
+      "title": "不想收束，是不是不够像跨女？"
+    },
+    {
+      "aliases": [
+        "tucking",
+        "pain and safety",
+        "acute pain"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "3e48ff1a44ac4fbc85c15e2b2dcf5961d5c8b74582ba3ff9e6324ba1662f7e94",
+      "category": "voiceAndPresentation",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 15,
+      "expiresAt": "2026-09-04",
+      "id": "card.tucking-pain-015",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_tucking_pain_015.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "d2a60d355ca5635579b9757e65f35ed009698194549f8fdd31e4d8d6be3853a9",
+        "sourcePath": "cards/zh-CN/card_tucking_pain_015.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-testicular-scrotal-pain"
+      ],
+      "summary": "不要硬忍。长时间或过紧地收束可能带来疼痛，以及泌尿、感染方面的问题；如果出现急性的睾丸或阴囊疼痛，应该及时就医。\n\n比较安全的方向，通常是缩短时长、别勒得太紧，并留意皮肤和排尿的变化。很多人以为想 pass 就得忍痛，其实不必。一旦出现突然明显的疼痛、肿胀、恶心，或者担心扭转、感染，就别只靠一张短卡自己判断。\n\n急性疼痛或明显异常需要由医疗人员评估，别拖。",
+      "title": "收束久了会痛，需要担心吗？"
+    },
+    {
+      "aliases": [
+        "preventive_care",
+        "organ-based screening",
+        "general prevention"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "8970bf7d3ee75ba846116e30b24874410dfaf03c33f4d9be77bf611813a4603c",
+      "category": "preventiveCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 16,
+      "expiresAt": "2027-06-04",
+      "id": "card.preventive-organs-present-016",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_preventive_organs_present_016.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "38918b0d4e79893057c3fa2eb71414deb3f842b11b794a595fa93c3543004744",
+        "sourcePath": "cards/zh-CN/card_preventive_organs_present_016.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.rainbow-health-ontario-feminizing-ht",
+        "source.rainbow-preventive-transfem-checklist"
+      ],
+      "summary": "预防性筛查通常应该看你身体里实际存在的器官和你的风险因素，而不是用证件性别一刀切。\n\n这并不是在否定你的性别，而是医学上需要照顾到真实存在的身体部位。很多人担心按器官筛查就等于把自己当成出生指派性别，其实两回事。你完全可以请医生用让你舒服的称呼，也可以把隐私和安全一起拿出来谈。",
+      "title": "改了证件性别，还要按哪些器官筛查？"
+    },
+    {
+      "aliases": [
+        "preventive_care",
+        "breast cancer risk",
+        "breast cancer screening timing",
+        "clinical breast exam"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "ec5d5469432b17cd3a91169a24b3f874d21f3a5a12496afe69fbcec313588873",
+      "category": "preventiveCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 17,
+      "expiresAt": "2026-12-04",
+      "id": "card.breast-screening-017",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_breast_screening_017.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "4cf5f16f0df1f75db866b83cda28e76a1ecdf5a75dfa9e34843ea889ebf801fa",
+        "sourcePath": "cards/zh-CN/card_breast_screening_017.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-breast-cancer-trans-women",
+        "source.rainbow-preventive-transfem-checklist"
+      ],
+      "summary": "很多指南会把年龄、女性化激素的使用年限和个人风险结合起来看；UCSF 建议通常不早于 50 岁，且至少有 5 年的激素使用史。\n\n有乳房，不代表要马上照搬顺性别女性的筛查时间表，但也不代表完全没有风险。家族史、BRCA 相关风险、植入物、出现的症状，以及当地的筛查政策，都需要和医生一起讨论。常听到两种说法——跨女不会得乳腺癌，或者一开始 HRT 就得做乳腺摄影——两种都不准确。\n\n筛查的起始年龄和频率会随地区、风险因素和医疗系统而不同，以医生的评估为准。",
+      "title": "跨女什么时候考虑乳腺癌筛查？"
+    },
+    {
+      "aliases": [
+        "preventive_care",
+        "prostate cancer",
+        "PSA caveat",
+        "testicular cancer"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "feee7928b62b3e46c0f6b104a8452460ff5a05138f05371447173be106783180",
+      "category": "preventiveCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 18,
+      "expiresAt": "2026-09-04",
+      "id": "card.prostate-screening-018",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_prostate_screening_018.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "036d7586b8aefdfe0cf1466fe21a32dd70dca1013908c51918f2b5aa86d4f13e",
+        "sourcePath": "cards/zh-CN/card_prostate_screening_018.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-prostate-testicular-cancer"
+      ],
+      "summary": "需要记得它通常仍然在那里。前列腺癌的风险可能较低，但并不是零；筛查和 PSA 数值的解释，最好交给熟悉跨性别照护的医生。\n\n吃雌激素、用抗雄，或做过一些手术，都不等于前列腺就此消失。在低睾酮的状态下，PSA 数值该怎么解读也可能和一般情况不同，所以这事不适合自己拿着报告判断。很多人以为过渡之后前列腺就不用再管，其实不是。\n\n这张卡不提供 PSA 解读，相关数值请交给医生。",
+      "title": "跨女还需要关心前列腺吗？"
+    },
+    {
+      "aliases": [
+        "preventive_care",
+        "bone health risk factors",
+        "bone mineral density screening",
+        "general prevention"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "cfa2c321c0502a52a4f96df0e35de3932d8ccdb81989243d3c27aa4020e3a38a",
+      "category": "preventiveCare",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 19,
+      "expiresAt": "2026-12-04",
+      "id": "card.bone-health-019",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_bone_health_019.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "e1f69b783d66b8852fe01a81e1ccba3839b2c98aeb0694b34b82c71ef53f085f",
+        "sourcePath": "cards/zh-CN/card_bone_health_019.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-bone-health-osteoporosis",
+        "source.rainbow-preventive-transfem-checklist"
+      ],
+      "summary": "骨健康和很多因素有关：性激素、年龄、运动、维生素 D、体重、吸烟，以及性腺切除之后激素是否补得足够。要不要查骨密度，则要看年龄和风险。\n\n重点不是\"跨女骨头一定不好\"，而是别让自己长期处在性激素不足的状态，也别忽略那些普通的骨健康习惯。很多人以为只有年长的顺性别女性才要关心骨密度，其实不止。到了 65 岁以上，或本身有风险因素时，就该和医生讨论骨密度筛查——这条年龄线来自部分地区的指南，各地标准不一，和医生确认就好。",
+      "title": "HRT 和抗雄会影响骨健康吗？"
+    },
+    {
+      "aliases": [
+        "sexual_health",
+        "inclusive clinical environment",
+        "STI screening basis",
+        "vaginoplasty STI screening"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "f557b9a7a51db353a3aeb33722bef868ae6dcd902eeec2d5d692fe0ea7777737",
+      "category": "sexualHealth",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 20,
+      "expiresAt": "2026-12-04",
+      "id": "card.sti-screening-anatomy-behavior-020",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_sti_screening_anatomy_behavior_020.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "72923b90a47cc35c92f9e70e081d01082b83b3f39933a7694db6b253ccc1349a",
+        "sourcePath": "cards/zh-CN/card_sti_screening_anatomy_behavior_020.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.cdc-sti-tgd-guidelines-2021",
+        "source.cdc-sti-screening-recommendations-2021",
+        "source.ucsf-hiv-transgender"
+      ],
+      "summary": "不应该只按证件性别。更可靠的方式，是看你当前的身体结构、性行为方式、可能暴露的部位，以及个人风险。\n\n医生问这些问题，不是为了否定你的性别，而是为了知道该查哪些部位。很多人以为 STI 筛查只要照性别标签来、做一次尿检就够了，其实远不止。你也可以告诉医生你习惯用哪些词称呼身体部位，这样问诊会更准确，也更舒服。",
+      "title": "STI 检查是按证件性别做吗？"
+    },
+    {
+      "aliases": [
+        "sexual_health",
+        "HIV screening",
+        "PrEP scope",
+        "broader prevention"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "8502b3d2457b341bf9f5a06183796907f5140a7638a29d47acdea3b1855896f3",
+      "category": "sexualHealth",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 21,
+      "expiresAt": "2026-12-04",
+      "id": "card.hiv-testing-prep-021",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_hiv_testing_prep_021.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；移除未被当前 sourceIDs 支持的地区性断言",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "b3d0b7d1de664c861ab97436a6e02d67cea23d0ab00747ebfc65cb05d23e1741",
+        "sourcePath": "cards/zh-CN/card_hiv_testing_prep_021.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.cdc-sti-tgd-guidelines-2021",
+        "source.cdc-sti-screening-recommendations-2021",
+        "source.cdc-prep-patient-2026"
+      ],
+      "summary": "CDC 建议和所有跨性别者讨论并提供 HIV 筛查；至于要不要重复筛查、适不适合用 PrEP，则要看个人风险。\n\nHIV 检测和 PrEP 不是带污名的标签，它们只是普通预防照护的一部分。很多人以为只有某一类人才需要做 HIV 检测，或者一问起 PrEP 就像在承认什么——都不是这样。如果你近期有可能让自己暴露于 HIV 的性行为，或共用注射用具的风险，完全可以主动向医生问起 PrEP。",
+      "title": "跨女需要做 HIV 检测或了解 PrEP 吗？"
+    },
+    {
+      "aliases": [
+        "sexual_health",
+        "PrEP and HRT",
+        "PrEP monitoring"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "6ac85eb0fc3c20f13d7bf2f07cc3517f614f9ff578e28df491e73660b18928fb",
+      "category": "sexualHealth",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 22,
+      "expiresAt": "2026-09-04",
+      "id": "card.prep-hrt-022",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_prep_hrt_022.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；移除未被当前 sourceIDs 支持的地区性断言；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "f8585a0907681468abeadc70bf48f3c6f7761d694b83c81ba07f7cc4ba5d7abd",
+        "sourcePath": "cards/zh-CN/card_prep_hrt_022.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.cdc-prep-patient-2026",
+        "source.cdc-prep-clinical-guidance-2026",
+        "source.ucsf-hiv-transgender"
+      ],
+      "summary": "按 CDC 目前的说明，PrEP 和激素治疗之间没有已知的药物冲突，可以同时使用。换句话说，吃 PrEP 通常不必担心它会抵消雌激素或抗雄的效果。\n\n不少跨女正是因为怕 PrEP 会削弱雌激素，干脆不敢开口问。更稳妥的做法，是把你正在用的 HRT 药物清单直接带给医生，让对方按当前指南，连同你的肾功能、HIV 检测结果和其他在用药物一起评估。具体怎么用、要不要随访复查，都交给医疗人员来定。\n\n很多人怕 PrEP 会干扰雌激素或抗雄，但目前并没有这样的已知冲突。\n\n这一页不是 PrEP 处方，也不是监测方案。",
+      "title": "PrEP 会不会影响 HRT？"
+    },
+    {
+      "aliases": [
+        "sexual_health",
+        "PrEP scope",
+        "PrEP monitoring",
+        "2-1-1 PrEP limitation",
+        "broader prevention"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "0a75df50c6dbc75e2ef9edc7b12bbaf341a3b549097de95fab68af76355bfa92",
+      "category": "sexualHealth",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 23,
+      "expiresAt": "2026-09-04",
+      "id": "card.prep-not-all-sti-023",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_prep_not_all_sti_023.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "7ad5566c4e784f944817e7d788cae04cd2c62cb6daf06b248f0783f73486ddc9",
+        "sourcePath": "cards/zh-CN/card_prep_not_all_sti_023.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.cdc-prep-patient-2026",
+        "source.cdc-prep-clinical-guidance-2026",
+        "source.cdc-sti-screening-recommendations-2021"
+      ],
+      "summary": "不能。PrEP 主要用来降低感染 HIV 的风险，它并不预防其他性传播感染，也不防妊娠。所以即使在用 PrEP，仍然需要按你的暴露部位和实际风险，去做相应的性健康照护。\n\nPrEP 是一件很有价值的工具，但它不是“一吃就全面无敌”。衣原体、淋病、梅毒、HPV、乙肝、丙肝，以及妊娠风险和疫苗问题，每一项都得各自预防和筛查，没法靠一种药一并解决。\n\n很多人以为吃了 PrEP 就不用再做其他性健康措施，可它只覆盖 HIV 这一块。\n\n不要自行套用按需 / 2-1-1 那种按需服法。",
+      "title": "PrEP 能替代安全套和 STI 检查吗？"
+    },
+    {
+      "aliases": [
+        "sexual_health",
+        "HPV vaccination",
+        "broader prevention"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "45bff27ab6696686f3b39b0fc522aeed9338c479ac44848c360be8071ddb654f",
+      "category": "sexualHealth",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 24,
+      "expiresAt": "2026-12-04",
+      "id": "card.hpv-vaccine-024",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_hpv_vaccine_024.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；移除未被当前 sourceIDs 支持的地区性断言",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "90e70f7690c6c799bc99099656a15aef9695c883f20395b38ec5f1dbea685fa0",
+        "sourcePath": "cards/zh-CN/card_hpv_vaccine_024.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.cdc-hpv-vaccine-recommendations-2024",
+        "source.rainbow-preventive-transfem-checklist"
+      ],
+      "summary": "如果你在 26 岁前没有充分接种，CDC 建议补种。对 27 到 45 岁之间的一部分成年人，是否接种可以和医生共同决定，而不是一刀切。\n\n先说清楚一点：HPV 疫苗预防的是新的 HPV 感染，治不了已经存在的感染。所以成年后再打有没有收益，要看你既往的接种情况、未来新伴侣带来的风险，以及费用和本地政策这些现实因素。把这些摆出来和医生一起看，会比单凭年龄判断更清楚。\n\n常听到两种极端——要么觉得成年后打一定没用，要么觉得是成年人就必须打——其实都没那么绝对。",
+      "title": "成年后还要不要考虑 HPV 疫苗？"
+    },
+    {
+      "aliases": [
+        "surgery",
+        "individual choice",
+        "social_transition",
+        "individualized path"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "d060f778bc3680a8f8c4889bf5e1fea20532b77f36e77a1850a61734946c3617",
+      "category": "surgery",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 25,
+      "expiresAt": "2027-06-04",
+      "id": "card.surgery-not-required-025",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_surgery_not_required_025.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "55f9a2cfe45a3b974faca2aea4e91ca57c7d63ef181c2cb8d6912eecd7bdf2ce",
+        "sourcePath": "cards/zh-CN/card_surgery_not_required_025.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.mayo-feminizing-surgery-2024",
+        "source.ucsf-transition-roadmap"
+      ],
+      "summary": "不是。女性化手术是一部分人的需要和选择，但它并不是身份的门槛，也不是过渡的终点线。\n\n有人需要通过手术来缓解痛苦、获得身体上的舒适感，或者完成自己的生活目标；也有人不想做、不需要做、暂时不能做，或者只选择其中的一部分。走的路不一样，并不意味着谁的身份更不真实。\n\n很多人以为做了手术才算“真正完成过渡”，可根本没有这样一条统一的完成线。",
+      "title": "不做手术，过渡就不完整吗？"
+    },
+    {
+      "aliases": [
+        "surgery",
+        "feminizing surgery scope",
+        "SOC8 medically necessary interventions"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "1e3ba56012df8d68b7e8855a6acbf18105da51ce32a32847a918d858ffb168e3",
+      "category": "surgery",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 26,
+      "expiresAt": "2026-12-04",
+      "id": "card.surgery-options-026",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_surgery_options_026.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；移除未被当前 sourceIDs 支持的地区性断言",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "d3d2340d2fe1e598b4e06e1b7586342263508e85bba492d4ffd0a087ccba270c",
+        "sourcePath": "cards/zh-CN/card_surgery_options_026.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.mayo-feminizing-surgery-2024",
+        "source.wpath-soc8"
+      ],
+      "summary": "不是。女性化手术其实涵盖很多种选项，可以包括乳房、面部、身体轮廓、嗓音、喉结、植发、脱毛、睾丸切除，以及阴道成形术或外阴成形术等等。\n\n“手术”从来不是一个打包套餐。你完全可以把目标拆开来想：你想改的是哪个部位、为什么想改、相应的风险和恢复期能不能承受、会不会影响生育力和性功能、费用与负担又如何。一项一项地看，比笼统地谈“做手术”要清楚得多。\n\n很多人一听 surgery 就默认是阴道成形术，其实它只是众多选项里的一种。",
+      "title": "女性化手术只等于下身手术吗？"
+    },
+    {
+      "aliases": [
+        "surgery",
+        "vaginoplasty options",
+        "dilation and recovery"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "911034c4b5de54a82e72bb6255115d5a717b66423eb8cc1c198ba3da68f4ec67",
+      "category": "surgery",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 27,
+      "expiresAt": "2026-09-04",
+      "id": "card.vaginoplasty-vs-vulvoplasty-027",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_vaginoplasty_vs_vulvoplasty_027.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "ff1c823ab58d60c9d6f2c7904c5c375824763b77801b52a4495ba753fab71979",
+        "sourcePath": "cards/zh-CN/card_vaginoplasty_vs_vulvoplasty_027.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.johns-hopkins-vaginoplasty-2025",
+        "source.mayo-feminizing-surgery-2024"
+      ],
+      "summary": "带阴道管的阴道成形术，目标之一是创建一条可用于接受式阴道性交的阴道管；而外阴成形术（也叫 zero-depth）主要是创建外阴的外观，通常不提供可插入的阴道管。\n\n这两者之间，从来不是谁更“真实”的问题，差别在于功能、恢复、风险，以及扩张、脱毛、性目标和个人身体目标上各有取舍。所以在做决定之前，最好和手术团队具体聊清楚：你究竟想要什么，又愿意为之承担哪些长期照护。\n\n很多人以为 zero-depth 就等于不完整，或者有了 canal 就一定适合所有人——其实哪种更合适，因人而异。",
+      "title": "带阴道管的阴道成形术和外阴成形术怎么理解？"
+    },
+    {
+      "aliases": [
+        "surgery",
+        "dilation and recovery",
+        "vaginoplasty options"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "93484abdac380249a114553ff98d3d4a9dd7e77b0c6e06e8333ed9f11f9774da",
+      "category": "surgery",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 28,
+      "expiresAt": "2026-09-04",
+      "id": "card.vaginoplasty-dilation-028",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_vaginoplasty_dilation_028.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "0e03088ddc001aa210c545107c192a8ccdc35fe242525db122183e0163ecc6bc",
+        "sourcePath": "cards/zh-CN/card_vaginoplasty_dilation_028.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.johns-hopkins-vaginoplasty-2025",
+        "source.ucsf-vaginoplasty-guideline"
+      ],
+      "summary": "要看你选的是哪种术式。如果做的是带阴道管的阴道成形术，通常需要术后扩张来维持阴道管；而外阴成形术（zero-depth）一般不需要这种扩张。\n\n扩张这件事，不适合靠短视频或一张卡片自学。具体方案——用什么工具、多大频率、疼痛和异常情况怎么处理——都该由手术团队来教。短卡能做的，只是提醒你一句：术前就要问清楚，自己能不能接受这份长期照护。\n\n常见两种误会：以为所有术式的术后照护都一样，或者以为扩张的细节靠网上教程就能搞定——这两种想法都不可靠。\n\n这一页不提供扩张教程。",
+      "title": "阴道成形术后一定要扩张吗？"
+    },
+    {
+      "aliases": [
+        "surgery",
+        "risks and consent",
+        "fertility",
+        "preoperative evaluation",
+        "complications and revision"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "c6d1b7c4b5d37291e5ff694ba1a551ec6e91d209a454fdfc75d53a2113da6834",
+      "category": "surgery",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 29,
+      "expiresAt": "2026-09-04",
+      "id": "card.surgery-risks-consent-029",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_surgery_risks_consent_029.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；把 Markdown 引用标记转换为纯文本",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "765c8dd347e0580fc80828564747bead57b93194bb02ac24d205df1b90022764",
+        "sourcePath": "cards/zh-CN/card_surgery_risks_consent_029.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.mayo-feminizing-surgery-2024",
+        "source.johns-hopkins-vaginoplasty-2025",
+        "source.ucsf-vaginoplasty-guideline"
+      ],
+      "summary": "至少要把这些都讨论到：风险、收益、替代方案、费用、不可逆的变化、生育力、性功能、恢复过程、术后随访，以及将来可能需要的修复手术。\n\n知情同意不是签个字就完事。它真正该做到的，是帮你确认这几件事——你清楚自己选的是什么、为什么这样选，知道哪些变化无法回头，遇到并发症时该怎么办，以及随之而来的生活和照护成本你能不能承受。\n\n常被误会的是：只要医生同意、费用也凑齐、手续也办妥了，风险就不必再细问——其实恰恰相反，这些都该由你亲自问清楚。\n\n这一页不能替代术前评估。",
+      "title": "手术前知情同意要问什么？"
+    },
+    {
+      "aliases": [
+        "mental_health",
+        "affirmative care",
+        "therapy role"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "52b0ac3a03127224ff27fc3250643c64aeebf7887c88b0e371802926b2d5b471",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 30,
+      "expiresAt": "2026-12-04",
+      "id": "card.therapy-not-identity-exam-030",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_therapy_not_identity_exam_030.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "59900b5ba818994b6c57c5b3bc8531ec9aff3c8930010909efc37a6e5d393c7a",
+        "sourcePath": "cards/zh-CN/card_therapy_not_identity_exam_030.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.apa-psychological-guidelines-tgnc-2015",
+        "source.wpath-soc8",
+        "source.who-icd11-gender-incongruence"
+      ],
+      "summary": "不是。好的性别肯定心理支持，不该是一场身份审判，而是陪你去探索自己的体验、压力、关系、风险和需要。\n\n咨询师不应该替你宣布你是谁，也不该拿刻板印象来卡你。更值得期待的目标，是让你对自己更清楚、处境更安全，也更有能力为自己做决定。\n\n常被误会的是：心理咨询就像一场考试，得证明自己够不够跨性别才能过关——其实它的方向并不在这里。",
+      "title": "心理咨询是在判断我够不够跨性别吗？"
+    },
+    {
+      "aliases": [
+        "mental_health",
+        "co-occurring mental health",
+        "minority stress and barriers"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "5942421ba4844faaf4a60f1985b404644ac4914c4507a8f12bfaceb0df34b0ee",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 31,
+      "expiresAt": "2026-09-04",
+      "id": "card.mental-health-not-auto-block-031",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_mental_health_not_auto_block_031.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "3cf5473e281d6446a232b533f0a6e31dbf274917fd3d1526d53e0f0ee94d9059",
+        "sourcePath": "cards/zh-CN/card_mental_health_not_auto_block_031.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.wpath-soc8",
+        "source.apa-psychological-guidelines-tgnc-2015"
+      ],
+      "summary": "不该一上来就被否掉。真正要做的，是评估哪些心理健康状况可能影响治疗结果，并就风险、收益和支持方案好好谈一谈。\n\n焦虑、抑郁、创伤或压力其实很常见，也都值得被认真照顾。医生或咨询师该做的，是帮你更安全地接受照护，而不是把任何一种心理困扰都当成一道无限期的拦路牌。\n\n常被误会的是：只要有心理问题，就一定拿不到性别肯定照护——实际并非如此。",
+      "title": "有焦虑或抑郁，会不会不能 HRT 或手术？"
+    },
+    {
+      "aliases": [
+        "mental_health",
+        "affirmative care",
+        "finding care"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "e601e28178d2fb250eca508b05e23ec537839f3b19efa9aa7f6b1b0c493788d7",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 32,
+      "expiresAt": "2026-12-04",
+      "id": "card.finding-affirming-therapist-033",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_finding_affirming_therapist_033.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出；移除未被当前 sourceIDs 支持的地区性断言",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "d080616e437b74ac9d09002e39caeaec00fb2ecfaeecd0a28b1b68e34015cd50",
+        "sourcePath": "cards/zh-CN/card_finding_affirming_therapist_033.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.apa-psychological-guidelines-tgnc-2015",
+        "source.samhsa-crisis-help"
+      ],
+      "summary": "一个更懂跨性别的咨询师，通常会明确使用性别肯定的框架：尊重你的名字和代词，愿意承认自己有不懂的地方并持续学习，也不会把咨询目标设成\"改变你的性别\"。这几点往往比一句宣传语更能说明问题。\n\n网页上写着\"LGBT 友好\"只是起点，不等于真的熟悉跨性别照护。你可以在初次沟通时多问几句：是否服务过跨性别来访者、平时怎么处理性别焦虑、是否熟悉 HRT 或手术的转介、如何保护隐私，以及遇到自己不懂的问题会怎么办。这些回答会帮你判断对方是真的有经验，还是只挂了个友好的标签。\n\n常被误会的是：以为只要写了\"LGBT 友好\"，就一定懂跨性别照护——其实两者并不能划等号，还是要靠具体的沟通来确认。",
+      "title": "怎么找更懂跨性别的咨询师？"
+    },
+    {
+      "aliases": [
+        "mental_health",
+        "support systems",
+        "LGBTQ youth crisis support"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "fa946b49b20d616e859a6720d2f8caa1c81dc8f19237ff6b770e203663576c18",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 33,
+      "expiresAt": "2026-12-04",
+      "id": "card.support-networks-034",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_support_networks_034.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "6b473194e697c8a7c198db7c4f71a44889354a6b48636990d15c6a8ebfc75a45",
+        "sourcePath": "cards/zh-CN/card_support_networks_034.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.trevor-ally-guide",
+        "source.pflag-trans-ally-guide",
+        "source.trevor-24-7-crisis-support"
+      ],
+      "summary": "有用，但要分清层次。朋友、家人和同伴社群能实实在在地减少孤立感，让你不至于一个人面对所有事；不过遇到危机或严重的心理困扰时，这些支持并不能取代专业帮助。\n\n你不必把所有重量都压在某一个人身上。可以把支持分层来看：可信的朋友负责陪伴，社群提供经验和共同的语言，咨询师处理心理困扰，危机热线则负责真正危险的时刻。这样每一种关系都做它擅长的事，你也更不容易被某一段关系压垮。\n\n常被误会的是：要么觉得同伴支持没什么意义，要么把同伴支持当成专业危机支持的替代品——其实它很有价值，但替代不了危急时刻该有的专业介入。",
+      "title": "朋友、家人和社群支持真的有用吗？"
+    },
+    {
+      "aliases": [
+        "coming_out",
+        "personal decision",
+        "social_transition",
+        "individualized path"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "1554a87a04b62dd61bfa274b1cc618fee250924824bc247f11732ad1ef422710",
+      "category": "privacyAndRelationships",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 34,
+      "expiresAt": "2027-06-04",
+      "id": "card.coming-out-not-required-035",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_coming_out_not_required_035.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "98e26bed0f758b547db00379c3bf9cdb2bc66a83f2fee9a4c1d16a3eb427d4a0",
+        "sourcePath": "cards/zh-CN/card_coming_out_not_required_035.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.trevor-coming-out-handbook",
+        "source.ucsf-transition-roadmap"
+      ],
+      "summary": "不是。出柜没有唯一正确的方式，更不是一场检验你身份真实性的考试。何时说、对谁说、用什么方式说，都可以由你自己决定。\n\n有些人先只告诉一个可信的朋友，有些人先只对自己承认，也有些人因为安全、住房、经济或学校方面的现实原因，选择暂时不公开。这些选择都不会否定你是谁——你的身份不取决于有多少人知道。\n\n常被误会的是：以为\"真正的跨性别者\"一定要马上向所有人公开——其实并没有这条规定，节奏由你来把握。",
+      "title": "暂时不出柜，是不是不够真实？"
+    },
+    {
+      "aliases": [
+        "coming_out",
+        "safety planning",
+        "school safety",
+        "support systems"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "9f08830df06a129c8539522d30b777001443e30d5a017200c4346c2cc7935dc6",
+      "category": "privacyAndRelationships",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 35,
+      "expiresAt": "2026-12-04",
+      "id": "card.coming-out-safety-036",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_coming_out_safety_036.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "271e9c63afbeaeb2ccc2d65f21b0d8530d59a63e1a03093acf114cf681569302",
+        "sourcePath": "cards/zh-CN/card_coming_out_safety_036.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.trevor-coming-out-handbook",
+        "source.planned-parenthood-coming-out-trans",
+        "source.pflag-trans-ally-guide"
+      ],
+      "summary": "出柜前，先想清楚你是否依赖对方提供的住房、经济、学校或医疗支持。这些现实牵连越深，越值得先把时间、地点、对方可能的反应，以及一旦情况不好时的备用支持都考虑进去。\n\n想告诉家人或学校是很自然的事，而为安全多做一步准备，绝不是懦弱。你可以先小范围地试探对方的态度，把想说的话写下来，找信任的人陪你演练，并提前想好：如果反应不理想，可以联系谁、去哪里、怎么保护自己。把这些准备好，你就不是赤手空拳地面对未知。\n\n常被误会的是：以为只要想出柜，就应该立刻说出来——其实选好时机、先把安全垫铺好，同样是认真对待自己的方式。",
+      "title": "出柜前要先想哪些安全问题？"
+    },
+    {
+      "aliases": [
+        "privacy",
+        "outing and former name",
+        "coming_out",
+        "boundaries"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "8e4e6160c449c8cd0ca01c08144e28df8a5d60048b1b8f27c2e77398c91c4b9c",
+      "category": "privacyAndRelationships",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 36,
+      "expiresAt": "2026-12-04",
+      "id": "card.privacy-do-not-out-037",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_privacy_do_not_out_037.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "f3389bb3c45a7dc4d3808c14600ad5a10d41b9dcdf8e0fd213c2f3ab3d5c3a7a",
+        "sourcePath": "cards/zh-CN/card_privacy_do_not_out_037.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.glaad-trans-ally-tips",
+        "source.glaad-trans-reference",
+        "source.trevor-coming-out-handbook"
+      ],
+      "summary": "只有在你明确同意、并且说清楚要告诉谁、怎么说的前提下，朋友才可以替你转告。未经同意就替别人出柜，可能伤害到对方的隐私和安全，哪怕出发点是好意。\n\n如果你确实需要朋友帮忙解释，最好先把范围讲清楚：可以告诉谁、不能告诉谁、用什么名字和代词，以及哪些身体或医疗信息绝对不要提。把界限说在前面，朋友才能真正帮上忙，而不是好心办坏事。\n\n常被误会的是：以为帮忙把身份信息扩散出去就是一种支持——其实未经本人同意的扩散，反而可能把人推向风险里。",
+      "title": "朋友可以替我告诉别人吗？"
+    },
+    {
+      "aliases": [
+        "allyship",
+        "invasive questions",
+        "privacy",
+        "outing and former name",
+        "names and pronouns"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "ea6aed3db8edbb5c2adceda01ea34d7b1ff009319cba8c0c5c863268b04013c1",
+      "category": "sexualHealth",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 37,
+      "expiresAt": "2026-12-04",
+      "id": "card.ally-no-invasive-questions-038",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_ally_no_invasive_questions_038.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "d31852707f5a88825558434bdcd127bd58576e33fcdc31f64502c7a7efca841f",
+        "sourcePath": "cards/zh-CN/card_ally_no_invasive_questions_038.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.glaad-trans-ally-tips",
+        "source.glaad-trans-reference",
+        "source.pflag-trans-ally-guide"
+      ],
+      "summary": "亲近并不等于有权知道一个人的全部隐私。旧名、身体、手术状态、性生活和医疗史，都属于本人来决定是否分享的范围，关系再近也不例外。\n\n想表达关心，完全可以换一种问法，把重点放在\"我能怎么帮你\"，而不是\"我想知道什么\"。比如：你希望我怎么称呼你？哪些信息不方便让别人知道？你现在最需要我做的是什么？万一我说错了，应该怎么改过来？这些问题既照顾了对方的隐私，也让支持落到实处。\n\n常被误会的是：以为\"我是家人或朋友，所以有权知道全部细节\"——其实关系的亲近带来的是更多体贴的责任，而不是打听隐私的特权。",
+      "title": "家人能不能问手术、身体和以前名字？"
+    },
+    {
+      "aliases": [
+        "glossary",
+        "gender identity vs sexual orientation"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "494e1c25b04b296e6c9044f8be7a907e0e47d06bcfbfd5fbb53f62c1baec44cd",
+      "category": "identityAndTerms",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 38,
+      "expiresAt": "2027-06-04",
+      "id": "card.gender-identity-orientation-039",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_gender_identity_orientation_039.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "bb4e9271bc4589206cbc389f134cbba743c7a212132a9c2f36f7fdf19b7f97f0",
+        "sourcePath": "cards/zh-CN/card_gender_identity_orientation_039.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.glaad-trans-terms-glossary",
+        "source.glaad-trans-reference",
+        "source.pflag-national-glossary"
+      ],
+      "summary": "算。性别身份回答的是\"我是谁\"，性取向回答的是\"我会被谁吸引\"，这是两件不同的事，不会互相决定。\n\n跨性别女性可以是异性恋、女同性恋、双性恋、泛性恋、无性恋，或其他任何取向。喜欢谁、被谁吸引，都不会让你的性别身份失效——你是女性这件事，并不取决于你爱的是男生还是女生。\n\n常被误会的是：以为跨女必须喜欢男性才算女性——其实性取向和性别身份各管各的，喜欢女生的跨女同样是女性。",
+      "title": "跨女喜欢女生，还算跨女吗？"
+    },
+    {
+      "aliases": [
+        "glossary",
+        "transgender umbrella",
+        "trans woman",
+        "MtF label",
+        "self-identification"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "bcfdf692c2efea0aa28d5c9fec84e2ab1460de619a05a98ac0b82a03f52feb98",
+      "category": "identityAndTerms",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 39,
+      "expiresAt": "2027-06-04",
+      "id": "card.mtf-transwoman-terms-040",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_mtf_transwoman_terms_040.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "ee36495d2ba2a77b32e7d9cb8a7a68c2f23ab036af147d6b82a521bfdf14ce14",
+        "sourcePath": "cards/zh-CN/card_mtf_transwoman_terms_040.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.glaad-trans-terms-glossary",
+        "source.glaad-trans-reference",
+        "source.trevor-allyship-in-action",
+        "source.mtf-wiki"
+      ],
+      "summary": "这几个词各有合适的场合。MtF 常被当作社区和检索用的标签；跨性别女性、跨女更适合在正文里指称具体的人；女性化方向这类说法则更宽，能覆盖偏女性化的各种体验。\n\n没有哪一个词能替所有人定义身份。这个项目在名字里保留 MtF，是因为它容易被搜索到、方便人找过来；但具体写作时，我们会尽量用更具体、以人为中心的说法，并尊重每个人自己的称呼。\n\n常被误会的是：以为这些词完全等价，或者一个人必须永远固定只用一个标签——其实它们各有侧重，怎么称呼也可以随本人意愿而变。",
+      "title": "MtF、跨女、跨性别女性怎么用？"
+    },
+    {
+      "aliases": [
+        "glossary",
+        "gender incongruence vs dysphoria",
+        "identity",
+        "ICD-11 classification",
+        "dysphoria",
+        "DSM-5-TR context"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "f1ceeee5453cc137a13a21d63a051a9783f0a1b7894036f502ba42a40fe9b6f5",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 40,
+      "expiresAt": "2027-06-04",
+      "id": "card.dysphoria-incongruence-terms-041",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_dysphoria_incongruence_terms_041.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "824ee3e749885325d21487aacaad1c96f980d61c94b3055522164d66f54a146d",
+        "sourcePath": "cards/zh-CN/card_dysphoria_incongruence_terms_041.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.who-icd11-gender-incongruence",
+        "source.apa-gender-dysphoria-dsm5tr"
+      ],
+      "summary": "不完全一样。ICD-11 里的性别不一致，强调的是体验到的性别与指派性别之间显著且持续的不一致；DSM-5-TR 里的性别焦虑，强调的则是这种不一致所带来的临床痛苦。一个落在\"不一致\"本身，一个落在\"痛苦\"上。\n\n换句话说，前者来自 WHO 的 ICD-11，是与性健康相关的分类；后者来自 APA 的 DSM-5-TR，是一项临床诊断。两者出处不同，不能随便当成同义词混用。\n\n常被误会的是：以为只要说性别焦虑或性别不一致，意思就都一样——其实它们出自不同的体系、各有侧重，混用会让意思走样。",
+      "title": "性别不一致和性别焦虑一样吗？"
+    },
+    {
+      "aliases": [
+        "glossary",
+        "terms to avoid",
+        "trans woman",
+        "privacy",
+        "outing and former name"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "cc2de2c2f19192b0ad8ab2924bd40d595e8cbbe575a8315eb495d9b11dd1db80",
+      "category": "privacyAndRelationships",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 41,
+      "expiresAt": "2026-12-04",
+      "id": "card.terms-to-avoid-042",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_terms_to_avoid_042.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "20eccb440c911c70aa7e4c11f7adfe59f4a084ed359a79bfc543a0ecf5629e48",
+        "sourcePath": "cards/zh-CN/card_terms_to_avoid_042.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.glaad-trans-terms-glossary",
+        "source.glaad-trans-reference",
+        "source.glaad-trans-ally-tips"
+      ],
+      "summary": "有几类说法最好避开：把\"跨性别\"当成名词来用（比如\"一个跨性别\"）、说成\"跨性别主义\"，或者把旧名、身体、手术状态拿来当作解释一个人身份的\"必要信息\"。\n\n问题不只是\"礼貌\"那么简单。这些说法常常在无意中把人变成一个标签、一种病理，或一个争议对象。更稳妥的写法其实很简单：跨性别女性、跨性别者，以及这个人自己使用的名字和代词——让人回到人本身。\n\n常被误会的是：以为讲究术语只是\"政治正确\"，说错了也无所谓——其实用词会直接影响一个人是被当作人，还是被当成标签来对待。",
+      "title": "哪些说法容易让人不舒服？"
+    },
+    {
+      "aliases": [
+        "identity",
+        "medical transition diversity",
+        "social_transition",
+        "individualized path"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "298d8aac74093538c1fe390a415c718aa0a14e9daf5fdd5e38abce6b71b2a5a3",
+      "category": "identityAndTerms",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 42,
+      "expiresAt": "2027-06-04",
+      "id": "card.no-rush-medical-transition-045",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_no_rush_medical_transition_045.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "4cab55d3c5ec9562a08cf1348d0ecb740f8fa75664168abec1dd7f5b4c43763f",
+        "sourcePath": "cards/zh-CN/card_no_rush_medical_transition_045.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-transition-roadmap",
+        "source.wpath-soc8"
+      ],
+      "summary": "不必。是不是 MtF，是关于你的性别身份；做不做、什么时候做医疗转变，是另一回事，由你的节奏决定。过渡分社会、法律、医疗几层，你可以只走其中一层、按任意顺序和快慢，慢慢来、甚至不做医疗，都不改变你是谁。别人的进度不是你的标尺。",
+      "title": "是 MtF 就得马上吃激素、做手术吗？"
+    },
+    {
+      "aliases": [
+        "voice",
+        "communication scope",
+        "person-centered goals"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "d14ddce4926ffc5e0bacdfc3772d21cfde6e700ebd91f6db439b665feacbce40",
+      "category": "voiceAndPresentation",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 43,
+      "expiresAt": "2026-12-04",
+      "id": "card.voice-resonance-not-just-pitch-050",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_voice_resonance_not_just_pitch_050.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "934f102b6cf27ef5488ed91e81d937a8564eae668db855f6f1d96f9f8529a95b",
+        "sourcePath": "cards/zh-CN/card_voice_resonance_not_just_pitch_050.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.asha-gender-affirming-voice"
+      ],
+      "summary": "不是。音高只是其中一维，而且被高估了。声音里还有共鸣、语调、气声等，其中共鸣——听起来\"靠前明亮\"还是\"靠后低沉\"——往往比音高更影响别人对性别的判断。只把音高硬拉高、却不管共鸣，常常显得紧、显得假，还会伤嗓子。练共鸣和放松，比顶高音高有用得多。",
+      "title": "练女声就是把音调拉高吗？"
+    },
+    {
+      "aliases": [
+        "tucking",
+        "definition",
+        "pain and safety",
+        "acute pain"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "b78191eb67a6c54ea47fee6f01dcc3071e013e37c2b03bb365622c3521687810",
+      "category": "voiceAndPresentation",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 44,
+      "expiresAt": "2026-09-04",
+      "id": "card.gd-tucking-safe-057",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_gd_tucking_safe_057.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "3faf6f2afc79dfd101f8d70405581cb3f3a7c9605cb9117ce218e5e65b233bb7",
+        "sourcePath": "cards/zh-CN/card_gd_tucking_safe_057.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-04",
+      "sourceIDs": [
+        "source.ucsf-testicular-scrotal-pain"
+      ],
+      "summary": "收束不是必修课。如果选择尝试，疼痛、麻木、皮肤或排尿问题都不是应当忍受的代价，应停止并按症状求医。具体方式和时长不适合靠一张短卡统一规定。",
+      "title": "收束（tucking）安全吗？"
+    },
+    {
+      "aliases": [
+        "mental_health",
+        "affirmative care",
+        "support systems",
+        "crisis resources (China)"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "a998997ef6c1572a49358ca0c58c974c8f6ddfa60540f9b9c7a111341be73329",
+      "category": "mentalWellbeing",
+      "contentType": "questionAnswer",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 45,
+      "expiresAt": "2026-09-05",
+      "id": "card.gd-when-seek-help-059",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_gd_when_seek_help_059.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "从冻结短卡提取必要摘要并移除站内导航；未加入个体化医疗输出。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "2f54609aae3042a76f1baa173a13ae0b529cb95a18597f7c79caa2b7277bc7d3",
+        "sourcePath": "cards/zh-CN/card_gd_when_seek_help_059.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-06-05",
+      "sourceIDs": [
+        "source.apa-psychological-guidelines-tgnc-2015",
+        "source.nhc-cn-12356-psych-hotline",
+        "source.samhsa-crisis-help"
+      ],
+      "summary": "不用等到“够严重”才求助。只要困扰持续、影响生活，或你希望有人一起处理，就可以找肯定性专业支持；出现自伤或即时危险念头，立即使用当地危机或急救入口。",
+      "title": "难受到什么程度，该找咨询或求助？"
+    },
+    {
+      "aliases": [
+        "方案字段",
+        "剂型",
+        "给药途径",
+        "route"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "8e9eaa30df984bf4fa0b4d3ba6d344c47a01fd71566009b1246e600e2c32828f",
+      "category": "recordsAndVisits",
+      "contentType": "recordingGuide",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 46,
+      "expiresAt": "2026-07-27",
+      "id": "guide.regimen-field",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/cards/zh-CN/card_estrogen_routes_054.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "改编为方案录入字段说明；删除途径比较，不提供剂量、推荐或等效换算。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "b463e13f114527f50f03945a067699be42e214e78e80a9bc66dde0df434debb0",
+        "sourcePath": "cards/zh-CN/card_estrogen_routes_054.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-07-27",
+      "sourceIDs": [
+        "source.ucsf-feminizing-hormone-therapy",
+        "source.transhub-feminising-hormones",
+        "source.rainbow-health-ontario-feminizing-ht"
+      ],
+      "summary": "药物名称、剂型和给药途径是不同字段。原样记录标签或处方信息，不要因为名称相近就合并，也不要由 App 推算等效剂量。",
+      "title": "把方案字段当作忠实记录"
+    },
+    {
+      "aliases": [
+        "化验记录",
+        "报告原件",
+        "采样上下文",
+        "单位"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "347c31cb01350b6d23f27bec269fde05a724cd3af63099125f582bffbe0ecc9a",
+      "category": "recordsAndVisits",
+      "contentType": "recordingGuide",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 47,
+      "expiresAt": "2026-07-27",
+      "id": "guide.lab-recording",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/archive/quick/zh-CN/036-hrt-follow-up-records-and-labs.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "改编为本地记录说明；不提供目标范围、个体化化验解释或调药建议。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "a785d71e2bc0b62134bc6c70163185f39192a427c766645668f7d30231a041ae",
+        "sourcePath": "archive/quick/zh-CN/036-hrt-follow-up-records-and-labs.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-07-27",
+      "sourceIDs": [
+        "source.endocrine-society-2017",
+        "source.rainbow-health-ontario-feminizing-ht"
+      ],
+      "summary": "记录报告日期、采样时间、单位、参考范围与原始附件。一次标红不能脱离病史、检测方法和采样条件替代医疗解释。",
+      "title": "保留化验原件与采样上下文"
+    },
+    {
+      "aliases": [
+        "首诊准备",
+        "复诊准备",
+        "就诊清单"
+      ],
+      "applicabilityBoundary": "教育性必要摘要；不读取个人记录，不作身份判定、诊断、处方、剂量、目标范围或个体化医疗解释。",
+      "cardDigest": "cfef43c700eff170b66793186d9be65a49aeab020c148e47937b6b94dc7dc062",
+      "category": "recordsAndVisits",
+      "contentType": "visitChecklist",
+      "contentVersion": "offline-contextual-content-candidate.1",
+      "displayOrder": 48,
+      "expiresAt": "2026-07-27",
+      "id": "guide.visit-preparation",
+      "originalURL": "https://github.com/AwantedRaccoon/MTF-Unmanual/blob/f39474389831840366c23fd274208319802bf2a5/archive/quick/zh-CN/034-hrt-first-visit-preparation.md",
+      "provenance": {
+        "adaptationStatus": "modified",
+        "modificationNote": "改编为就诊准备清单摘要；不提供处方、检查套餐或开始治疗的判定。",
+        "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+        "sourceFileSHA256": "a4733ac71162738b87720cdecf8839d9fc060604d8e84183dc6a40e911a8d6b1",
+        "sourcePath": "archive/quick/zh-CN/034-hrt-first-visit-preparation.md",
+        "sourceRepository": "https://github.com/AwantedRaccoon/MTF-Unmanual"
+      },
+      "retrievedAt": "2026-07-27",
+      "sourceIDs": [
+        "source.endocrine-society-2017",
+        "source.asrm-trans-fertility-access-2021",
+        "source.trans-care-bc-primary-care-toolkit"
+      ],
+      "summary": "准备完整药物与补剂清单、重要病史、既往报告、变化与问题。清单帮助把事实带进会诊，不替代医生评估。",
+      "title": "首诊与复诊前的准备清单"
+    }
+  ],
+  "manifest": {
+    "cardCount": 48,
+    "classificationStatus": "pending",
+    "contentDigest": "3d9a9427dc252913176451378f80d23b708b3a7528eddb7b4f2ac60d939f6cae",
+    "contentVersion": "offline-contextual-content-candidate.1",
+    "expiresAt": "2026-09-04",
+    "generatedAt": "2026-07-31",
+    "locale": "zh-Hans",
+    "retrievedAt": "2026-06-05",
+    "review": {
+      "completedAt": null,
+      "contentReviewerDisplayName": null,
+      "medicalReviewerDisplayName": null,
+      "ownerRole": "内容、医疗与 App Review 分类复核责任人",
+      "scope": "48 张场景化必要摘要、45 条外部书目、53 个显式场景 anchor 与 CC BY-SA 授权链",
+      "status": "candidate"
+    },
+    "scenarioAnchorCount": 53,
+    "schemaVersion": "1",
+    "sourceCommit": "f39474389831840366c23fd274208319802bf2a5",
+    "sourceCount": 45
+  },
+  "scenarioAnchors": [
+    {
+      "cardID": "card.identity-childhood-required-001",
+      "displayOrder": 1,
+      "id": "anchor.pocket-card-identity-childhood-required-001",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.dysphoria-required-002",
+      "displayOrder": 2,
+      "id": "anchor.pocket-card-dysphoria-required-002",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.medical-transition-required-003",
+      "displayOrder": 3,
+      "id": "anchor.pocket-card-medical-transition-required-003",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.hrt-what-changes-004",
+      "displayOrder": 4,
+      "id": "anchor.pocket-card-hrt-what-changes-004",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.hrt-monitoring-005",
+      "displayOrder": 5,
+      "id": "anchor.pocket-card-hrt-monitoring-005",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.terms-feminising-006",
+      "displayOrder": 6,
+      "id": "anchor.pocket-card-terms-feminising-006",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.voice-not-only-pitch-007",
+      "displayOrder": 7,
+      "id": "anchor.pocket-card-voice-not-only-pitch-007",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.family-names-pronouns-008",
+      "displayOrder": 8,
+      "id": "anchor.pocket-card-family-names-pronouns-008",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.fertility-before-hrt-009",
+      "displayOrder": 9,
+      "id": "anchor.pocket-card-fertility-before-hrt-009",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.hrt-not-contraception-010",
+      "displayOrder": 10,
+      "id": "anchor.pocket-card-hrt-not-contraception-010",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.hrt-risks-011",
+      "displayOrder": 11,
+      "id": "anchor.pocket-card-hrt-risks-011",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.hair-removal-laser-electrolysis-012",
+      "displayOrder": 12,
+      "id": "anchor.pocket-card-hair-removal-laser-electrolysis-012",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.surgery-hair-removal-013",
+      "displayOrder": 13,
+      "id": "anchor.pocket-card-surgery-hair-removal-013",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.tucking-not-required-014",
+      "displayOrder": 14,
+      "id": "anchor.pocket-card-tucking-not-required-014",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.tucking-pain-015",
+      "displayOrder": 15,
+      "id": "anchor.pocket-card-tucking-pain-015",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.preventive-organs-present-016",
+      "displayOrder": 16,
+      "id": "anchor.pocket-card-preventive-organs-present-016",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.breast-screening-017",
+      "displayOrder": 17,
+      "id": "anchor.pocket-card-breast-screening-017",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.prostate-screening-018",
+      "displayOrder": 18,
+      "id": "anchor.pocket-card-prostate-screening-018",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.bone-health-019",
+      "displayOrder": 19,
+      "id": "anchor.pocket-card-bone-health-019",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.sti-screening-anatomy-behavior-020",
+      "displayOrder": 20,
+      "id": "anchor.pocket-card-sti-screening-anatomy-behavior-020",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.hiv-testing-prep-021",
+      "displayOrder": 21,
+      "id": "anchor.pocket-card-hiv-testing-prep-021",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.prep-hrt-022",
+      "displayOrder": 22,
+      "id": "anchor.pocket-card-prep-hrt-022",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.prep-not-all-sti-023",
+      "displayOrder": 23,
+      "id": "anchor.pocket-card-prep-not-all-sti-023",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.hpv-vaccine-024",
+      "displayOrder": 24,
+      "id": "anchor.pocket-card-hpv-vaccine-024",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.surgery-not-required-025",
+      "displayOrder": 25,
+      "id": "anchor.pocket-card-surgery-not-required-025",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.surgery-options-026",
+      "displayOrder": 26,
+      "id": "anchor.pocket-card-surgery-options-026",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.vaginoplasty-vs-vulvoplasty-027",
+      "displayOrder": 27,
+      "id": "anchor.pocket-card-vaginoplasty-vs-vulvoplasty-027",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.vaginoplasty-dilation-028",
+      "displayOrder": 28,
+      "id": "anchor.pocket-card-vaginoplasty-dilation-028",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.surgery-risks-consent-029",
+      "displayOrder": 29,
+      "id": "anchor.pocket-card-surgery-risks-consent-029",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.therapy-not-identity-exam-030",
+      "displayOrder": 30,
+      "id": "anchor.pocket-card-therapy-not-identity-exam-030",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.mental-health-not-auto-block-031",
+      "displayOrder": 31,
+      "id": "anchor.pocket-card-mental-health-not-auto-block-031",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.finding-affirming-therapist-033",
+      "displayOrder": 32,
+      "id": "anchor.pocket-card-finding-affirming-therapist-033",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.support-networks-034",
+      "displayOrder": 33,
+      "id": "anchor.pocket-card-support-networks-034",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.coming-out-not-required-035",
+      "displayOrder": 34,
+      "id": "anchor.pocket-card-coming-out-not-required-035",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.coming-out-safety-036",
+      "displayOrder": 35,
+      "id": "anchor.pocket-card-coming-out-safety-036",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.privacy-do-not-out-037",
+      "displayOrder": 36,
+      "id": "anchor.pocket-card-privacy-do-not-out-037",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.ally-no-invasive-questions-038",
+      "displayOrder": 37,
+      "id": "anchor.pocket-card-ally-no-invasive-questions-038",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.gender-identity-orientation-039",
+      "displayOrder": 38,
+      "id": "anchor.pocket-card-gender-identity-orientation-039",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.mtf-transwoman-terms-040",
+      "displayOrder": 39,
+      "id": "anchor.pocket-card-mtf-transwoman-terms-040",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.dysphoria-incongruence-terms-041",
+      "displayOrder": 40,
+      "id": "anchor.pocket-card-dysphoria-incongruence-terms-041",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.terms-to-avoid-042",
+      "displayOrder": 41,
+      "id": "anchor.pocket-card-terms-to-avoid-042",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.no-rush-medical-transition-045",
+      "displayOrder": 42,
+      "id": "anchor.pocket-card-no-rush-medical-transition-045",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.voice-resonance-not-just-pitch-050",
+      "displayOrder": 43,
+      "id": "anchor.pocket-card-voice-resonance-not-just-pitch-050",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.gd-tucking-safe-057",
+      "displayOrder": 44,
+      "id": "anchor.pocket-card-gd-tucking-safe-057",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "card.gd-when-seek-help-059",
+      "displayOrder": 45,
+      "id": "anchor.pocket-card-gd-when-seek-help-059",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "guide.regimen-field",
+      "displayOrder": 46,
+      "id": "anchor.pocket-guide-regimen-field",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "guide.lab-recording",
+      "displayOrder": 47,
+      "id": "anchor.pocket-guide-lab-recording",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "guide.visit-preparation",
+      "displayOrder": 48,
+      "id": "anchor.pocket-guide-visit-preparation",
+      "purpose": "在随身附页离线查阅该必要摘要。",
+      "scenario": "pocketAppendix"
+    },
+    {
+      "cardID": "guide.regimen-field",
+      "displayOrder": 1,
+      "id": "anchor.regimen-field",
+      "purpose": "解释方案名称、剂型和给药途径字段。",
+      "scenario": "regimenField"
+    },
+    {
+      "cardID": "guide.lab-recording",
+      "displayOrder": 1,
+      "id": "anchor.lab-recording",
+      "purpose": "解释化验原件、单位和采样上下文。",
+      "scenario": "labRecording"
+    },
+    {
+      "cardID": "card.hrt-monitoring-005",
+      "displayOrder": 1,
+      "id": "anchor.regimen-analysis-source",
+      "purpose": "从方案分析进入对应离线教育摘要。",
+      "scenario": "regimenAnalysisSource"
+    },
+    {
+      "cardID": "guide.visit-preparation",
+      "displayOrder": 1,
+      "id": "anchor.visit-preparation",
+      "purpose": "主动打开首诊与复诊准备清单。",
+      "scenario": "visitPreparation"
+    },
+    {
+      "cardID": "guide.lab-recording",
+      "displayOrder": 1,
+      "id": "anchor.timeline-record",
+      "purpose": "从记录详情解释保留原件和上下文。",
+      "scenario": "timelineRecord"
+    }
+  ],
+  "sources": [
+    {
+      "applicablePopulations": [
+        "patient",
+        "family",
+        "clinician"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2027-06-04",
+      "id": "source.apa-gender-dysphoria-dsm5tr",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "American Psychiatric Association",
+      "sourceStatus": "current",
+      "title": "Gender Dysphoria",
+      "url": "https://www.psychiatry.org/patients-families/gender-dysphoria",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "psychologist",
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.apa-psychological-guidelines-tgnc-2015",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "American Psychological Association",
+      "sourceStatus": "current",
+      "title": "Guidelines for Psychological Practice with Transgender and Gender Nonconforming People",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/26653312/",
+      "versionOrPublishedAt": "2015"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.asha-gender-affirming-voice",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "American Speech-Language-Hearing Association",
+      "sourceStatus": "current",
+      "title": "Gender Affirming Voice and Communication",
+      "url": "https://www.asha.org/practice-portal/professional-issues/gender-affirming-voice-and-communication/",
+      "versionOrPublishedAt": "n.d.; ongoing terminology monitoring stated"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "ethics",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.asrm-trans-fertility-access-2021",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "American Society for Reproductive Medicine",
+      "sourceStatus": "current",
+      "title": "Access to fertility services by transgender and nonbinary persons: an Ethics Committee opinion",
+      "url": "https://www.asrm.org/practice-guidance/ethics-opinions/access-to-fertility-services-by-transgender-and-nonbinary-persons-an-ethics-committee-opinion-2021/",
+      "versionOrPublishedAt": "2021"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "public"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.cdc-hpv-vaccine-recommendations-2024",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Centers for Disease Control and Prevention",
+      "sourceStatus": "current",
+      "title": "HPV Vaccine Recommendations",
+      "url": "https://www.cdc.gov/hpv/hcp/vaccination-considerations/index.html",
+      "versionOrPublishedAt": "2024-07-09"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "public_health"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.cdc-prep-clinical-guidance-2026",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Centers for Disease Control and Prevention",
+      "sourceStatus": "current",
+      "title": "Clinical Guidance for PrEP",
+      "url": "https://www.cdc.gov/hivnexus/hcp/prep/index.html",
+      "versionOrPublishedAt": "2026 live page"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "public"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.cdc-prep-patient-2026",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Centers for Disease Control and Prevention",
+      "sourceStatus": "current",
+      "title": "Preventing HIV with PrEP",
+      "url": "https://www.cdc.gov/hiv/prevention/prep.html",
+      "versionOrPublishedAt": "2026-04-15"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "public_health"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.cdc-sti-screening-recommendations-2021",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Centers for Disease Control and Prevention",
+      "sourceStatus": "current",
+      "title": "STI Screening Recommendations",
+      "url": "https://www.cdc.gov/std/treatment-guidelines/screening-recommendations.htm",
+      "versionOrPublishedAt": "2021 guideline page; live checked 2026"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "public_health"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.cdc-sti-tgd-guidelines-2021",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Centers for Disease Control and Prevention",
+      "sourceStatus": "current",
+      "title": "Transgender and Gender Diverse Persons",
+      "url": "https://www.cdc.gov/std/treatment-guidelines/trans.htm",
+      "versionOrPublishedAt": "2021-07-22"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "researcher"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.endocrine-society-2017",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Endocrine Society",
+      "sourceStatus": "current",
+      "title": "Endocrine Treatment of Gender-Dysphoric/Gender-Incongruent Persons: An Endocrine Society Clinical Practice Guideline",
+      "url": "https://academic.oup.com/jcem/article/102/11/3869/4157558",
+      "versionOrPublishedAt": "2017-11-01"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "family"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.endocrine-society-patient-treatments",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Endocrine Society",
+      "sourceStatus": "current",
+      "title": "Transgender Health Treatments",
+      "url": "https://www.endocrine.org/patient-engagement/endocrine-library/transgender-health-treatments",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "ally",
+        "family",
+        "friend",
+        "media"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.glaad-trans-ally-tips",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "GLAAD",
+      "sourceStatus": "current",
+      "title": "Tips for Allies of Transgender People",
+      "url": "https://glaad.org/transgender/allies/",
+      "versionOrPublishedAt": "2021-03"
+    },
+    {
+      "applicablePopulations": [
+        "media",
+        "ally",
+        "maintainer"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.glaad-trans-reference",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "GLAAD",
+      "sourceStatus": "current",
+      "title": "Transgender People: An Introduction",
+      "url": "https://glaad.org/reference/transgender/",
+      "versionOrPublishedAt": "live page checked 2026-06-04"
+    },
+    {
+      "applicablePopulations": [
+        "media",
+        "ally",
+        "maintainer"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.glaad-trans-terms-glossary",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "GLAAD",
+      "sourceStatus": "current",
+      "title": "Glossary of Terms: Transgender",
+      "url": "https://glaad.org/reference/trans-terms",
+      "versionOrPublishedAt": "live page checked 2026-06-04"
+    },
+    {
+      "applicablePopulations": [
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.johns-hopkins-fertility-preservation",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Johns Hopkins Medicine",
+      "sourceStatus": "current",
+      "title": "Transgender Patients: Fertility Preservation Options",
+      "url": "https://www.hopkinsmedicine.org/gynecology-obstetrics/specialty-areas/fertility-center/infertility-services/fertility-preservation-and-restoration-center/transgender-patients",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "family"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.johns-hopkins-gaht",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Johns Hopkins Medicine",
+      "sourceStatus": "current",
+      "title": "Gender-Affirming Hormone Therapy (GAHT)",
+      "url": "https://www.hopkinsmedicine.org/health/treatment-tests-and-therapies/gender-affirming-hormone-therapy-gaht",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "family"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.johns-hopkins-vaginoplasty-2025",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Johns Hopkins Medicine",
+      "sourceStatus": "current",
+      "title": "Vaginoplasty for Gender Affirmation",
+      "url": "https://www.hopkinsmedicine.org/health/expert-qa/vaginoplasty-for-gender-affirmation",
+      "versionOrPublishedAt": "2025-06-15"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "family"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.mayo-feminizing-hormone-therapy",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Mayo Clinic",
+      "sourceStatus": "current",
+      "title": "Feminizing hormone therapy",
+      "url": "https://www.mayoclinic.org/tests-procedures/feminizing-hormone-therapy/about/pac-20385096",
+      "versionOrPublishedAt": "2024-07-12"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "family"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.mayo-feminizing-surgery-2024",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Mayo Clinic",
+      "sourceStatus": "current",
+      "title": "Feminizing surgery",
+      "url": "https://www.mayoclinic.org/tests-procedures/feminizing-surgery/about/pac-20385102",
+      "versionOrPublishedAt": "2024-09-26"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "newcomer",
+        "maintainer"
+      ],
+      "applicableRegions": [
+        "global/China-facing"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2027-06-04",
+      "id": "source.mtf-wiki",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Project Trans",
+      "sourceStatus": "current",
+      "title": "MtF.wiki",
+      "url": "https://github.com/project-trans/MtF-wiki",
+      "versionOrPublishedAt": "continuously updated"
+    },
+    {
+      "applicablePopulations": [
+        "public",
+        "clinician",
+        "policy"
+      ],
+      "applicableRegions": [
+        "CN"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-05",
+      "id": "source.nhc-cn-12356-psych-hotline",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-05",
+      "rightsHolder": "国家卫生健康委员会",
+      "sourceStatus": "current",
+      "title": "国家卫生健康委关于应用“12356”全国统一心理援助热线电话号码的通知",
+      "url": "https://www.nhc.gov.cn/yzygj/c100068/202412/49a1a65386cd4be582d4702fd0926ee8.shtml",
+      "versionOrPublishedAt": "2024-12"
+    },
+    {
+      "applicablePopulations": [
+        "family",
+        "ally",
+        "maintainer"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2027-06-04",
+      "id": "source.pflag-national-glossary",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "PFLAG",
+      "sourceStatus": "current",
+      "title": "The PFLAG National Glossary: LGBTQ+ terminology",
+      "url": "https://pflag.org/glossary/",
+      "versionOrPublishedAt": "live page checked 2026-06-04"
+    },
+    {
+      "applicablePopulations": [
+        "family",
+        "friend",
+        "ally"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.pflag-trans-ally-guide",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "PFLAG",
+      "sourceStatus": "current",
+      "title": "Guide to Being An Ally to Trans and Nonbinary People",
+      "url": "https://pflag.org/resource/trans-nonbinary-ally-guide/",
+      "versionOrPublishedAt": "newly updated; page live checked"
+    },
+    {
+      "applicablePopulations": [
+        "questioning",
+        "newcomer",
+        "family"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.planned-parenthood-coming-out-trans",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Planned Parenthood",
+      "sourceStatus": "current",
+      "title": "Coming Out as Transgender and/or Nonbinary",
+      "url": "https://www.plannedparenthood.org/learn/gender-identity/transgender/coming-out-trans",
+      "versionOrPublishedAt": "live page checked 2026-06-04"
+    },
+    {
+      "applicablePopulations": [
+        "clinician"
+      ],
+      "applicableRegions": [
+        "Canada/Ontario"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.rainbow-health-ontario-feminizing-ht",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Rainbow Health Ontario / Sherbourne Health",
+      "sourceStatus": "current",
+      "title": "Primary Health Care for Trans Patients: Feminizing Hormone Therapy",
+      "url": "https://www.rainbowhealthontario.ca/TransHealthGuide/gp-femht.html",
+      "versionOrPublishedAt": "2020 site copyright; page live checked"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "primary_care"
+      ],
+      "applicableRegions": [
+        "Canada/Ontario"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.rainbow-preventive-transfem-checklist",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Rainbow Health Ontario / Sherbourne Health",
+      "sourceStatus": "current",
+      "title": "Preventive Care Checklist for Transfeminine Patients",
+      "url": "https://www.rainbowhealthontario.ca/wp-content/uploads/2020/04/Preventative-care-checklist-transfem-2019.pdf",
+      "versionOrPublishedAt": "2019; last renewed 2020-04-07 on resource page"
+    },
+    {
+      "applicablePopulations": [
+        "public",
+        "patient",
+        "family"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-05",
+      "id": "source.samhsa-crisis-help",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Substance Abuse and Mental Health Services Administration",
+      "sourceStatus": "current",
+      "title": "Crisis Help: Suicide, Mental Health, Drug, and Alcohol Issues",
+      "url": "https://www.samhsa.gov/find-support/in-crisis",
+      "versionOrPublishedAt": "live page checked 2026-06-04"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "primary_care"
+      ],
+      "applicableRegions": [
+        "Canada/British Columbia"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.trans-care-bc-primary-care-toolkit",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "Trans Care BC",
+      "sourceStatus": "current",
+      "title": "Gender-affirming care for Trans, Two-Spirit and Gender Diverse Patients in BC: A Primary Care Toolkit",
+      "url": "https://www.transcarebc.ca/sites/default/files/2024-03/Primary-Care-Toolkit.pdf",
+      "versionOrPublishedAt": "2024-03"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "Australia/New South Wales"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.transhub-feminising-hormones",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "TransHub / ACON",
+      "sourceStatus": "current",
+      "title": "Feminising",
+      "url": "https://www.transhub.org.au/clinicians/feminising/",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "LGBTQ_youth",
+        "family",
+        "ally"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.trevor-24-7-crisis-support",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "The Trevor Project",
+      "sourceStatus": "current",
+      "title": "Here for You 24/7: How to Reach Out to The Trevor Project",
+      "url": "https://www.thetrevorproject.org/resources/guide/here-for-you-24-7-how-to-reach-out-to-the-trevor-project/",
+      "versionOrPublishedAt": "2024 page live checked"
+    },
+    {
+      "applicablePopulations": [
+        "family",
+        "friend",
+        "teacher",
+        "ally"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.trevor-ally-guide",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "The Trevor Project",
+      "sourceStatus": "current",
+      "title": "Guide to Being an Ally to Transgender and Nonbinary Young People",
+      "url": "https://www.thetrevorproject.org/resources/guide/a-guide-to-being-an-ally-to-transgender-and-nonbinary-youth/",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "ally",
+        "family",
+        "friend",
+        "newcomer"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2027-06-04",
+      "id": "source.trevor-allyship-in-action",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "The Trevor Project",
+      "sourceStatus": "current",
+      "title": "Allyship in Action",
+      "url": "https://www.thetrevorproject.org/resources/guide/allyship-in-action/",
+      "versionOrPublishedAt": "live page checked 2026-06-04"
+    },
+    {
+      "applicablePopulations": [
+        "LGBTQ_youth",
+        "questioning",
+        "ally"
+      ],
+      "applicableRegions": [
+        "US/global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.trevor-coming-out-handbook",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "The Trevor Project",
+      "sourceStatus": "current",
+      "title": "The Coming Out Handbook",
+      "url": "https://www.thetrevorproject.org/resources/guide/the-coming-out-handbook/",
+      "versionOrPublishedAt": "live page checked 2026-06-04"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.ucsf-bone-health-osteoporosis",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Bone health and osteoporosis",
+      "url": "https://transcare.ucsf.edu/guidelines/bone-health-and-osteoporosis",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.ucsf-breast-cancer-trans-women",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Screening for breast cancer in transgender women",
+      "url": "https://transcare.ucsf.edu/guidelines/breast-cancer-women",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.ucsf-feminizing-hormone-therapy",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Overview of feminizing hormone therapy",
+      "url": "https://transcare.ucsf.edu/guidelines/feminizing-hormone-therapy",
+      "versionOrPublishedAt": "2016-06-17; pending revision 2024"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.ucsf-fertility-guideline",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Fertility options for transgender persons",
+      "url": "https://transcare.ucsf.edu/guidelines/fertility",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.ucsf-hair-removal",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Hair removal",
+      "url": "https://transcare.ucsf.edu/guidelines/hair-removal",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.ucsf-hiv-transgender",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Transgender health and HIV",
+      "url": "https://transcare.ucsf.edu/guidelines/hiv",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.ucsf-prostate-testicular-cancer",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Prostate and testicular cancer considerations in transgender women",
+      "url": "https://transcare.ucsf.edu/guidelines/prostate-testicular-cancer",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "clinician"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.ucsf-testicular-scrotal-pain",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Testicular and scrotal pain and related complaints",
+      "url": "https://transcare.ucsf.edu/guidelines/testicular-pain",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "patient",
+        "newcomer"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.ucsf-transition-roadmap",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Transition Roadmap",
+      "url": "https://transcare.ucsf.edu/transition-roadmap",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "patient"
+      ],
+      "applicableRegions": [
+        "US"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.ucsf-vaginoplasty-guideline",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "UCSF Gender Affirming Health Program",
+      "sourceStatus": "current",
+      "title": "Vaginoplasty procedures, complications and aftercare",
+      "url": "https://transcare.ucsf.edu/guidelines/vaginoplasty",
+      "versionOrPublishedAt": "2016-06-17"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "policy",
+        "public"
+      ],
+      "applicableRegions": [
+        "global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-12-04",
+      "id": "source.who-icd11-gender-incongruence",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "World Health Organization",
+      "sourceStatus": "current",
+      "title": "Gender incongruence and transgender health in the ICD",
+      "url": "https://www.who.int/standards/classifications/frequently-asked-questions/gender-incongruence-and-transgender-health-in-the-icd",
+      "versionOrPublishedAt": "未标注"
+    },
+    {
+      "applicablePopulations": [
+        "clinician",
+        "researcher",
+        "policy",
+        "patient"
+      ],
+      "applicableRegions": [
+        "global"
+      ],
+      "boundary": "只保存书目信息和固定链接，不打包外部正文、图表、图片或受限数据。",
+      "distributionMode": "linkOnly",
+      "expiresAt": "2026-09-04",
+      "id": "source.wpath-soc8",
+      "licenseIdentifier": "rights-reserved-link-only",
+      "licenseURL": null,
+      "retrievedAt": "2026-06-04",
+      "rightsHolder": "World Professional Association for Transgender Health",
+      "sourceStatus": "current",
+      "title": "Standards of Care for the Health of Transgender and Gender Diverse People, Version 8",
+      "url": "https://wpath.org/publications/soc8/",
+      "versionOrPublishedAt": "2022"
+    }
+  ]
+}

@@ -17,7 +17,7 @@ final class ArchiveDataExportPresentationTests:
         )
 
         XCTAssertEqual(preview.kind, .readableJSON)
-        XCTAssertEqual(preview.schemaVersion, "12.0.0")
+        XCTAssertEqual(preview.schemaVersion, "13.0.0")
         XCTAssertEqual(preview.recordCount, 0)
         XCTAssertEqual(preview.controlCount, 0)
         XCTAssertEqual(preview.attachmentCount, 0)
@@ -130,7 +130,7 @@ final class ArchiveDataExportPresentationTests:
             .values
             .flatMap { $0 }
             .sorted()
-        XCTAssertEqual(modelTypes.count, 54)
+        XCTAssertEqual(modelTypes.count, 55)
         let payload = PortableDataV2Payload(
             datasetID: UUID(),
             sourceGenerationID: UUID(),

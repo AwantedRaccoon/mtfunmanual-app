@@ -1336,7 +1336,8 @@ enum DataInventoryManagedRootAudit {
             "8.0.0": Set(["9.0.0"]),
             "9.0.0": Set(["10.0.0"]),
             "10.0.0": Set(["11.0.0"]),
-            "11.0.0": Set(["12.0.0"])
+            "11.0.0": Set(["12.0.0"]),
+            "12.0.0": Set(["13.0.0"])
         ]
         return supported[source]?.contains(target) == true
     }

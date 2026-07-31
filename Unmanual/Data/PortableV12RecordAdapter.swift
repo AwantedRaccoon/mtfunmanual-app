@@ -32,7 +32,38 @@ enum PortableV12RecordAdapter {
         into context: ModelContext,
         deviceObservationDate: Date
     ) throws -> PortableV12InsertionResult {
+        try insert(
+            document,
+            into: context,
+            deviceObservationDate: deviceObservationDate,
+            contract: .v12
+        )
+    }
+
+    fileprivate static func insertV13(
+        _ document: PortableDataV2Document,
+        into context: ModelContext,
+        deviceObservationDate: Date
+    ) throws -> PortableV12InsertionResult {
+        try insert(
+            document,
+            into: context,
+            deviceObservationDate: deviceObservationDate,
+            contract: .v13
+        )
+    }
+
+    private static func insert(
+        _ document: PortableDataV2Document,
+        into context: ModelContext,
+        deviceObservationDate: Date,
+        contract: PortableDataSchemaContract
+    ) throws -> PortableV12InsertionResult {
         try PortableDataV2Validator.validate(document)
+        guard document.payload.schemaVersion
+                == contract.schemaVersion else {
+            throw PortableDataV2Error.unsupportedVersion
+        }
         guard try RecordDigestV1.timestampMicroseconds(
             deviceObservationDate
         ) != Int64.min else {
@@ -59,6 +90,7 @@ enum PortableV12RecordAdapter {
         for record in document.payload.records {
             try insertRecord(
                 record,
+                schemaVersion: contract.schemaVersion,
                 lifecycleOperationIDs:
                     lifecycleOperationIDs,
                 into: context
@@ -93,13 +125,15 @@ enum PortableV12RecordAdapter {
 
     private static func insertRecord(
         _ record: PortableDataRecord,
+        schemaVersion: String,
         lifecycleOperationIDs: [UUID: UUID],
         into context: ModelContext
     ) throws {
         try PortableDataV2RecordSchema.validate(
             modelType: record.modelType,
             recordType: record.recordType,
-            fields: record.fields
+            fields: record.fields,
+            schemaVersion: schemaVersion
         )
         let fields = try PortableV12FieldReader(record.fields)
         let committedAt = try date(
@@ -633,6 +667,24 @@ enum PortableV12RecordAdapter {
                         try fields.optionalDate("deletedAt")
                 )
             )
+        case "ContentFavoriteRecord":
+            context.insert(
+                ContentFavoriteRecord(
+                    id: record.recordID,
+                    contentID:
+                        try fields.string("contentID"),
+                    contentVersion:
+                        try fields.string("contentVersion"),
+                    cardDigest:
+                        try fields.string("cardDigest"),
+                    createdAt: try fields.date("createdAt"),
+                    updatedAt: try fields.date("updatedAt"),
+                    removedAt:
+                        try fields.optionalDate("removedAt"),
+                    lastOperationID:
+                        try fields.uuid("lastOperationID")
+                )
+            )
         default:
             try insertAdvancedRecord(
                 record,
@@ -701,6 +753,28 @@ enum PortableV12RecordAdapter {
                 .invalidRange(field)
         }
         return value
+    }
+}
+
+enum PortableV13RecordAdapter {
+    static let supportedRecordModelTypes = Set(
+        PortableDataV2RecordSchema.v13FieldsByModelType.keys
+    )
+
+    static let supportedControlModelTypes = Set(
+        PortableDataV2ControlSchema.contracts.keys
+    )
+
+    static func insert(
+        _ document: PortableDataV2Document,
+        into context: ModelContext,
+        deviceObservationDate: Date
+    ) throws -> PortableV12InsertionResult {
+        try PortableV12RecordAdapter.insertV13(
+            document,
+            into: context,
+            deviceObservationDate: deviceObservationDate
+        )
     }
 }
 

@@ -83,6 +83,10 @@ struct LabImportEditor: View {
                         .accessibilityIdentifier("labImport.existingSampleNotice")
                 }
 
+                ContextualContentScenarioEntry(
+                    scenario: .labRecording
+                )
+
                 V25SectionHeader(
                     title: "性激素六项",
                     detail: "已填写 \(completedCount)/6"

@@ -205,6 +205,10 @@ struct LabSampleEditor: View {
                     labeledField("样本类型（可选）", text: $specimen, prompt: "例如：血清")
                     labeledField("情境备注（可选）", text: $note, prompt: "例如：空腹；报告原注")
 
+                    ContextualContentScenarioEntry(
+                        scenario: .labRecording
+                    )
+
                     V25SectionHeader(title: "化验结果", detail: "\(results.filter(\.isComplete).count) 项")
                     ForEach($results) { $result in
                         labResultBlock(result: $result)

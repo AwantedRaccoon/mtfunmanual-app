@@ -204,14 +204,14 @@ enum PrivacyControlDigestV1 {
     }
 }
 
-private struct ValidatedOperationReceiptSet {
+struct ValidatedOperationReceiptSet {
     let receiptsByOperationID: [UUID: OperationReceiptRecord]
     let revisionsByOperationID: [UUID: RecordRevision]
     let ledger: OperationReceiptLedgerRecord?
     let ledgerRevision: RecordRevision?
 }
 
-private enum OperationReceiptLedgerIntegrityValidator {
+enum OperationReceiptLedgerIntegrityValidator {
     static func validate(
         in context: ModelContext,
         failure: AppDataFailure

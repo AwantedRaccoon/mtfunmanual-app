@@ -11,33 +11,32 @@ final class DataInventoryManifestTests: XCTestCase {
         uuidString: "22222222-2222-4222-8222-222222222222"
     )!
 
-    func testTaxonomyPartitionsAll54V12ModelsWithoutOverlap() {
+    func testTaxonomyPartitionsAll55V13ModelsWithoutOverlap() {
         XCTAssertTrue(DataInventoryTaxonomy.hasExactModelPartition)
         XCTAssertEqual(
             DataInventoryTaxonomy.allDatabaseModelNames.count,
-            54
+            55
         )
         XCTAssertEqual(
             Set(DataInventoryTaxonomy.allDatabaseModelNames).count,
-            54
+            55
         )
 
         let currentNames = Set(
-            AppSchemaV11PrivacyControl.models.map {
+            AppSchemaV13ContentFavorite.models.map {
                 String(describing: $0)
             }
         )
         let frozenNames = Set(
             DataInventoryTaxonomy.allDatabaseModelNames
         )
+        XCTAssertEqual(currentNames, frozenNames)
         XCTAssertEqual(
-            frozenNames.subtracting(currentNames),
-            [
-                "DataControlDeletionTombstoneRecord",
-                "DataControlBackfillState"
-            ]
+            DataInventoryTaxonomy.databaseModelsByCategory[
+                "db.content"
+            ],
+            ["ContentFavoriteRecord"]
         )
-        XCTAssertTrue(currentNames.isSubset(of: frozenNames))
     }
 
     func testCanonicalOrderingGoldenAndCapturedAtOnlyChangesManifestDigest()
@@ -70,11 +69,11 @@ final class DataInventoryManifestTests: XCTestCase {
         XCTAssertNotEqual(first.manifestDigest, second.manifestDigest)
         XCTAssertEqual(
             first.stateDigest,
-            "d37c4a9a3e0bcb4a4f9d92f11fd689ea7f39cdd466bce919b92b9167ba111687"
+            "f734e948eb0d92caec4f9a9dd4083abecc9efcfbc486573b110a5d4a9f3c62d7"
         )
         XCTAssertEqual(
             first.manifestDigest,
-            "0ecddc7855b065c6c49b941af201214b96e7b196fc2424c8ea8464018a8d1586"
+            "7838f6805c85ce11f932e4577bffa630ac5fa65b8944161e1157aa397c5fd3bb"
         )
     }
 

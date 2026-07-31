@@ -24,6 +24,17 @@
 - `ASSET-PROVENANCE.md` 中的项目原创来源记录文字；
 - `docs/` 下的项目原创产品、架构、设计和测试文档。
 
+Batch 8C 的
+`Unmanual/Resources/PublicContent/offline-contextual-content-candidate-v1.json`
+和 `docs/content/offline-contextual-content-source-lock-v1.json` 中，由
+`MtF Manual contributors` 原创并从冻结来源文件改编的标题、必要摘要、适用边界、
+分类、别名、场景用途、署名与修改说明，依据上游原创非代码内容的 CC BY-SA 4.0
+继续按 CC BY-SA 4.0 提供。其精确来源仓库、提交、路径、逐文件 SHA-256、是否改编和
+修改说明见 [Batch 8C 来源登记](docs/content/0003-offline-contextual-content-source-register.md)。
+外部机构的书目信息、商标和链接目标仍保留各自权利，只以 `linkOnly` 形式出现，
+不因位于上述 JSON 或文档内而被本项目再许可。该资源当前只是 candidate，不表示
+内容、医疗或 App Review 分类已经获批。
+
 转载或改编这些材料时，必须提供适当署名、链接至许可证、说明是否修改，并按 CC BY-SA 4.0 或兼容许可证共享改编材料。该许可不表示项目权利人认可、赞助或认证任何转载或改编版本。
 
 文档中的软件源码与代码片段仍按上一节的 MPL-2.0 处理；文档中明确标记的第三方材料不因位于这些文件内而改用 CC BY-SA 4.0。

@@ -602,6 +602,17 @@ private struct RegimenAnalysisResultSection: View {
                 )
                 .accessibilityIdentifier("analysis.monitoring")
             }
+
+            if let scenario =
+                ContextualContentEligibility.scenario(
+                    for: snapshot.semanticStatus
+                ) {
+                ContextualContentScenarioEntry(
+                    scenario: scenario
+                )
+                .padding(.top, 12)
+            }
+
             if !snapshot.boundaryCards.isEmpty {
                 analysisCardSection(
                     title: "适用边界",

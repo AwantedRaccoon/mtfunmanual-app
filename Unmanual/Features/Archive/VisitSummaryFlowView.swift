@@ -166,6 +166,10 @@ struct VisitSummaryFlowView: View {
                 }
             }
 
+            ContextualContentScenarioEntry(
+                scenario: .visitPreparation
+            )
+
             V25SectionHeader(title: "包含内容", detail: "逐项决定")
             VisitSummaryToggleLedger {
                 toggle(

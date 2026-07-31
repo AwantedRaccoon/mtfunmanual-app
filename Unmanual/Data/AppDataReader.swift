@@ -13,8 +13,15 @@ protocol AppPrivacyControlReader: Sendable {
         -> PrivacyControlSnapshot
 }
 
+protocol AppContentFavoriteReader: Sendable {
+    func contentFavoriteSnapshots() async throws
+        -> [ContentFavoriteSnapshot]
+    func activeContentFavoriteIDs() async throws -> Set<String>
+}
+
 extension AppReadActor: AppReminderPlanningReader,
-    AppPrivacyControlReader {}
+    AppPrivacyControlReader,
+    AppContentFavoriteReader {}
 
 enum DataControlTimelineRedaction {
     static func apply(
@@ -83,6 +90,19 @@ struct AppDataReader: Sendable {
         self.storage = storage
         self.dataControlCoordinator = dataControlCoordinator
         self.sessionReleaseProbe = sessionReleaseProbe
+    }
+
+    func contentFavoriteSnapshots() async throws
+        -> [ContentFavoriteSnapshot] {
+        try await withReadLease {
+            try await storage.contentFavoriteSnapshots()
+        }
+    }
+
+    func activeContentFavoriteIDs() async throws -> Set<String> {
+        try await withReadLease {
+            try await storage.activeContentFavoriteIDs()
+        }
     }
 
     func todaySnapshot() async throws -> TodaySnapshot {

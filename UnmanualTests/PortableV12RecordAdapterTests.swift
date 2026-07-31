@@ -4,6 +4,33 @@ import XCTest
 @testable import Unmanual
 
 final class PortableV12RecordAdapterTests: XCTestCase {
+    func testFrozenV12DocumentMaterializesInV13ContainerWithZeroFavorites()
+        throws {
+        let fixture = try PortableV12Fixture.make()
+        let container = try AppModelContainerFactory
+            .makeInMemoryContentFavoriteContainer()
+        let context = ModelContext(container)
+
+        _ = try PortableV12RecordAdapter.insert(
+            fixture.document,
+            into: context,
+            deviceObservationDate: fixture.fixedDate
+        )
+        try context.save()
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<RecordRevision>()
+            ),
+            44
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<ContentFavoriteRecord>()
+            ),
+            0
+        )
+    }
+
     func testInMemoryInsertionCoversAll44RevisionedModelsAnd9Controls()
         throws {
         let fixture = try PortableV12Fixture.make()
@@ -197,6 +224,8 @@ final class PortableV12RecordAdapterTests: XCTestCase {
                 : $0
         }
         let payload = PortableDataV2Payload(
+            schemaVersion:
+                PortableDataSchemaContract.v12.schemaVersion,
             datasetID: fixture.document.payload.datasetID,
             sourceGenerationID:
                 fixture.document.payload.sourceGenerationID,
@@ -276,6 +305,8 @@ final class PortableV12RecordAdapterTests: XCTestCase {
             fields: fields
         )
         let payload = PortableDataV2Payload(
+            schemaVersion:
+                PortableDataSchemaContract.v12.schemaVersion,
             datasetID: fixture.document.payload.datasetID,
             sourceGenerationID:
                 fixture.document.payload.sourceGenerationID,
@@ -596,8 +627,8 @@ private struct PortableV12Fixture {
                     microseconds: microseconds
                 )
             }
-        let counts = DataInventoryTaxonomy
-            .allDatabaseModelNames.sorted().map { modelType in
+        let counts = PortableDataSchemaContract.v12
+            .modelNames.sorted().map { modelType in
                 PortableDataModelCount(
                     modelType: modelType,
                     rowCount: modelType == "RecordRevision"
@@ -606,6 +637,8 @@ private struct PortableV12Fixture {
                 )
             }
         let payload = PortableDataV2Payload(
+            schemaVersion:
+                PortableDataSchemaContract.v12.schemaVersion,
             datasetID: datasetID,
             sourceGenerationID: sourceGenerationID,
             capturedAtMicroseconds: microseconds,

@@ -84,6 +84,11 @@ struct RegimenVersionEditor: View {
                             detail: draftMedications.isEmpty ? "尚未添加" : "\(draftMedications.count) 项"
                         )
 
+                        ContextualContentScenarioEntry(
+                            scenario: .regimenField
+                        )
+                        .padding(.bottom, 16)
+
                         RegimenMedicationLedger(
                             medications: draftMedications,
                             addAction: { isChoosingMedication = true },

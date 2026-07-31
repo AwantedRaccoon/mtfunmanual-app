@@ -2,6 +2,31 @@ import CryptoKit
 import Foundation
 import SwiftData
 
+private enum PortableRecordImportDispatcher {
+    static func insert(
+        _ document: PortableDataV2Document,
+        into context: ModelContext,
+        deviceObservationDate: Date
+    ) throws -> PortableV12InsertionResult {
+        switch document.payload.schemaVersion {
+        case PortableDataSchemaContract.v12.schemaVersion:
+            try PortableV12RecordAdapter.insert(
+                document,
+                into: context,
+                deviceObservationDate: deviceObservationDate
+            )
+        case PortableDataSchemaContract.v13.schemaVersion:
+            try PortableV13RecordAdapter.insert(
+                document,
+                into: context,
+                deviceObservationDate: deviceObservationDate
+            )
+        default:
+            throw PortableDataV2Error.unsupportedVersion
+        }
+    }
+}
+
 enum PortableRestoreServiceError:
     Error, Equatable, Sendable {
     case unavailable
@@ -428,9 +453,9 @@ actor PortableRestorePreparationService {
 
         let document = audited.readableDocument
         let container = try AppModelContainerFactory
-            .makeInMemoryDataControlContainer()
+            .makeInMemoryContentFavoriteContainer()
         let context = ModelContext(container)
-        let insertion = try PortableV12RecordAdapter.insert(
+        let insertion = try PortableRecordImportDispatcher.insert(
             document,
             into: context,
             deviceObservationDate: deviceObservationDate
@@ -438,7 +463,7 @@ actor PortableRestorePreparationService {
         try context.save()
         let identity = try AppDataStoreBootstrapper(
             layout: layout
-        ).validateV12DataInventoryFoundation(in: context)
+        ).validateV13DataInventoryFoundation(in: context)
         guard insertion.insertedRecordCount
                 == document.payload.records.count,
               insertion.insertedRevisionCount
@@ -775,7 +800,7 @@ enum PortableRestoreTargetBuilder {
             targetLease = lease
             try lease.verifyPublished()
             let container = try AppModelContainerFactory
-                .makeDataControlContainer(
+                .makeContentFavoriteContainer(
                     at: layout.storeURL(
                         for: journal.targetGenerationID
                     )
@@ -881,7 +906,7 @@ enum PortableRestoreTargetBuilder {
                 container = existing
             } else {
                 container = try AppModelContainerFactory
-                    .makeDataControlContainer(
+                    .makeContentFavoriteContainer(
                         at: layout.storeURL(
                             for:
                                 journal
@@ -1074,7 +1099,7 @@ enum PortableRestoreTargetBuilder {
         layout: AppDataStoreLayout
     ) async throws -> PortableDataV2Document {
         let container = try AppModelContainerFactory
-            .makeInMemoryDataControlContainer()
+            .makeInMemoryContentFavoriteContainer()
         let context = ModelContext(container)
         context.autosaveEnabled = false
         let committedAt = Date(
@@ -1083,7 +1108,7 @@ enum PortableRestoreTargetBuilder {
                     journal.devicePolicyCommittedAtMicroseconds
                 ) / 1_000_000
         )
-        _ = try PortableV12RecordAdapter.insert(
+        _ = try PortableRecordImportDispatcher.insert(
             source,
             into: context,
             deviceObservationDate: committedAt
@@ -1150,7 +1175,7 @@ enum PortableRestoreTargetBuilder {
     ) async throws {
         let context = ModelContext(container)
         context.autosaveEnabled = false
-        _ = try PortableV12RecordAdapter.insert(
+        _ = try PortableRecordImportDispatcher.insert(
             document,
             into: context,
             deviceObservationDate: Date(
@@ -1443,7 +1468,7 @@ actor PortableRestoreColdLaunchCoordinator {
             try lease.sealFilesNamespace()
             let targetContainer = try
                 AppModelContainerFactory
-                .makeDataControlContainer(
+                .makeContentFavoriteContainer(
                     at: layout.storeURL(
                         for: journal.targetGenerationID
                     )
@@ -1619,12 +1644,23 @@ actor PortableRestoreColdLaunchCoordinator {
             backupPolicy: .systemManaged,
             verificationMode: verificationMode
         )
-        let source = BootstrappedAppDataStore(
-            container:
-                try AppModelContainerFactory
+        let sourceContainer: ModelContainer
+        switch pointer.schemaVersion {
+        case PortableDataSchemaContract.v12.schemaVersion:
+            sourceContainer = try AppModelContainerFactory
                 .makeReadOnlyDataControlContainer(
                     at: sourceStoreURL
-                ),
+                )
+        case PortableDataSchemaContract.v13.schemaVersion:
+            sourceContainer = try AppModelContainerFactory
+                .makeReadOnlyContentFavoriteContainer(
+                    at: sourceStoreURL
+                )
+        default:
+            throw PortableRestoreServiceError.recoveryRequired
+        }
+        let source = BootstrappedAppDataStore(
+            container: sourceContainer,
             generationID:
                 journal.sourceGenerationID,
             storeURL: sourceStoreURL,
@@ -1644,7 +1680,10 @@ actor PortableRestoreColdLaunchCoordinator {
         let database = try await
             DataInventoryDatabaseCaptureActor(
                 modelContainer: source.container
-            ).capture(layout: layout)
+            ).capture(
+                layout: layout,
+                schemaVersion: pointer.schemaVersion
+            )
         let document = try DataInventoryProductionService
             .makePortableDocument(
                 database: database,
@@ -1652,7 +1691,8 @@ actor PortableRestoreColdLaunchCoordinator {
                     journal.sourceGenerationID,
                 capturedAt: Date(
                     timeIntervalSince1970: 0
-                )
+                ),
+                schemaVersion: pointer.schemaVersion
             )
         guard document.payload.datasetID
                     == journal.sourceDatasetID,

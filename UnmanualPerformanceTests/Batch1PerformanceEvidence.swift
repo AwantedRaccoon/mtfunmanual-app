@@ -398,6 +398,22 @@ enum Batch1V12FoundationContract {
     static let postQuickWriteNextLocalRevision = nextLocalRevision + 1
 }
 
+enum Batch1V13FoundationContract {
+    // V13 adds only the optional content-favorite fact type. The five-year
+    // legacy fixture starts with no favorites, so migration adds no fact,
+    // revision, or reservation beyond the frozen V12 foundation.
+    static let activatedFactCount =
+        Batch1V12FoundationContract.activatedFactCount
+    static let activatedRevisionCount =
+        Batch1V12FoundationContract.activatedRevisionCount
+    static let nextLocalRevision =
+        Batch1V12FoundationContract.nextLocalRevision
+    static let postQuickWriteRevisionCount =
+        Batch1V12FoundationContract.postQuickWriteRevisionCount
+    static let postQuickWriteNextLocalRevision =
+        Batch1V12FoundationContract.postQuickWriteNextLocalRevision
+}
+
 struct Batch1PerformanceFixtureManifest: Codable, Equatable, Sendable {
     let version: String
     let sourceKind: String

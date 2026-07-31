@@ -861,6 +861,14 @@ private struct PersonalTimelineDetailView: View {
                     )
                         .font(.caption)
                         .foregroundStyle(theme.secondaryText)
+                    if let scenario =
+                        ContextualContentEligibility.scenario(
+                            for: item.kind
+                        ) {
+                        ContextualContentScenarioEntry(
+                            scenario: scenario
+                        )
+                    }
                 } else if let status {
                     if let notice = status.associationState.reviewNotice {
                         associationReviewNotice(notice)

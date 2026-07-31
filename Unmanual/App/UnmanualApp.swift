@@ -396,6 +396,10 @@ struct UnmanualApp: App {
                 JourneyView()
             }
         } else if ProcessInfo.processInfo.arguments.contains(
+            "-unmanual-lab-editor"
+        ) {
+            LabSampleEditor()
+        } else if ProcessInfo.processInfo.arguments.contains(
             "-unmanual-archive-legacy-import"
         ) {
             LegacyArchiveDataImportSheet()

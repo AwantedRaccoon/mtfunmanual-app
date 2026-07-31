@@ -706,7 +706,7 @@ actor DataResetColdLaunchCoordinator {
                 == journal.freshGenerationID,
               pointer.datasetID
                 == journal.freshDatasetID,
-              pointer.schemaVersion == "12.0.0",
+              pointer.schemaVersion == "13.0.0",
               pointer.origin == .newInstall,
               migrationJournal.targetGenerationID
                 == journal.freshGenerationID,
@@ -903,7 +903,7 @@ actor DataResetFreshStoreVerifier {
                 legacyStoreURL:
                     URL(fileURLWithPath: "/unused-legacy")
             )
-        ).validateV12DataInventoryFoundation(
+        ).validateV13DataInventoryFoundation(
             in: modelContext
         )
         let counts: [String: Int] = [
@@ -924,6 +924,8 @@ actor DataResetFreshStoreVerifier {
                 try count(ParentRecordDeletionTombstoneRecord.self),
             "DataControlDeletionTombstoneRecord":
                 try count(DataControlDeletionTombstoneRecord.self),
+            "ContentFavoriteRecord":
+                try count(ContentFavoriteRecord.self),
             "CountdownRecord":
                 try count(CountdownRecord.self),
             "CountdownStateRecord":

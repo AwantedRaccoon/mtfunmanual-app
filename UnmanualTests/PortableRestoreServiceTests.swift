@@ -7,6 +7,317 @@ import XCTest
 @MainActor
 final class PortableRestoreServiceTests:
     XCTestCase {
+    func testV13SemanticPreflightAcceptsCurrentPackage()
+        async throws {
+        let layout = try makeLayout()
+        let source = try AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        ).open()
+        let inventory = try XCTUnwrap(
+            DataInventoryProductionService(
+                store: source,
+                dataControlCoordinator:
+                    AppDataControlCoordinator(
+                        generationID: source.generationID
+                    )
+            )
+        )
+        let package = try await inventory.completeBackupPackage()
+        addTeardownBlock {
+            try? await inventory.discardTransferPackage(
+                at: package.packageURL
+            )
+        }
+        let audited = try PortableBackupPackageAuditor.audit(
+            at: package.packageURL
+        )
+        let container = try AppModelContainerFactory
+            .makeInMemoryContentFavoriteContainer()
+        let context = ModelContext(container)
+        let insertion = try PortableV13RecordAdapter.insert(
+            audited.readableDocument,
+            into: context,
+            deviceObservationDate: Date(
+                timeIntervalSince1970: 1_800_699_000
+            )
+        )
+        try context.save()
+        XCTAssertEqual(
+            insertion.insertedRecordCount,
+            audited.readableDocument.payload.records.count
+        )
+        let identity = try AppDataStoreBootstrapper(
+            layout: layout
+        ).validateV13DataInventoryFoundation(in: context)
+        XCTAssertEqual(
+            identity.factCount,
+            audited.readableDocument.payload.records.count
+        )
+    }
+
+    func testV12PackageFullReplaceColdLaunchActivatesV13WithZeroFavorites()
+        async throws {
+        let sourceLayout = try makeLayout()
+        let source = try AppDataStoreBootstrapper(
+            layout: sourceLayout,
+            backupPolicy: .systemManaged,
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        ).open()
+        let capture = try await
+            DataInventoryDatabaseCaptureActor(
+                modelContainer: source.container
+            ).capture(
+                layout: sourceLayout,
+                schemaVersion:
+                    PortableDataSchemaContract.v12.schemaVersion
+            )
+        let document = try DataInventoryProductionService
+            .makePortableDocument(
+                database: capture,
+                generationID: source.generationID,
+                capturedAt: Date(
+                    timeIntervalSince1970:
+                        1_800_698_000
+                ),
+                schemaVersion:
+                    PortableDataSchemaContract.v12.schemaVersion
+            )
+        XCTAssertEqual(
+            document.payload.schemaVersion,
+            PortableDataSchemaContract.v12.schemaVersion
+        )
+        XCTAssertEqual(document.payload.modelCounts.count, 54)
+        let package = try buildPackage(
+            document,
+            in: sourceLayout,
+            name: "V12Package"
+        )
+
+        let targetLayout = try makeLayout()
+        let reopened = try await fullReplace(
+            package,
+            into: targetLayout,
+            now: Date(
+                timeIntervalSince1970: 1_800_698_100
+            )
+        )
+
+        let pointer = try GenerationPointerStore(
+            layout: targetLayout
+        ).read()
+        XCTAssertEqual(
+            pointer.schemaVersion,
+            PortableDataSchemaContract.v13.schemaVersion
+        )
+        XCTAssertEqual(pointer.generationID, reopened.generationID)
+        XCTAssertEqual(pointer.datasetID, document.payload.datasetID)
+        let favorites = try await AppReadActor(
+            modelContainer: reopened.container
+        ).contentFavoriteSnapshots()
+        XCTAssertEqual(favorites, [])
+        let inventory = try XCTUnwrap(
+            DataInventoryProductionService(
+                store: reopened,
+                dataControlCoordinator:
+                    AppDataControlCoordinator(
+                        generationID: reopened.generationID
+                    )
+            )
+        )
+        let restored = try await inventory.readableJSONV2(
+            capturedAt: Date(
+                timeIntervalSince1970: 1_800_698_200
+            )
+        )
+        XCTAssertEqual(
+            restored.payload.schemaVersion,
+            PortableDataSchemaContract.v13.schemaVersion
+        )
+        XCTAssertEqual(restored.payload.modelCounts.count, 55)
+        XCTAssertEqual(
+            restored.payload.modelCounts.first {
+                $0.modelType
+                    == ContentFavoriteContract.recordType
+            }?.rowCount,
+            0
+        )
+        XCTAssertEqual(
+            try PortableRestoreJournalStore(
+                layout: targetLayout
+            ).read().phase,
+            .activated
+        )
+    }
+
+    func testV13FavoritesFullReplaceColdLaunchPreservesActiveRemovedAndAudit()
+        async throws {
+        let sourceLayout = try makeLayout()
+        let source = try AppDataStoreBootstrapper(
+            layout: sourceLayout,
+            backupPolicy: .systemManaged,
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        ).open()
+        let writer = AppWriteActor(
+            modelContainer: source.container
+        )
+        let version =
+            "offline-contextual-content-candidate.1"
+        let digest =
+            String(repeating: "a", count: 64)
+        let activeCommand = SetContentFavoriteCommand(
+            operationID: UUID(),
+            recordID: UUID(),
+            contentID: "card.restore-active",
+            contentVersion: version,
+            cardDigest: digest,
+            desiredFavorite: true,
+            expectedLocalRevision: nil,
+            expectedDigestHex: nil,
+            committedAt: Date(
+                timeIntervalSince1970: 1_800_698_300
+            )
+        )
+        _ = try await writer.setContentFavorite(activeCommand)
+        let removedCreate = SetContentFavoriteCommand(
+            operationID: UUID(),
+            recordID: UUID(),
+            contentID: "card.restore-removed",
+            contentVersion: version,
+            cardDigest: digest,
+            desiredFavorite: true,
+            expectedLocalRevision: nil,
+            expectedDigestHex: nil,
+            committedAt: Date(
+                timeIntervalSince1970: 1_800_698_310
+            )
+        )
+        let beforeRemoval = try await writer
+            .setContentFavorite(removedCreate).snapshot
+        let removedCommand = SetContentFavoriteCommand(
+            operationID: UUID(),
+            recordID: removedCreate.recordID,
+            contentID: removedCreate.contentID,
+            contentVersion: version,
+            cardDigest: digest,
+            desiredFavorite: false,
+            expectedLocalRevision:
+                beforeRemoval.localRevision,
+            expectedDigestHex: beforeRemoval.digestHex,
+            committedAt: Date(
+                timeIntervalSince1970: 1_800_698_320
+            )
+        )
+        _ = try await writer.setContentFavorite(removedCommand)
+        let sourceSnapshots = try await AppReadActor(
+            modelContainer: source.container
+        ).contentFavoriteSnapshots()
+        XCTAssertEqual(sourceSnapshots.count, 2)
+        XCTAssertEqual(
+            sourceSnapshots.filter(\.isFavorite).count,
+            1
+        )
+
+        let sourceInventory = try XCTUnwrap(
+            DataInventoryProductionService(
+                store: source,
+                dataControlCoordinator:
+                    AppDataControlCoordinator(
+                        generationID: source.generationID
+                    )
+            )
+        )
+        let package = try await sourceInventory
+            .completeBackupPackage(
+                capturedAt: Date(
+                    timeIntervalSince1970:
+                        1_800_698_330
+                )
+            )
+        addTeardownBlock {
+            try? await sourceInventory
+                .discardTransferPackage(
+                    at: package.packageURL
+                )
+        }
+        XCTAssertEqual(
+            package.readableDocument.payload.schemaVersion,
+            PortableDataSchemaContract.v13.schemaVersion
+        )
+
+        let targetLayout = try makeLayout()
+        let reopened = try await fullReplace(
+            package,
+            into: targetLayout,
+            now: Date(
+                timeIntervalSince1970: 1_800_698_340
+            )
+        )
+
+        let restoredSnapshots = try await AppReadActor(
+            modelContainer: reopened.container
+        ).contentFavoriteSnapshots()
+        XCTAssertEqual(restoredSnapshots, sourceSnapshots)
+        XCTAssertEqual(
+            restoredSnapshots.filter(\.isFavorite).count,
+            1
+        )
+        XCTAssertEqual(
+            restoredSnapshots.filter {
+                !$0.isFavorite
+            }.count,
+            1
+        )
+        let context = ModelContext(reopened.container)
+        XCTAssertNoThrow(
+            try ContentFavoriteRelationshipValidator
+                .validate(in: context)
+        )
+        let operationIDs: Set<UUID> = [
+            activeCommand.operationID,
+            removedCreate.operationID,
+            removedCommand.operationID
+        ]
+        XCTAssertEqual(
+            try context.fetch(
+                FetchDescriptor<OperationReceiptRecord>()
+            ).filter {
+                operationIDs.contains($0.operationID)
+            }.count,
+            3
+        )
+        XCTAssertEqual(
+            try context.fetch(
+                FetchDescriptor<RecordRevision>()
+            ).filter {
+                $0.recordType
+                    == ContentFavoriteContract.recordType
+            }.count,
+            2
+        )
+        let pointer = try GenerationPointerStore(
+            layout: targetLayout
+        ).read()
+        XCTAssertEqual(
+            pointer.schemaVersion,
+            PortableDataSchemaContract.v13.schemaVersion
+        )
+        XCTAssertEqual(
+            pointer.datasetID,
+            package.readableDocument.payload.datasetID
+        )
+        XCTAssertEqual(
+            try PortableRestoreJournalStore(
+                layout: targetLayout
+            ).read().phase,
+            .activated
+        )
+    }
+
     func testStagingAncestryReplacementBeforeWriteDoesNotLeakData()
         async throws {
         let layout = try makeLayout()
@@ -1974,6 +2285,8 @@ final class PortableRestoreServiceTests:
         )
         let changed = try PortableDataV2Codec.makeDocument(
             payload: PortableDataV2Payload(
+                schemaVersion:
+                    original.payload.schemaVersion,
                 datasetID: original.payload.datasetID,
                 sourceGenerationID:
                     original.payload.sourceGenerationID,
@@ -2004,14 +2317,14 @@ final class PortableRestoreServiceTests:
             try FileManager.default.removeItem(at: entry)
         }
         let container = try AppModelContainerFactory
-            .makeDataControlContainer(
+            .makeContentFavoriteContainer(
                 at: fixture.layout.storeURL(
                     for: prepared.targetGenerationID
                 )
             )
         let context = ModelContext(container)
         context.autosaveEnabled = false
-        _ = try PortableV12RecordAdapter.insert(
+        _ = try PortableV13RecordAdapter.insert(
             changed,
             into: context,
             deviceObservationDate: Date(
@@ -2144,6 +2457,90 @@ final class PortableRestoreServiceTests:
             package,
             journal
         )
+    }
+
+    private func buildPackage(
+        _ document: PortableDataV2Document,
+        in layout: AppDataStoreLayout,
+        name: String
+    ) throws -> AuditedPortableBackup {
+        let destination = layout.rootURL
+            .deletingLastPathComponent()
+            .appending(
+                path:
+                    name + "-"
+                    + UUID().uuidString.lowercased(),
+                directoryHint: .isDirectory
+            )
+        return try PortableBackupPackageBuilder.build(
+            document: document,
+            destinationURL: destination
+        ) { _, _ in
+            throw PortableBackupError.attachmentMismatch
+        }
+    }
+
+    private func fullReplace(
+        _ package: AuditedPortableBackup,
+        into layout: AppDataStoreLayout,
+        now: Date
+    ) async throws -> BootstrappedAppDataStore {
+        let current = try AppDataStoreBootstrapper(
+            layout: layout,
+            backupPolicy: .systemManaged,
+            fileProtectionVerificationMode:
+                .simulatorTestHarness
+        ).open()
+        let coordinator = AppDataControlCoordinator(
+            generationID: current.generationID
+        )
+        let inventory = try XCTUnwrap(
+            DataInventoryProductionService(
+                store: current,
+                dataControlCoordinator: coordinator
+            )
+        )
+        let service = PortableRestorePreparationService(
+            store: current,
+            inventory: inventory,
+            coordinator: coordinator,
+            verificationMode: .simulatorTestHarness
+        )
+        let plan = try await service.makePlan(
+            for: package,
+            mode: .replace
+        )
+        XCTAssertTrue(plan.canConfirm)
+        let prepared = try await service.prepare(
+            auditedPackage: package,
+            plan: plan,
+            now: now
+        )
+        XCTAssertEqual(
+            try GenerationPointerStore(layout: layout)
+                .read().generationID,
+            current.generationID
+        )
+        XCTAssertEqual(
+            prepared.journal.phase,
+            .restartRequired
+        )
+        let reopened = try await
+            PortableRestoreColdLaunchCoordinator(
+                layout: layout,
+                notificationClient:
+                    PortableRestoreNotificationFixture(
+                        pending: [],
+                        delivered: []
+                    ),
+                verificationMode:
+                    .simulatorTestHarness
+            ).open()
+        XCTAssertEqual(
+            reopened.generationID,
+            prepared.journal.targetGenerationID
+        )
+        return reopened
     }
 
     private func makeLayout() throws

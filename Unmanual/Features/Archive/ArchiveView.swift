@@ -191,7 +191,9 @@ struct ArchiveView: View {
                 case .rawImport:
                     ArchiveDataImportSheet()
 #endif
-                default:
+                case .knowledgeSearch:
+                    PocketAppendixView()
+                case .unitConversion:
                     ArchivePreviewSheet(destination: destination, snapshot: snapshot)
                 }
             }
@@ -896,12 +898,16 @@ private struct ArchiveSupplementIndex: View {
                 label: "换算",
                 title: "单位换算",
                 detail: "保留原始值，换算结果单独标记",
+                accessibilityIdentifier:
+                    "archive.supplement.unitConversion",
                 action: unitAction
             )
             supplementRow(
-                label: "资料",
-                title: "查找 MTF不全书",
-                detail: "完整内容仍由网站承担",
+                label: "附页",
+                title: "随身附页",
+                detail: "离线摘要、搜索与收藏",
+                accessibilityIdentifier:
+                    "archive.supplement.pocketAppendix",
                 action: knowledgeAction
             )
         }
@@ -913,6 +919,7 @@ private struct ArchiveSupplementIndex: View {
         label: String,
         title: String,
         detail: String,
+        accessibilityIdentifier: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -942,6 +949,7 @@ private struct ArchiveSupplementIndex: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(V25PressStyle())
+        .accessibilityIdentifier(accessibilityIdentifier ?? title)
     }
 }
 
@@ -968,7 +976,7 @@ private enum ArchiveDestination: String, Identifiable {
         case .localStorage: "本地存储说明"
         case .deleteAndReset: "删除与重置"
         case .unitConversion: "单位换算"
-        case .knowledgeSearch: "查找资料"
+        case .knowledgeSearch: "随身附页"
         }
     }
 
@@ -982,7 +990,7 @@ private enum ArchiveDestination: String, Identifiable {
         case .localStorage: "LOCAL / PRIVACY"
         case .deleteAndReset: "DATA / CONTROL"
         case .unitConversion: "UTILITY / CONVERT"
-        case .knowledgeSearch: "MTFBOOK / SEARCH"
+        case .knowledgeSearch: "POCKET / APPENDIX"
         }
     }
 
@@ -998,7 +1006,7 @@ private enum ArchiveDestination: String, Identifiable {
         case .localStorage: "这里会逐项说明本机数据、系统备份和导出文件之间的边界。"
         case .deleteAndReset: "删除前先列出准确对象和影响范围，并再次确认。"
         case .unitConversion: "输入数值与单位，查看并保存换算结果。"
-        case .knowledgeSearch: "App 只提供场景入口；文章正文、来源和更新仍由 mtfbook.com 承担。"
+        case .knowledgeSearch: "在本机搜索、收藏和阅读必要摘要；完整文章仍由 mtfbook.com 承担。"
         }
     }
 }

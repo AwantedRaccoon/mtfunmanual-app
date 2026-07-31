@@ -1,0 +1,11 @@
+{
+  "approvedResourceName": null,
+  "candidateResourceExcluded": true,
+  "classificationResolved": false,
+  "contentReviewApproved": false,
+  "contentVersion": "offline-contextual-content-candidate.1",
+  "medicalReviewApproved": false,
+  "message": "等待真实人类内容复核、医疗复核与 App Review 分类结论；candidate 资源必须从 Release 排除。",
+  "schemaVersion": "1",
+  "status": "pendingHumanReviewAndClassification"
+}

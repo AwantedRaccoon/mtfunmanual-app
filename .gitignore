@@ -30,6 +30,8 @@ Secrets.xcconfig
 *.profdata
 TestResults/
 Reports/
+__pycache__/
+*.py[cod]
 
 # Internal agent handoff log
 /agent-work.md

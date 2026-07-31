@@ -42,12 +42,13 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
         // a migrated parent root and head for every canonical lab sample,
         // plus one parent-lifecycle backfill-state revision. V11 adds the
         // privacy preference and its backfill marker; V12 adds the data-control
-        // backfill marker.
+        // backfill marker. V13 adds an optional favorite type but this fixture
+        // begins with no content favorites.
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<RecordRevision>()), 25_822)
         XCTAssertEqual(
             try GenerationPointerStore(layout: layout).read()
                 .schemaVersion,
-            "12.0.0"
+            "13.0.0"
         )
         XCTAssertEqual(
             try context.fetchCount(
@@ -64,6 +65,12 @@ final class Batch1FiveYearFixtureTests: XCTestCase {
         XCTAssertEqual(
             try context.fetchCount(
                 FetchDescriptor<DataControlDeletionTombstoneRecord>()
+            ),
+            0
+        )
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<ContentFavoriteRecord>()
             ),
             0
         )

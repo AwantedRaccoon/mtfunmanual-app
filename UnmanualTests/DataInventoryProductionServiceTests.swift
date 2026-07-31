@@ -5,9 +5,69 @@ import XCTest
 @testable import Unmanual
 
 final class DataInventoryProductionServiceTests: XCTestCase {
-    func testV12DatabaseCaptureUsesExact54ModelPartition()
+    func testFrozenV12CaptureAndDocumentRestoreIntoV13WithZeroFavorites()
         async throws {
-        let container = try makeReadyV12Container()
+        let source = try makeReadyV12Container()
+        let capture = try await DataInventoryDatabaseCaptureActor(
+            modelContainer: source
+        ).capture(
+            layout: AppDataStoreLayout(
+                rootURL:
+                    FileManager.default.temporaryDirectory
+                    .appending(path: UUID().uuidString),
+                legacyStoreURL:
+                    FileManager.default.temporaryDirectory
+                    .appending(path: UUID().uuidString)
+            ),
+            schemaVersion:
+                PortableDataSchemaContract.v12.schemaVersion
+        )
+        let document = try DataInventoryProductionService
+            .makePortableDocument(
+                database: capture,
+                generationID: UUID(),
+                capturedAt: Date(
+                    timeIntervalSince1970: 1_800_299_000
+                ),
+                schemaVersion:
+                    PortableDataSchemaContract.v12.schemaVersion
+            )
+        XCTAssertEqual(document.payload.schemaVersion, "12.0.0")
+        XCTAssertEqual(document.payload.modelCounts.count, 54)
+
+        let target = try AppModelContainerFactory
+            .makeInMemoryContentFavoriteContainer()
+        let context = ModelContext(target)
+        _ = try PortableV12RecordAdapter.insert(
+            document,
+            into: context,
+            deviceObservationDate: Date(
+                timeIntervalSince1970: 1_800_299_100
+            )
+        )
+        try context.save()
+        let identity = try AppDataStoreBootstrapper(
+            layout: AppDataStoreLayout(
+                rootURL:
+                    FileManager.default.temporaryDirectory
+                    .appending(path: UUID().uuidString),
+                legacyStoreURL:
+                    FileManager.default.temporaryDirectory
+                    .appending(path: UUID().uuidString)
+            )
+        ).validateV13DataInventoryFoundation(in: context)
+        XCTAssertEqual(identity.factCount, capture.factCount)
+        XCTAssertEqual(
+            try context.fetchCount(
+                FetchDescriptor<ContentFavoriteRecord>()
+            ),
+            0
+        )
+    }
+
+    func testV13DatabaseCaptureUsesExact55ModelPartition()
+        async throws {
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -37,7 +97,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
                 XCTAssertNil($0.updateValue(pair.value, forKey: pair.key))
             }
         }
-        XCTAssertEqual(counts.count, 54)
+        XCTAssertEqual(counts.count, 55)
         XCTAssertEqual(
             Set(counts.keys),
             Set(DataInventoryTaxonomy.allDatabaseModelNames)
@@ -60,6 +120,138 @@ final class DataInventoryProductionServiceTests: XCTestCase {
             }
         )
         XCTAssertGreaterThan(capture.nextLocalRevision, 0)
+    }
+
+    func testV13CaptureIncludesActiveAndRemovedFavoritesInDBContent()
+        async throws {
+        let container = try makeReadyV13Container()
+        let writer = AppWriteActor(modelContainer: container)
+        let version = "offline-contextual-content-candidate.1"
+        let digest = String(repeating: "a", count: 64)
+        let active = try await writer.setContentFavorite(
+            SetContentFavoriteCommand(
+                operationID: UUID(),
+                recordID: UUID(),
+                contentID: "card.active",
+                contentVersion: version,
+                cardDigest: digest,
+                desiredFavorite: true,
+                expectedLocalRevision: nil,
+                expectedDigestHex: nil,
+                committedAt: Date(
+                    timeIntervalSince1970: 1_800_300_010
+                )
+            )
+        ).snapshot
+        let removable = try await writer.setContentFavorite(
+            SetContentFavoriteCommand(
+                operationID: UUID(),
+                recordID: UUID(),
+                contentID: "card.removed",
+                contentVersion: version,
+                cardDigest: digest,
+                desiredFavorite: true,
+                expectedLocalRevision: nil,
+                expectedDigestHex: nil,
+                committedAt: Date(
+                    timeIntervalSince1970: 1_800_300_020
+                )
+            )
+        ).snapshot
+        _ = try await writer.setContentFavorite(
+            SetContentFavoriteCommand(
+                operationID: UUID(),
+                recordID: removable.id,
+                contentID: removable.contentID,
+                contentVersion: removable.contentVersion,
+                cardDigest: removable.cardDigest,
+                desiredFavorite: false,
+                expectedLocalRevision: removable.localRevision,
+                expectedDigestHex: removable.digestHex,
+                committedAt: Date(
+                    timeIntervalSince1970: 1_800_300_030
+                )
+            )
+        )
+
+        let capture = try await DataInventoryDatabaseCaptureActor(
+            modelContainer: container
+        ).capture(
+            layout: AppDataStoreLayout(
+                rootURL: FileManager.default.temporaryDirectory
+                    .appending(path: UUID().uuidString),
+                legacyStoreURL:
+                    FileManager.default.temporaryDirectory
+                    .appending(path: UUID().uuidString)
+            )
+        )
+        let content = try XCTUnwrap(
+            capture.categorySnapshots.first {
+                $0.key == "db.content"
+            }
+        )
+        guard case let .database(database) = content.payload else {
+            return XCTFail("db.content must be a database snapshot")
+        }
+        XCTAssertEqual(
+            database.modelRowCounts,
+            ["ContentFavoriteRecord": 2]
+        )
+        let favoriteFacts = database.entries.filter {
+            guard case let .fact(modelType, _, _, _, _, _, _, _) = $0
+            else {
+                return false
+            }
+            return modelType == "ContentFavoriteRecord"
+        }
+        XCTAssertEqual(favoriteFacts.count, 2)
+        XCTAssertEqual(
+            capture.portableFacts.filter {
+                $0.modelType == "ContentFavoriteRecord"
+            }.count,
+            2
+        )
+        let document = try DataInventoryProductionService
+            .makePortableDocument(
+                database: capture,
+                generationID: UUID(),
+                capturedAt: Date(
+                    timeIntervalSince1970: 1_800_300_040
+                )
+            )
+        XCTAssertEqual(document.payload.schemaVersion, "13.0.0")
+        XCTAssertEqual(document.payload.modelCounts.count, 55)
+        let restoredContainer = try AppModelContainerFactory
+            .makeInMemoryContentFavoriteContainer()
+        let restoredContext = ModelContext(restoredContainer)
+        _ = try PortableV13RecordAdapter.insert(
+            document,
+            into: restoredContext,
+            deviceObservationDate: Date(
+                timeIntervalSince1970: 1_800_300_050
+            )
+        )
+        try restoredContext.save()
+        let restoredFavorites = try restoredContext.fetch(
+            FetchDescriptor<ContentFavoriteRecord>()
+        )
+        XCTAssertEqual(restoredFavorites.count, 2)
+        XCTAssertTrue(
+            restoredFavorites.contains {
+                $0.contentID == "card.active"
+                    && $0.removedAt == nil
+            }
+        )
+        XCTAssertTrue(
+            restoredFavorites.contains {
+                $0.contentID == "card.removed"
+                    && $0.removedAt == $0.updatedAt
+            }
+        )
+        let activeIDs = try await AppReadActor(
+            modelContainer: container
+        ).activeContentFavoriteIDs()
+        XCTAssertEqual(activeIDs, [active.contentID])
     }
 
     func testV12DatabaseCaptureRejectsRevisionDigestTamper()
@@ -317,7 +509,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testStorageCaptureClassifiesActiveUnprovenAndLegacy()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -358,7 +550,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testStorageCaptureMarksInvalidGenerationFailed()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -390,7 +582,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testStorageCaptureAcceptsCurrentCountsAbovePointerMinimum()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -424,7 +616,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testStorageCaptureRejectsInactiveNestedUnknownLeaf()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -460,7 +652,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testStorageCaptureRejectsCrossGenerationHardlink()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -494,7 +686,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testGlobalFileIdentityAuditRejectsLegacyHardlinkToManagedFile()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -526,7 +718,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
             "Unmanual/Recovery/migration-journal.json",
             "UnmanualResetControl"
         ] {
-            let container = try makeReadyV12Container()
+            let container = try makeReadyV13Container()
             let actor = DataInventoryDatabaseCaptureActor(
                 modelContainer: container
             )
@@ -561,7 +753,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testStorageCaptureRejectsJournalTargetSchemaMismatch()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -597,7 +789,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testStorageCaptureDoesNotProveGarbageJournalSource()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -619,7 +811,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
                 layout: fixture.layout,
                 sourceID: sourceID,
                 targetID: fixture.generationID,
-                targetSchemaVersion: "12.0.0"
+                targetSchemaVersion: "13.0.0"
             )
             let capture = try DataInventoryProductionStorageAudit
                 .capture(
@@ -696,7 +888,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
     func testStorageCaptureRejectsResetControlAndQuarantine()
         async throws {
         for mutation in [0, 1] {
-            let container = try makeReadyV12Container()
+            let container = try makeReadyV13Container()
             let actor = DataInventoryDatabaseCaptureActor(
                 modelContainer: container
             )
@@ -744,7 +936,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testProductionServiceCompleteThenInvalidGenerationIncomplete()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -797,7 +989,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testExportConfirmationRegeneratesBytesUnderIdentityGate()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -937,7 +1129,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testCompleteBackupPreviewBuildsZeroWrappersAndConfirmationBuildsExactlyOne()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -1039,7 +1231,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testExportWholeTransferRootMoveScrubsHeldPackageBeforeIntentRelease()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -1167,7 +1359,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
 
     func testResidentExportCapAllowsExactRejectsPlusOneBeforeLoaderAndCleansPackages()
         async throws {
-        let container = try makeReadyV12Container()
+        let container = try makeReadyV13Container()
         let actor = DataInventoryDatabaseCaptureActor(
             modelContainer: container
         )
@@ -1360,6 +1552,13 @@ final class DataInventoryProductionServiceTests: XCTestCase {
         return container
     }
 
+    private func makeReadyV13Container() throws -> ModelContainer {
+        let container = try AppModelContainerFactory
+            .makeInMemoryContentFavoriteContainer()
+        try seedReadyV12(container)
+        return container
+    }
+
     private func seedReadyV12(
         _ container: ModelContainer
     ) throws {
@@ -1485,7 +1684,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
         )
         let pointer = GenerationPointer(
             generationID: generationID,
-            schemaVersion: "12.0.0",
+            schemaVersion: "13.0.0",
             origin: .newInstall,
             datasetID: database.datasetID,
             minimumFactCount: database.factCount,
@@ -1615,7 +1814,7 @@ final class DataInventoryProductionServiceTests: XCTestCase {
     ) throws {
         let pointer = GenerationPointer(
             generationID: generationID,
-            schemaVersion: "12.0.0",
+            schemaVersion: "13.0.0",
             origin: origin,
             datasetID: datasetID,
             minimumFactCount: minimumCount,
@@ -1640,7 +1839,9 @@ final class DataInventoryProductionServiceTests: XCTestCase {
             targetGenerationID: targetID,
             origin: .schemaUpgrade,
             sourceGenerationID: sourceID,
-            sourceSchemaVersion: "11.0.0",
+            sourceSchemaVersion:
+                targetSchemaVersion == "13.0.0"
+                ? "12.0.0" : "11.0.0",
             targetSchemaVersion: targetSchemaVersion,
             phase: .activated,
             updatedAt: Date(

@@ -31,6 +31,19 @@ final class ArchiveDataExportUITests: XCTestCase {
             "archive.visitSummary.build"
         ]
         XCTAssertTrue(build.waitForExistence(timeout: 5))
+        let contextualEntry =
+            app.buttons["contextual.visitPreparation"]
+        scrollDownToHittable(contextualEntry, in: app)
+        XCTAssertTrue(
+            contextualEntry.waitForExistence(timeout: 5)
+        )
+        contextualEntry.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["contextual.reader.sheet"]
+                .waitForExistence(timeout: 5)
+        )
+        app.buttons["contextual.reader.close"].tap()
+        XCTAssertTrue(build.waitForExistence(timeout: 5))
         scrollDownToHittable(build, in: app)
         build.tap()
 
@@ -39,6 +52,9 @@ final class ArchiveDataExportUITests: XCTestCase {
         )["archive.visitSummary.preview"]
         XCTAssertTrue(
             preview.waitForExistence(timeout: 20)
+        )
+        XCTAssertFalse(
+            app.buttons["contextual.visitPreparation"].exists
         )
         let modify = app.descendants(matching: .any)[
             "archive.visitSummary.modify"

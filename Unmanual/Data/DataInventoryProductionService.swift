@@ -91,19 +91,42 @@ enum DataInventoryBoundedFetchContract {
 @ModelActor
 actor DataInventoryDatabaseCaptureActor {
     func capture(
-        layout: AppDataStoreLayout
+        layout: AppDataStoreLayout,
+        schemaVersion: String =
+            PortableDataSchemaContract.v13.schemaVersion
     ) throws -> DataInventoryDatabaseCapture {
         let bootstrapper = AppDataStoreBootstrapper(
             layout: layout,
             backupPolicy: .production
         )
-        let foundation = try bootstrapper
-            .validateV12DataInventoryFoundation(in: modelContext)
-        let collected = try collectAllModels()
+        let foundation: (
+            datasetID: UUID,
+            nextLocalRevision: Int64,
+            factCount: Int,
+            revisionCount: Int
+        )
+        switch schemaVersion {
+        case PortableDataSchemaContract.v12.schemaVersion:
+            foundation = try bootstrapper
+                .validateV12DataInventoryFoundation(in: modelContext)
+        case PortableDataSchemaContract.v13.schemaVersion:
+            foundation = try bootstrapper
+                .validateV13DataInventoryFoundation(in: modelContext)
+        default:
+            throw AppDataFailure.corruptionSuspected
+        }
+        let contract = try PortableDataSchemaContract.resolve(
+            schemaVersion: schemaVersion
+        )
+        let collected = try collectAllModels(
+            includesContentFavorite:
+                schemaVersion
+                    == PortableDataSchemaContract.v13.schemaVersion
+        )
         let models = collected.models
-        guard models.count == 54,
+        guard models.count == contract.modelNames.count,
               Set(models.map(\.modelType))
-                == Set(DataInventoryTaxonomy.allDatabaseModelNames) else {
+                == Set(contract.modelNames) else {
             throw AppDataFailure.corruptionSuspected
         }
 
@@ -167,9 +190,17 @@ actor DataInventoryDatabaseCaptureActor {
                 .append(contentsOf: model.controls)
         }
 
+        let contractModelNames = Set(contract.modelNames)
         let snapshots = try DataInventoryTaxonomy
             .databaseModelsByCategory
-            .map { categoryKey, expectedModels in
+            .compactMap { categoryKey, currentModels
+                -> DataInventoryCategorySnapshot? in
+                let expectedModels = currentModels.filter {
+                    contractModelNames.contains($0)
+                }
+                guard !expectedModels.isEmpty else {
+                    return nil
+                }
                 let selected = models.filter {
                     expectedModels.contains($0.modelType)
                 }
@@ -223,7 +254,9 @@ actor DataInventoryDatabaseCaptureActor {
         )
     }
 
-    private func collectAllModels() throws
+    private func collectAllModels(
+        includesContentFavorite: Bool
+    ) throws
         -> (
             models: [DataInventoryCollectedModel],
             attachments: [DataInventoryAttachmentObservation],
@@ -910,6 +943,14 @@ actor DataInventoryDatabaseCaptureActor {
             identity: { _ in DataControlBackfillState.stableID },
             fields: DataControlDigestV1.backfillState
         )
+        if includesContentFavorite {
+            try digestFact(
+                ContentFavoriteRecord.self,
+                modelType: "ContentFavoriteRecord",
+                identity: \.id,
+                fields: ContentFavoriteDigestV1.record
+            )
+        }
         guard let metadataDatasetID,
               let metadataNextLocalRevision else {
             throw AppDataFailure.corruptionSuspected
@@ -1033,7 +1074,7 @@ enum DataInventoryProductionStorageAudit {
                 applicationSupportURL: applicationSupportURL,
                 expectedGenerationID: generationID,
                 expectedDatasetID: database.datasetID,
-                expectedSchemaVersion: "12.0.0",
+                expectedSchemaVersion: "13.0.0",
                 expectedMinimumFactCount: database.factCount,
                 expectedMinimumRevisionCount: database.revisionCount,
                 activeGenerationLayout: activeLayout
@@ -1140,29 +1181,42 @@ enum DataInventoryProductionStorageAudit {
                     let isPortableSource =
                         portableRestoreJournal?
                             .sourceGenerationID == id
-                    let sourceSchemaVersion =
-                        isPortableSource
-                        ? "12.0.0"
-                        : migrationJournal?
-                            .sourceSchemaVersion
                     let sourceDatasetID =
                         isPortableSource
                         ? portableRestoreJournal?
                             .sourceDatasetID
                         : datasetID
-                    guard let sourceSchemaVersion,
-                          let sourceDatasetID else {
+                    guard let sourceDatasetID else {
                         throw AppDataFailure
                             .corruptionSuspected
                     }
-                    let provenance = try AppDataStoreBootstrapper(
+                    let bootstrapper = AppDataStoreBootstrapper(
                         layout: layout
                     )
-                    .validateGenerationForDataInventory(
-                        generationID: id,
-                        schemaVersion: sourceSchemaVersion,
-                        expectedDatasetID: sourceDatasetID
-                    )
+                    let provenance: DataInventoryGenerationProvenance
+                    if isPortableSource {
+                        provenance = try bootstrapper
+                            .validatePortableRestoreSourceForDataInventory(
+                                generationID: id,
+                                expectedDatasetID:
+                                    sourceDatasetID
+                            )
+                    } else {
+                        guard let sourceSchemaVersion =
+                                migrationJournal?
+                                .sourceSchemaVersion else {
+                            throw AppDataFailure
+                                .corruptionSuspected
+                        }
+                        provenance = try bootstrapper
+                            .validateGenerationForDataInventory(
+                                generationID: id,
+                                schemaVersion:
+                                    sourceSchemaVersion,
+                                expectedDatasetID:
+                                    sourceDatasetID
+                            )
+                    }
                     _ = try AttachmentFileStore(
                         rootURL: layout
                             .generationDirectoryURL(for: id)
@@ -1820,8 +1874,13 @@ actor DataInventoryProductionService {
     static func makePortableDocument(
         database: DataInventoryDatabaseCapture,
         generationID: UUID,
-        capturedAt: Date
+        capturedAt: Date,
+        schemaVersion: String =
+            PortableDataSchemaContract.v13.schemaVersion
     ) throws -> PortableDataV2Document {
+        let contract = try PortableDataSchemaContract.resolve(
+            schemaVersion: schemaVersion
+        )
         var modelRowCounts: [String: Int64] = [:]
         var factsByKey: [String: DataInventoryDatabaseEntry] = [:]
         var revisionsByKey:
@@ -1884,7 +1943,8 @@ actor DataInventoryProductionService {
                 }
             }
         }
-        guard modelRowCounts.count == 54,
+        guard modelRowCounts.count == contract.modelNames.count,
+              Set(modelRowCounts.keys) == Set(contract.modelNames),
               database.portableFacts.count
                 == factsByKey.count,
               database.portableFacts.count
@@ -1993,6 +2053,7 @@ actor DataInventoryProductionService {
                 < $1.attachmentID.uuidString
         }
         let payload = PortableDataV2Payload(
+            schemaVersion: schemaVersion,
             datasetID: database.datasetID,
             sourceGenerationID: generationID,
             capturedAtMicroseconds:

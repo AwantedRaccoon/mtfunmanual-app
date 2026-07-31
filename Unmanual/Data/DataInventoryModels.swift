@@ -76,6 +76,9 @@ enum DataInventoryTaxonomy {
             "ParentRecordDeletionTombstoneRecord",
             "DataControlDeletionTombstoneRecord"
         ],
+        "db.content": [
+            "ContentFavoriteRecord"
+        ],
         "db.countdown": [
             "CountdownRecord",
             "CountdownStateRecord",
@@ -144,6 +147,7 @@ enum DataInventoryTaxonomy {
     static let categorySpecifications: [DataInventoryCategorySpecification] = [
         .init(key: "db.attachments", kind: .database),
         .init(key: "db.audit", kind: .database),
+        .init(key: "db.content", kind: .database),
         .init(key: "db.countdown", kind: .database),
         .init(key: "db.execution", kind: .database),
         .init(key: "db.hrt", kind: .database),
@@ -194,8 +198,8 @@ enum DataInventoryTaxonomy {
         databaseModelsByCategory.values.flatMap { $0 }
 
     static var hasExactModelPartition: Bool {
-        allDatabaseModelNames.count == 54
-            && Set(allDatabaseModelNames).count == 54
+        allDatabaseModelNames.count == 55
+            && Set(allDatabaseModelNames).count == 55
             && Set(databaseModelsByCategory.keys)
                 == Set(
                     categorySpecifications

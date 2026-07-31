@@ -932,6 +932,26 @@ enum PortableDataV2RecordSchema {
             ]
         ]
 
+    static let v13FieldsByModelType:
+        [String: [PortableDataRecordFieldContract]] =
+            fieldsByModelType.merging([
+                ContentFavoriteContract.recordType: [
+                    field("cardDigest", .string),
+                    field("contentID", .string),
+                    field("contentVersion", .string),
+                    field("createdAt", .timestampMicroseconds),
+                    field("lastOperationID", .uuid),
+                    field(
+                        "removedAt",
+                        .timestampMicroseconds,
+                        nullable: true
+                    ),
+                    field("updatedAt", .timestampMicroseconds)
+                ]
+            ]) { _, replacement in
+                replacement
+            }
+
     private static func field(
         _ name: String,
         _ kind: PortableDataValue.Kind,
@@ -947,10 +967,20 @@ enum PortableDataV2RecordSchema {
     static func validate(
         modelType: String,
         recordType: String,
-        fields: [PortableDataField]
+        fields: [PortableDataField],
+        schemaVersion: String
     ) throws {
+        let contracts: [String: [PortableDataRecordFieldContract]]
+        switch schemaVersion {
+        case PortableDataSchemaContract.v12.schemaVersion:
+            contracts = fieldsByModelType
+        case PortableDataSchemaContract.v13.schemaVersion:
+            contracts = v13FieldsByModelType
+        default:
+            throw PortableDataV2Error.unsupportedVersion
+        }
         guard modelType == recordType,
-              let expectedFields = fieldsByModelType[modelType],
+              let expectedFields = contracts[modelType],
               fields.count == expectedFields.count else {
             throw PortableDataV2Error.invalidRecord
         }
@@ -972,6 +1002,100 @@ enum PortableDataV2RecordSchema {
                   return $0.accepts(actual)
               }) else {
             throw PortableDataV2Error.invalidRecord
+        }
+        if modelType == ContentFavoriteContract.recordType {
+            try validateContentFavorite(fields)
+        }
+    }
+
+    private static func validateContentFavorite(
+        _ fields: [PortableDataField]
+    ) throws {
+        let values = Dictionary(
+            uniqueKeysWithValues: fields.map { ($0.name, $0.value) }
+        )
+        guard let contentID = values["contentID"]?.stringValue,
+              let contentVersion =
+                values["contentVersion"]?.stringValue,
+              let cardDigest = values["cardDigest"]?.stringValue,
+              let createdAt = values["createdAt"]?.integerValue,
+              let updatedAt = values["updatedAt"]?.integerValue,
+              values["lastOperationID"]?.uuidValue != nil,
+              ContentFavoriteContract.isValidContentID(contentID),
+              ContentFavoriteContract.isValidContentVersion(
+                contentVersion
+              ),
+              ContentFavoriteContract.isCanonicalDigest(cardDigest),
+              PortableWireValuePolicy.isValidTimestamp(createdAt),
+              PortableWireValuePolicy.isValidTimestamp(updatedAt),
+              updatedAt >= createdAt else {
+            throw PortableDataV2Error.invalidRecord
+        }
+        let removedAt = values["removedAt"]
+        if removedAt?.kind != .null {
+            guard let removedMicroseconds =
+                    removedAt?.integerValue,
+                  PortableWireValuePolicy.isValidTimestamp(
+                    removedMicroseconds
+                  ),
+                  removedMicroseconds == updatedAt else {
+                throw PortableDataV2Error.invalidRecord
+            }
+        }
+    }
+}
+
+struct PortableDataSchemaContract: Sendable {
+    static let v12 = PortableDataSchemaContract(
+        schemaVersion: "12.0.0",
+        modelNames: AppSchemaV12DataControl.models.map {
+            String(describing: $0)
+        },
+        recordFields: PortableDataV2RecordSchema.fieldsByModelType
+    )
+
+    static let v13 = PortableDataSchemaContract(
+        schemaVersion: "13.0.0",
+        modelNames: AppSchemaV13ContentFavorite.models.map {
+            String(describing: $0)
+        },
+        recordFields:
+            PortableDataV2RecordSchema.v13FieldsByModelType
+    )
+
+    static let allowedUnrevisionedControlModels: Set<String> = [
+        "DatasetMetadata",
+        "MigrationBackfillState",
+        "MigrationIssue",
+        "CoreTimeRegimenBackfillState",
+        "TodayExecutionBackfillState",
+        "NotificationCoverageRecord",
+        "PersonalTimelineBackfillState",
+        "CountdownNotificationCoverageRecord",
+        "CountdownLifecycleBackfillState"
+    ]
+
+    let schemaVersion: String
+    let modelNames: [String]
+    let recordFields:
+        [String: [PortableDataRecordFieldContract]]
+
+    var revisionedModelNames: Set<String> {
+        Set(modelNames)
+            .subtracting(Self.allowedUnrevisionedControlModels)
+            .subtracting(["RecordRevision"])
+    }
+
+    static func resolve(
+        schemaVersion: String
+    ) throws -> PortableDataSchemaContract {
+        switch schemaVersion {
+        case v12.schemaVersion:
+            v12
+        case v13.schemaVersion:
+            v13
+        default:
+            throw PortableDataV2Error.unsupportedVersion
         }
     }
 }
@@ -1201,7 +1325,8 @@ struct PortableDataAttachment: Codable, Equatable, Sendable {
 struct PortableDataV2Payload: Codable, Equatable, Sendable {
     static let format = "com.mtfbook.unmanual.portable-data"
     static let formatVersion = 2
-    static let schemaVersion = "12.0.0"
+    static let currentSchemaVersion =
+        PortableDataSchemaContract.v13.schemaVersion
     static let deviceProjectionPolicy =
         "notification-coverage-and-app-lock-require-local-reconciliation"
 
@@ -1219,6 +1344,7 @@ struct PortableDataV2Payload: Codable, Equatable, Sendable {
     let deviceProjectionPolicy: String
 
     init(
+        schemaVersion: String = Self.currentSchemaVersion,
         datasetID: UUID,
         sourceGenerationID: UUID,
         capturedAtMicroseconds: Int64,
@@ -1230,7 +1356,7 @@ struct PortableDataV2Payload: Codable, Equatable, Sendable {
     ) {
         self.format = Self.format
         self.formatVersion = Self.formatVersion
-        self.schemaVersion = Self.schemaVersion
+        self.schemaVersion = schemaVersion
         self.datasetID = datasetID
         self.sourceGenerationID = sourceGenerationID
         self.capturedAtMicroseconds = capturedAtMicroseconds
@@ -1320,7 +1446,7 @@ enum PortableDataV2Error: Error, Equatable, LocalizedError {
         case .unsupportedVersion:
             "这个文件版本当前无法读取。"
         case .invalidTaxonomy:
-            "文件没有完整声明 54 类本地模型。"
+            "文件没有完整声明对应版本的本地模型。"
         case .invalidCount:
             "文件中的模型数量与记录不一致。"
         case .duplicateRecordKey:
@@ -1408,6 +1534,7 @@ enum PortableDataV2Codec {
         _ payload: PortableDataV2Payload
     ) throws -> String {
         let stable = PortableDataV2Payload(
+            schemaVersion: payload.schemaVersion,
             datasetID: payload.datasetID,
             sourceGenerationID:
                 payload.sourceGenerationID,
@@ -1443,33 +1570,24 @@ enum PortableDataV2Validator {
         }
         guard payload.formatVersion
                 == PortableDataV2Payload.formatVersion,
-              payload.schemaVersion
-                == PortableDataV2Payload.schemaVersion,
               payload.deviceProjectionPolicy
                 == PortableDataV2Payload
                     .deviceProjectionPolicy else {
             throw PortableDataV2Error.unsupportedVersion
         }
+        let contract = try PortableDataSchemaContract.resolve(
+            schemaVersion: payload.schemaVersion
+        )
         guard PortableWireValuePolicy.isValidTimestamp(
                 payload.capturedAtMicroseconds
               ),
               payload.nextLocalRevision > 0 else {
             throw PortableDataV2Error.invalidEnvelope
         }
-        let expectedModels = DataInventoryTaxonomy
-            .allDatabaseModelNames
-        let expectedRecordModels = Set(expectedModels)
-            .subtracting(
-                DataInventoryTaxonomy
-                    .allowedUnrevisionedControlModels
-            )
-            .subtracting(["RecordRevision"])
-        guard expectedModels.count == 54,
-              Set(
-                  PortableDataV2RecordSchema
-                    .fieldsByModelType.keys
-              ) == expectedRecordModels,
-              payload.modelCounts.count == 54,
+        let expectedModels = contract.modelNames
+        guard Set(contract.recordFields.keys)
+                == contract.revisionedModelNames,
+              payload.modelCounts.count == expectedModels.count,
               payload.modelCounts.map(\.modelType)
                 == expectedModels.sorted(),
               payload.modelCounts.allSatisfy({
@@ -1537,7 +1655,8 @@ enum PortableDataV2Validator {
             try PortableDataV2RecordSchema.validate(
                 modelType: record.modelType,
                 recordType: record.recordType,
-                fields: record.fields
+                fields: record.fields,
+                schemaVersion: payload.schemaVersion
             )
             var names: Set<String> = []
             let fields = try record.fields.map { field in
@@ -1579,7 +1698,7 @@ enum PortableDataV2Validator {
         for control in payload.controls {
             let key = control.modelType + ":" + control.stableIdentity
             guard counts[control.modelType] != nil,
-                  DataInventoryTaxonomy
+                  PortableDataSchemaContract
                     .allowedUnrevisionedControlModels
                     .contains(control.modelType),
                   !control.stableIdentity.isEmpty,

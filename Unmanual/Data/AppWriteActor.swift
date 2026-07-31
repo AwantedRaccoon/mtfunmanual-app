@@ -1226,6 +1226,20 @@ struct AppDataWriter: Sendable {
         }
     }
 
+    func setContentFavorite(
+        _ command: SetContentFavoriteCommand
+    ) async throws -> SetContentFavoriteResult {
+        try await dataControlCoordinator
+            .withExclusiveMutationLease {
+            let result =
+                try await storage.setContentFavorite(command)
+            if result.didApply {
+                await revalidateProtectionAfterCommit()
+            }
+            return result
+        }
+    }
+
     func updateOnboardingProgress(
         _ command: UpdateOnboardingProgressCommand
     ) async throws -> OnboardingProgressResult {

@@ -30,7 +30,7 @@ final class DataResetServiceTests: XCTestCase {
         )
     }
 
-    func testTwoLaunchResetQuarantinesThenCreatesFreshV12Store()
+    func testTwoLaunchResetRemovesFavoritesAndCreatesFreshV13Store()
         async throws {
         let layout = try makeLayout()
         let original = try AppDataStoreBootstrapper(
@@ -44,6 +44,24 @@ final class DataResetServiceTests: XCTestCase {
             context.fetch(
                 FetchDescriptor<DatasetMetadata>()
             ).first
+        )
+        _ = try await AppWriteActor(
+            modelContainer: original.container
+        ).setContentFavorite(
+            SetContentFavoriteCommand(
+                operationID: UUID(),
+                recordID: UUID(),
+                contentID: "card.reset",
+                contentVersion:
+                    "offline-contextual-content-candidate.1",
+                cardDigest: String(repeating: "a", count: 64),
+                desiredFavorite: true,
+                expectedLocalRevision: nil,
+                expectedDigestHex: nil,
+                committedAt: Date(
+                    timeIntervalSince1970: 1_800_300_000
+                )
+            )
         )
         let notificationClient =
             ResetNotificationClientFixture(
@@ -155,12 +173,40 @@ final class DataResetServiceTests: XCTestCase {
             pointer.datasetID,
             freshDatasetID
         )
+        XCTAssertEqual(pointer.schemaVersion, "13.0.0")
         let freshContext = ModelContext(
             reopened.container
         )
         XCTAssertEqual(
             try freshContext.fetchCount(
                 FetchDescriptor<JourneyEntry>()
+            ),
+            0
+        )
+        XCTAssertEqual(
+            try freshContext.fetchCount(
+                FetchDescriptor<ContentFavoriteRecord>()
+            ),
+            0
+        )
+        let favoriteType = ContentFavoriteContract.recordType
+        XCTAssertEqual(
+            try freshContext.fetchCount(
+                FetchDescriptor<RecordRevision>(
+                    predicate: #Predicate {
+                        $0.recordType == favoriteType
+                    }
+                )
+            ),
+            0
+        )
+        XCTAssertEqual(
+            try freshContext.fetchCount(
+                FetchDescriptor<OperationReceiptRecord>(
+                    predicate: #Predicate {
+                        $0.resultRecordType == favoriteType
+                    }
+                )
             ),
             0
         )

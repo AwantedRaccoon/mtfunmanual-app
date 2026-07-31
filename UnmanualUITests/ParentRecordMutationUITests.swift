@@ -21,6 +21,19 @@ final class ParentRecordMutationUITests: XCTestCase {
         XCTAssertTrue(labRow.waitForExistence(timeout: 12))
         labRow.tap()
 
+        let contextualEntry =
+            app.buttons["contextual.timelineRecord"]
+        scrollTo(contextualEntry, in: app)
+        XCTAssertTrue(
+            contextualEntry.waitForExistence(timeout: 8)
+        )
+        contextualEntry.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["contextual.reader.sheet"]
+                .waitForExistence(timeout: 5)
+        )
+        app.buttons["contextual.reader.close"].tap()
+
         let correct = app.descendants(matching: .any)[
             "parentRecord.correct"
         ]

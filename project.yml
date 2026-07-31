@@ -64,6 +64,7 @@ targets:
           EXCLUDED_SOURCE_FILE_NAMES:
             - medication-catalog-candidate-v1.json
             - regimen-analysis-candidate-v1.json
+            - offline-contextual-content-candidate-v1.json
     scheme:
       testTargets:
         - UnmanualTests
@@ -107,6 +108,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.mtfbook.unmanual.performance-tests
         GENERATE_INFOPLIST_FILE: YES
 
+  UnmanualReleaseContractTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: UnmanualTests/OfflineContextualContentArtifactTests.swift
+      - path: UnmanualTests/OfflineContextualContentTestSigning.swift
+    dependencies:
+      - target: Unmanual
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mtfbook.unmanual.release-contract-tests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   Unmanual:
     build:
@@ -138,5 +152,19 @@ schemes:
         UNMANUAL_BATCH1_PERF_MODE: simulator-preflight
       targets:
         - name: UnmanualPerformanceTests
+          parallelizable: false
+          randomExecutionOrder: false
+
+  UnmanualReleaseContracts:
+    build:
+      targets:
+        Unmanual: all
+        UnmanualReleaseContractTests: [test]
+    test:
+      config: Release
+      gatherCoverageData: false
+      debugEnabled: false
+      targets:
+        - name: UnmanualReleaseContractTests
           parallelizable: false
           randomExecutionOrder: false

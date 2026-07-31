@@ -145,6 +145,15 @@ enum AppSchemaV12DataControl: VersionedSchema {
         ]
 }
 
+enum AppSchemaV13ContentFavorite: VersionedSchema {
+    static let versionIdentifier = Schema.Version(13, 0, 0)
+
+    static let models: [any PersistentModel.Type] =
+        AppSchemaV12DataControl.models + [
+            ContentFavoriteRecord.self
+        ]
+}
+
 enum AppSchemaMigrationPlan: SchemaMigrationPlan {
     static let schemas: [any VersionedSchema.Type] = [
         AppSchemaV1.self,
@@ -158,7 +167,8 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
         AppSchemaV9HrtJourneyLifecycle.self,
         AppSchemaV10ParentRecordLifecycle.self,
         AppSchemaV11PrivacyControl.self,
-        AppSchemaV12DataControl.self
+        AppSchemaV12DataControl.self,
+        AppSchemaV13ContentFavorite.self
     ]
 
     static let stages: [MigrationStage] = [
@@ -196,6 +206,10 @@ enum AppSchemaMigrationPlan: SchemaMigrationPlan {
         .lightweight(
             fromVersion: AppSchemaV11PrivacyControl.self,
             toVersion: AppSchemaV12DataControl.self
+        ),
+        .lightweight(
+            fromVersion: AppSchemaV12DataControl.self,
+            toVersion: AppSchemaV13ContentFavorite.self
         )
     ]
 }
@@ -322,6 +336,10 @@ enum AppModelContainerFactory {
 
     static var dataControlSchema: Schema {
         Schema(versionedSchema: AppSchemaV12DataControl.self)
+    }
+
+    static var contentFavoriteSchema: Schema {
+        Schema(versionedSchema: AppSchemaV13ContentFavorite.self)
     }
 
     static var frozenV6CountdownLifecycleSchema: Schema {
@@ -777,6 +795,61 @@ enum AppModelContainerFactory {
         let schema = dataControlSchema
         let configuration = ModelConfiguration(
             "UnmanualDataControlTests",
+            schema: schema,
+            isStoredInMemoryOnly: true,
+            allowsSave: true,
+            groupContainer: .none,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeContentFavoriteContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeContentFavoriteContainer(
+            at: storeURL,
+            allowsSave: true
+        )
+    }
+
+    static func makeReadOnlyContentFavoriteContainer(
+        at storeURL: URL
+    ) throws -> ModelContainer {
+        try makeContentFavoriteContainer(
+            at: storeURL,
+            allowsSave: false
+        )
+    }
+
+    private static func makeContentFavoriteContainer(
+        at storeURL: URL,
+        allowsSave: Bool
+    ) throws -> ModelContainer {
+        let schema = contentFavoriteSchema
+        let configuration = ModelConfiguration(
+            "Unmanual",
+            schema: schema,
+            url: storeURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: AppSchemaMigrationPlan.self,
+            configurations: [configuration]
+        )
+    }
+
+    static func makeInMemoryContentFavoriteContainer()
+        throws -> ModelContainer {
+        let schema = contentFavoriteSchema
+        let configuration = ModelConfiguration(
+            "UnmanualContentFavoriteTests",
             schema: schema,
             isStoredInMemoryOnly: true,
             allowsSave: true,

@@ -21,16 +21,23 @@ final class RegimenUITests: XCTestCase {
                 .waitForExistence(timeout: 5)
         )
         XCTAssertFalse(app.descendants(matching: .any)["analysis.stop"].exists)
+        XCTAssertFalse(
+            app.buttons["contextual.regimenAnalysisSource"].exists
+        )
+        let ageUnknown = app.buttons["analysis.age.unknown"]
+        let acuteUnknown = app.buttons["analysis.acute.unknown"]
         XCTAssertEqual(
-            app.buttons["analysis.age.unknown"].value as? String,
+            ageUnknown.value as? String,
             "未选择"
         )
+        scrollToHittable(acuteUnknown, in: app)
         XCTAssertEqual(
-            app.buttons["analysis.acute.unknown"].value as? String,
+            acuteUnknown.value as? String,
             "未选择"
         )
 
-        app.buttons["analysis.age.unknown"].tap()
+        scrollDownToHittable(ageUnknown, in: app)
+        ageUnknown.tap()
         XCTAssertTrue(
             app.descendants(matching: .any)["analysis.stop"]
                 .waitForExistence(timeout: 5)
@@ -38,9 +45,17 @@ final class RegimenUITests: XCTestCase {
         XCTAssertFalse(
             app.descendants(matching: .any)["analysis.unanswered"].exists
         )
+        XCTAssertFalse(
+            app.buttons["contextual.regimenAnalysisSource"].exists
+        )
         app.buttons["analysis.age.adult"].tap()
-        app.buttons["analysis.pregnancy.notApplicable"].tap()
-        app.buttons["analysis.acute.no"].tap()
+        let pregnancyNotApplicable =
+            app.buttons["analysis.pregnancy.notApplicable"]
+        scrollToHittable(pregnancyNotApplicable, in: app)
+        pregnancyNotApplicable.tap()
+        let acuteNo = app.buttons["analysis.acute.no"]
+        scrollToHittable(acuteNo, in: app)
+        acuteNo.tap()
         if !app.buttons["analysis.vte.no"].isHittable {
             app.swipeUp()
         }
@@ -51,6 +66,30 @@ final class RegimenUITests: XCTestCase {
                 .waitForExistence(timeout: 5)
         )
         XCTAssertFalse(app.descendants(matching: .any)["analysis.stop"].exists)
+
+        let contextualSource =
+            app.buttons["contextual.regimenAnalysisSource"]
+        scrollToHittable(contextualSource, in: app)
+        XCTAssertTrue(contextualSource.waitForExistence(timeout: 5))
+        contextualSource.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["contextual.reader.sheet"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(
+            app.buttons["pocketAppendix.reader.favorite"].exists
+        )
+        app.buttons["contextual.reader.close"].tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["analysis.ready"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["analysis.unanswered"].exists
+        )
+        XCTAssertFalse(
+            app.descendants(matching: .any)["analysis.stop"].exists
+        )
 
         let source = app.buttons.matching(
             NSPredicate(
@@ -92,10 +131,10 @@ final class RegimenUITests: XCTestCase {
         ]
         app.launch()
 
-        XCTAssertTrue(
-            app.buttons["analysis.acute.yes"].waitForExistence(timeout: 8)
-        )
-        app.buttons["analysis.acute.yes"].tap()
+        let acuteYes = app.buttons["analysis.acute.yes"]
+        scrollToHittable(acuteYes, in: app)
+        XCTAssertTrue(acuteYes.waitForExistence(timeout: 8))
+        acuteYes.tap()
 
         let stop = app.descendants(matching: .any)["analysis.stop"]
         XCTAssertTrue(stop.waitForExistence(timeout: 5))
@@ -145,6 +184,7 @@ final class RegimenUITests: XCTestCase {
         )
         let reopenedAcuteYes = app.buttons["analysis.acute.yes"]
         let reopenedAcuteUnknown = app.buttons["analysis.acute.unknown"]
+        scrollToHittable(reopenedAcuteYes, in: app)
         XCTAssertTrue(reopenedAcuteYes.waitForExistence(timeout: 5))
         XCTAssertEqual(reopenedAcuteYes.value as? String, "未选择")
         XCTAssertEqual(reopenedAcuteUnknown.value as? String, "未选择")
@@ -385,12 +425,55 @@ final class RegimenUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testRegimenContextualReaderPreservesDraft() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-unmanual-empty-store",
+            "-unmanual-skip-onboarding",
+            "-unmanual-regimen-editor"
+        ]
+        app.launch()
+
+        let title = app.textFields["regimen.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        title.tap()
+        title.typeText("上下文测试方案")
+
+        let entry = app.buttons["contextual.regimenField"]
+        scrollToHittable(entry, in: app)
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["contextual.reader.sheet"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(
+            app.buttons["pocketAppendix.reader.favorite"].exists
+        )
+        app.buttons["contextual.reader.close"].tap()
+
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.value as? String, "上下文测试方案")
+        XCTAssertTrue(app.buttons["regimen.save"].isEnabled)
+    }
+
     private func scrollToHittable(
         _ element: XCUIElement,
         in app: XCUIApplication
     ) {
         for _ in 0..<12 where !element.isHittable {
             app.swipeUp()
+        }
+    }
+
+    private func scrollDownToHittable(
+        _ element: XCUIElement,
+        in app: XCUIApplication
+    ) {
+        for _ in 0..<12 where !element.isHittable {
+            app.swipeDown()
         }
     }
 }

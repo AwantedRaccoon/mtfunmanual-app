@@ -168,10 +168,30 @@ final class Batch1PerformanceContractTests: XCTestCase {
             Batch1V12FoundationContract.postQuickWriteNextLocalRevision,
             17_423
         )
+        XCTAssertEqual(
+            Batch1V13FoundationContract.activatedFactCount,
+            25_822
+        )
+        XCTAssertEqual(
+            Batch1V13FoundationContract.activatedRevisionCount,
+            25_822
+        )
+        XCTAssertEqual(
+            Batch1V13FoundationContract.nextLocalRevision,
+            17_422
+        )
+        XCTAssertEqual(
+            Batch1V13FoundationContract.postQuickWriteRevisionCount,
+            25_824
+        )
+        XCTAssertEqual(
+            Batch1V13FoundationContract.postQuickWriteNextLocalRevision,
+            17_423
+        )
     }
 
     @MainActor
-    func testOneFiveYearIterationExercisesV12FoundationAndQuickWriteContracts() async throws {
+    func testOneFiveYearIterationExercisesV13FoundationAndQuickWriteContracts() async throws {
         let applicationSupport = try XCTUnwrap(
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         )
